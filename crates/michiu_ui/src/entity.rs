@@ -109,9 +109,9 @@
 //!   * `.prevent_focus_steal_within(true)`: Prevents child entities from taking focus away.
 //!
 //! ### 3. Drag-and-Drop Attributes (`draggable` / `droppable`)
-//! * **Behavior by `DndDragPayload`**:
-//!   * `Entity`: On drop confirmation, the library **automatically updates tree topology (SoA)** to reparent and move the entity.
-//!   * `Entity`: Tree topology is unaltered; only dispatch events (ID telemetry) are fired.
+//! * **Behavior by `DndDragMode`**:
+//!   * `Interactive`: On drop confirmation, the library **automatically updates tree topology (SoA)** to reparent and move the entity.
+//!   * `Passive`: Tree topology is unaltered; only dispatch events (ID telemetry) are fired.
 //! * **Placeholder Positioning**:
 //!   * `.dnd_draggable_root(...)`: Spawns the drag placeholder directly beneath the root, tracking the cursor via absolute coordinates.
 //!   * `.dnd_draggable_parent(...)`: Spawns the placeholder under an arbitrary ancestor, tracking via absolute positioning.

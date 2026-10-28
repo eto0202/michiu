@@ -380,17 +380,29 @@ mod tests {
     fn test_range_conversions_roundtrip() {
         // usize -> ByteIndex -> usize
         let orig_usize = 4..12;
-        assert_eq!(orig_usize.clone().to_byte_range().to_usize_range(), orig_usize);
+        assert_eq!(
+            orig_usize.clone().to_byte_range().to_usize_range(),
+            orig_usize
+        );
 
         // usize -> CharIndex -> usize
-        assert_eq!(orig_usize.clone().to_char_range().to_usize_range(), orig_usize);
+        assert_eq!(
+            orig_usize.clone().to_char_range().to_usize_range(),
+            orig_usize
+        );
 
         // ByteIndex -> usize -> ByteIndex
         let orig_byte = ByteIndex(7)..ByteIndex(18);
-        assert_eq!(orig_byte.clone().to_usize_range().to_byte_range(), orig_byte);
+        assert_eq!(
+            orig_byte.clone().to_usize_range().to_byte_range(),
+            orig_byte
+        );
 
         // CharIndex -> usize -> CharIndex
         let orig_char = CharIndex(1)..CharIndex(99);
-        assert_eq!(orig_char.clone().to_usize_range().to_char_range(), orig_char);
+        assert_eq!(
+            orig_char.clone().to_usize_range().to_char_range(),
+            orig_char
+        );
     }
 }

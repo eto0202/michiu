@@ -680,6 +680,7 @@ impl MichiuApp {
 
                     let size = match result {
                         Ok(size) => size,
+                        #[allow(unused)]
                         Err(e) => {
                             debug_eprintln!("Debug: invalid window bounds: {:?}", e);
                             PhysicalSize::new(1, 1)
@@ -724,6 +725,7 @@ impl MichiuApp {
                             consumed = has_hovered || ext_consumed;
                             needs_redraw = true;
                         }
+                        #[allow(unused)]
                         Err(e) => {
                             debug_eprintln!("Debug: cursor out of bounds: {:?}", e);
                         }
@@ -854,6 +856,7 @@ impl MichiuApp {
                         )) => {
                             // IME中や文字直接入力は無視
                         }
+                        #[allow(unused)]
                         Err(e) => {
                             debug_eprintln!("Debug: invalid key event: {:?}", e);
                         }
@@ -913,6 +916,7 @@ impl MichiuApp {
                             consumed = has_focused;
                             needs_redraw = true;
                         }
+                        #[allow(unused)]
                         Err(e) => {
                             debug_eprintln!("Debug: invalid ime event: {:?}", e);
                         }

@@ -202,11 +202,11 @@ mod tests {
     //  - 親A を対象に `query_descendants_of_type::<TagA>` を実行。
     //  - 親A の子孫である 子A1 のみが抽出され、親B の子孫（子B1）や無関係なノードが混入しないことを確認。
     //  - DFS順序通りに走査・返却されること。
-    // 
+    //
     // `test_query_descendants_of_type_edge_cases`
     //  - 親ノードが `FlatDfsSequenceVec` 内に存在しない場合、空イテレータが返ること。
     //  - 対象タグを持つ子孫が存在しない場合、空イテレータが返ること。
-    // 
+    //
     // `test_query_first_descendant_of_type`
     //  - 親A の子孫に同一タグを持つエンティティが複数存在する場合（子A1、孫A1_1）、DFS順で最初に出現する要素（子A1）のみが `Some` で返ること。
     //  - 子孫範囲外を跨ぐ前に正しく探索が打ち切られること。

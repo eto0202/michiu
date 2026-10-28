@@ -231,7 +231,7 @@ mod tests {
     // `test_soa_require_and_require_mut`
     //  - 存在する `Entity` に対し、`Ok(&Item)` / `Ok(&mut Item)` が返ること。
     //  - 存在しない `Entity` に対し、`Err(MichiuError::ComponentNotFound { id, component })` が返り、`component` にコンテナの型名が含まれること。
-    // 
+    //
     // `test_soa_find_or_default_and_find_or`
     //  - 存在する `Entity`: 格納されている値が返ること。
     //  - 存在しない `Entity`: `Default::default()` の値が返ること。

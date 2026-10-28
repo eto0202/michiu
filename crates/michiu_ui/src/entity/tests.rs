@@ -5,22 +5,22 @@ use super::*;
 //  - バインド前：`with_context` がパニックすること。
 //  - `bind_context(&mut cx)` 実行中：`with_context` 経由で `cx` に正常アクセスでき、内部状態を変更可能なこと。
 //  - ガードがドロップされた後：再び未バインド状態に戻り、`with_context` がパニックすること。
-// 
+//
 // `test_bind_context_nested`
 //  - `cx1` をバインド $\to$ 内側で `cx2` をバインド。
 //  - 内側では `with_context` が `cx2` を指していること。
 //  - 内側のガードをドロップ $\to$ 再び `cx1` を指すように復元されること。
 //  - 外側のガードをドロップ $\to$ 未バインド状態に戻ること。
-// 
+//
 // `test_context_guard_unwind_safety`
 //  - `bind_context(&mut cx)` 中に意図的なパニックを発生させ、`std::panic::catch_unwind` で捕捉。
 //  - パニック発生時でも `ContextGuard` の `drop` が実行され、スレッドローカルのバインドが確実に元の状態（`None`）に復元されること。
-// 
+//
 // `test_active_context_thread_isolation`
 //  - メインスレッドで `bind_context(&mut cx)` を維持。
 //  - 別スレッド（`std::thread::spawn`）を起動し、そのスレッド内から `with_context` を呼び出す。
 //  - 別スレッド側ではコンテキストが共有されず、確実にパニックすること。
-// 
+//
 // `test_build_ui_lifecycle`
 //  - `build_ui(&mut cx, || entity)` を呼び出す。
 //  - クロージャ内部から `with_context` を呼び出せること。

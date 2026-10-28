@@ -85,11 +85,11 @@ fn list_container() -> Entity {
             let mut comp_types: Vec<ComponentType> = ComponentType::iter().collect();
 
             // 検索フィルタリング
+            // Search Filtering
             if !query.is_empty() {
                 comp_types.retain(|comp| comp.to_string().to_lowercase().contains(&query));
             }
 
-            // ソート順制御
             match order {
                 SidebarSortOrder::Ascending => {
                     comp_types.sort_by_key(|a| a.to_string());
@@ -99,7 +99,6 @@ fn list_container() -> Entity {
                 }
             }
 
-            // リストアイテム
             let items: Vec<Entity> = comp_types
                 .into_iter()
                 .map(|comp_type| sidebar_item(comp_type.to_string(), comp_type))

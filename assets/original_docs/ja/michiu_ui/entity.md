@@ -114,9 +114,9 @@ let root = build_ui(&mut context, || {
 
 ### 3. ドラッグ＆ドロップ属性（`draggable` / `droppable`）
 
-- **`DndDragPayload` の挙動の違い**:
-  - `Entity`: ドロップ確定時にライブラリがツリー構造（SoA）を自動的に書き換えて要素を移動。
-  - `Entity`: ツリー構造は変更せず、DnDイベント（ID通知）のみを発火。
+- **`DndDragMode` の挙動の違い**:
+  - `Interactive`: ドロップ確定時にライブラリがツリー構造（SoA）を自動的に書き換えて要素を移動。
+  - `Passive`: ツリー構造は変更せず、DnDイベント（ID通知）のみを発火。
 - **プレースホルダー配置**:
   - `.dnd_draggable_root(...)`: プレースホルダーをルート直下に生成し、絶対配置でカーソルに追従。
   - `.dnd_draggable_parent(...)`: 任意の親要素の子として追加し、絶対配置でカーソルに追従。

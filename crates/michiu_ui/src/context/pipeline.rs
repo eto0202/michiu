@@ -149,10 +149,13 @@
 //! 4. **`ExternalTexture` (Static Capture) Processing**:
 //!    Immediately flushes an independent texture batch to accommodate dedicated texture bind groups.
 //! 5. **Text & Decoration Instance Assembly**:
+//!
+//!    * Text background quads
 //!    * Text selection highlight rects
-//!    * Text background quads + per-glyph instance metrics + foreground passes
-//!    * Fallback rendering for standalone border entities lacking backgrounds
+//!    * Text per-glyph instance metrics
+//!    * Foreground passes
 //!    * Blinking caret instances for active inputs
+//!    * Fallback rendering for standalone border entities lacking backgrounds
 //! 6. **Batch Flush**: Concludes by flushing standard UI quad instance batches.
 //!
 //! ---
@@ -1482,6 +1485,27 @@ impl Pipeline {
                 last_clip = Some(clip);
             }
 
+            // 背景色
+            let has_bg = visual.bg_color.is_some()
+                || visual.bg_gradient.is_some()
+                || visual.border_color.is_some()
+                || visual.shadow_params.is_some();
+
+            #[cfg(feature = "trace-lifecycle")]
+            {
+                has_background = has_bg;
+                has_text = is_text;
+                has_fallback_border = !is_text && !has_bg;
+            }
+
+            if has_bg {
+                #[cfg(feature = "trace-lifecycle")]
+                {
+                    has_background = has_bg;
+                }
+                Pipeline::push_background_instance(id, view.render_data, &params, visual);
+            }
+
             // 選択ハイライト背景
             if let Some(sel_rects) = cx.states.edit.edit_selected_rects.find(id) {
                 #[cfg(feature = "trace-lifecycle")]
@@ -1531,24 +1555,8 @@ impl Pipeline {
                 );
             }
 
-            // 背景色とテキスト
+            // テキスト
             let is_text = cx.topology.topo_active_masks.at(id).has_text_content();
-            let has_bg = visual.bg_color.is_some()
-                || visual.bg_gradient.is_some()
-                || visual.border_color.is_some()
-                || visual.shadow_params.is_some();
-
-            #[cfg(feature = "trace-lifecycle")]
-            {
-                has_background = has_bg;
-                has_text = is_text;
-                has_fallback_border = !is_text && !has_bg;
-            }
-
-            if has_bg {
-                Pipeline::push_background_instance(id, view.render_data, &params, visual);
-            }
-
             if is_text {
                 let auto_wrap = cx.renders.rnd_visual.auto_wrap(id);
                 let content_width =
@@ -1618,12 +1626,6 @@ impl Pipeline {
                 );
             }
 
-            // 通常要素（テキスト以外）の背景マウントは親ループですでに has_bg が完了しているため不要
-            // 背景指定がない場合でもボーダー単体描画等が必要な場合はフォールバック
-            if !is_text && !has_bg {
-                Pipeline::push_fallback_border_instance(id, view.render_data, &params);
-            }
-
             // インプット要素のキャレット
             let is_input = cx.topology.topo_active_masks.at(id).has_input_content();
             let is_focused = cx.events.evt_interaction_states.focused == Some(id);
@@ -1644,6 +1646,12 @@ impl Pipeline {
                     &cx.contents.cont_input_contents,
                     &cx.renders.rnd_base_visual,
                 );
+            }
+
+            // 通常要素（テキスト以外）の背景マウントは親ループですでに has_bg が完了しているため不要
+            // 背景指定がない場合でもボーダー単体描画等が必要な場合はフォールバック
+            if !is_text && !has_bg {
+                Pipeline::push_fallback_border_instance(id, view.render_data, &params);
             }
         }
 

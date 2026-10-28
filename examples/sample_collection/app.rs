@@ -16,7 +16,7 @@ pub fn create_root() -> Entity {
     v_flex(move || {
         ii().size_full()
             .bg_color(theme.get().background)
-            .backdrop_acrylic() // 背景色は不透明のため見た目は変化しない
+            .backdrop_acrylic()
     })
     .provide(theme)
     .provide(comp_type)

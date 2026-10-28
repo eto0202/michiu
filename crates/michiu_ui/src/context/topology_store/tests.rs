@@ -1,7 +1,7 @@
 #![expect(clippy::unwrap_used)]
 
-use crate::VisualProperty;
 use super::*;
+use crate::VisualProperty;
 
 struct TopologyFixture {
     topo_entities: EntitiesSlot,

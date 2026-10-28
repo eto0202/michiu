@@ -28,7 +28,6 @@ fn search_box() -> Entity {
 
     let text_input = div_n()
         .input_d(|t: &Theme| {
-            // create_root で provide された共有シグナルを use_provided で読み込み双方向マッピング
             let writer = use_provided_setter::<SearchText>();
             let (input_text, set_input_text) =
                 use_provided::<SearchText>().bi_map(writer, |t| t.0.clone(), SearchText);
@@ -132,12 +131,24 @@ fn window_controll() -> Entity {
     let style = ii().hovered(ii().bg_color(dynamic(|t: &Theme| t.background_hover)));
 
     h_flex(ii().absolute().right(0.0).h_full().w(141.0)).children([
-        base_btn("－").modify(&style).on_click_with(|cx| {
-            let handle = cx.use_provided::<WindowHandle>().get();
-            handle.set_minimize();
-        }),
-        base_btn("▢").modify(&style),
+        base_btn("－")
+            .a11y_label(Role::Button, "Window Minimize Button")
+            .modify(&style)
+            .on_click_with(|cx| {
+                let handle = cx.use_provided::<WindowHandle>().get();
+                handle.set_minimize();
+            }),
+        // スナップレイアウトを有効化するため、最大化のみメッセージフィルターで処理
+        // To enable snap layout, process only the “Maximize” message in the message filter
+        base_btn("▢")
+            .a11y_label(Role::Button, "Window Maximize Button")
+            .modify(&style)
+            .on_click_with(|cx| {
+                let handle = cx.use_provided::<WindowHandle>().get();
+                handle.set_maximize();
+            }),
         base_btn("✕")
+            .a11y_label(Role::Button, "Window Close Button")
             .modify(ii().hovered(ii().bg_color(rgb(232, 17, 35))))
             .on_click_with(|cx| {
                 let handle = cx.use_provided::<WindowHandle>().get();

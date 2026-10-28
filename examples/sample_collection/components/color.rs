@@ -1,261 +1,863 @@
-use crate::components::section_title;
+use crate::app::theme::Theme;
 use michiu::prelude::*;
+use std::{
+    cell::{Cell, RefCell},
+    rc::Rc,
+};
 
 pub fn container() -> Entity {
-    v_flex(ii().gap(24.0).p(16.0)).children([
-        rgb_container(),
-        rgba_container(),
-        hex_container(),
-        hsl_container(),
-        hsla_container(),
-    ])
+    let store = ColorStore::new(Color::BLACK);
+
+    v_flex(ii().gap(16.0).p(16.0))
+        .provide(store.color.0)
+        .children({
+            [
+                top_container(&store),
+                section(rgb_item(&store), rgba_item(&store)),
+                section(hex_item(&store), hex_with_alpha_item(&store)),
+                section(hsl_item(&store), hsla_item(&store)),
+                section(oklab_item(&store), oklaba_item(&store)),
+                section(oklch_item(&store), oklcha_item(&store)),
+            ]
+        })
 }
 
-fn section_style() -> Modifier {
-    ii().gap(12.0)
+fn top_container(store: &ColorStore) -> Entity {
+    let item = |color: Color| {
+        flex(
+            ii().size(35.0)
+                .r(3.0)
+                .bg_color(color)
+                .cursor_pointer()
+                .hovered(
+                    ii().outline_solid(2.0)
+                        .outline_color(dynamic(|t: &Theme| t.text)),
+                ),
+        )
+        .on_click_with({
+            let store = store.clone();
+            move |_| {
+                store.set_color(color);
+            }
+        })
+    };
+
+    let row_1 = || {
+        h_flex(ii().gap(10.0)).children([
+            item(Color::GRAY),
+            item(Color::LIGHT_GRAY),
+            item(Color::WHITE),
+            item(Color::YELLOW),
+            item(Color::ORANGE),
+            item(Color::RED),
+            item(Color::MAGENTA),
+            item(Color::PURPLE),
+            item(Color::BLUE),
+            item(Color::CYAN),
+            item(Color::GREEN),
+        ])
+    };
+    let row_2 = || {
+        h_flex(ii().gap(10.0)).children([
+            item(rgba(0, 0, 0, 0.0)),
+            item(rgba(0, 0, 0, 0.1)),
+            item(rgba(0, 0, 0, 0.2)),
+            item(rgba(0, 0, 0, 0.3)),
+            item(rgba(0, 0, 0, 0.4)),
+            item(rgba(0, 0, 0, 0.5)),
+            item(rgba(0, 0, 0, 0.6)),
+            item(rgba(0, 0, 0, 0.7)),
+            item(rgba(0, 0, 0, 0.8)),
+            item(rgba(0, 0, 0, 0.9)),
+            item(rgba(0, 0, 0, 1.0)),
+        ])
+    };
+
+    let title = text("Select Default Color")
+        .modify(ii().text_color(dynamic(|t: &Theme| t.text)).font_size(17.0));
+
+    v_flex(ii().gap(10.0)).children([title, row_1(), row_2()])
 }
 
-fn wrapper_style() -> Modifier {
-    ii().w_full().gap((24.0, 10.0)).p(6.0)
+fn section(left: Entity, right: Entity) -> Entity {
+    h_flex(ii().gap(50.0)).children([left, right])
 }
 
-fn item(label: &'static str, style: Modifier) -> Entity {
-    let (show_popup, set_show_popup) = create_signal(false);
-    let (popup_pos, set_popup_pos) = create_signal(LayoutPoint::ZERO);
+fn base_item<F, I>(t: &'static str, color_f: F, entities: I) -> Entity
+where
+    F: Fn(&Color) -> Color + Send + Sync + 'static,
+    I: IntoIterator<Item = Entity>,
+{
+    let title = text(t).modify(ii().text_color(dynamic(|t: &Theme| t.text)));
 
-    flex(
-        style
-            .p(10.0)
-            .r(4.0)
-            .size((70.0, 70.0))
-            .justify_center()
-            .items_center(),
-    )
-    .on_mouse_enter(move || set_show_popup.set(true))
-    .on_mouse_leave(move || set_show_popup.set(false))
-    .on_cursor_moved(move |pos| set_popup_pos.set(pos))
-    .child(move || {
-        if show_popup.get() {
-            let pos = popup_pos.get();
-            let offset_x = pos.x + 12.0;
-            let offset_y = pos.y + 12.0;
-
+    v_flex(ii().gap(8.0)).children([
+        title,
+        h_flex(ii().p(4.0).gap(8.0)).children([
             flex(
-                ii().absolute()
-                    .z_1()
-                    .left(offset_x)
-                    .top(offset_y)
-                    .p((6.0, 10.0))
-                    .r(4.0)
-                    .bg_color(rgba(20, 20, 20, 0.95))
-                    .pointer_events_none(),
-            )
-            .label(
-                label,
-                ii().text_color(rgba(210, 210, 210, 0.95))
-                    .font_size(16.0)
-                    .font_weight(400),
-            )
+                ii().r(3.0)
+                    .size(60.0)
+                    .bg_color(dynamic(move |c: &Color| color_f(c))),
+            ),
+            h_flex(ii().gap(6.0).justify_start().items_start()).children(entities),
+        ]),
+    ])
+}
+
+fn common_text(t: &'static str) -> Entity {
+    text(t).modify(ii().p_t(10.0).text_color(dynamic(|t: &Theme| t.text)))
+}
+
+fn rgb_item(store: &ColorStore) -> Entity {
+    base_item(
+        "RGB",
+        |c| {
+            let (r, g, b, _) = c.to_rgba8();
+            rgb(r, g, b)
+        },
+        [
+            common_text("R"),
+            synced_num_input(
+                store,
+                |c| c.to_rgba8().0,
+                |c, r| {
+                    let (_, g, b, a) = c.to_rgba8();
+                    rgba(r, g, b, a)
+                },
+                60.0,
+                0u8,
+                255u8,
+            ),
+            common_text("G"),
+            synced_num_input(
+                store,
+                |c| c.to_rgba8().1,
+                |c, g| {
+                    let (r, _, b, a) = c.to_rgba8();
+                    rgba(r, g, b, a)
+                },
+                60.0,
+                0u8,
+                255u8,
+            ),
+            common_text("B"),
+            synced_num_input(
+                store,
+                |c| c.to_rgba8().2,
+                |c, b| {
+                    let (r, g, _, a) = c.to_rgba8();
+                    rgba(r, g, b, a)
+                },
+                60.0,
+                0u8,
+                255u8,
+            ),
+        ],
+    )
+}
+
+fn rgba_item(store: &ColorStore) -> Entity {
+    base_item(
+        "RGB",
+        |c| {
+            let (r, g, b, _) = c.to_rgba8();
+            rgb(r, g, b)
+        },
+        [
+            common_text("R"),
+            synced_num_input(
+                store,
+                |c| c.to_rgba8().0,
+                |c, r| {
+                    let (_, g, b, a) = c.to_rgba8();
+                    rgba(r, g, b, a)
+                },
+                60.0,
+                0u8,
+                255u8,
+            ),
+            common_text("G"),
+            synced_num_input(
+                store,
+                |c| c.to_rgba8().1,
+                |c, g| {
+                    let (r, _, b, a) = c.to_rgba8();
+                    rgba(r, g, b, a)
+                },
+                60.0,
+                0u8,
+                255u8,
+            ),
+            common_text("B"),
+            synced_num_input(
+                store,
+                |c| c.to_rgba8().2,
+                |c, b| {
+                    let (r, g, _, a) = c.to_rgba8();
+                    rgba(r, g, b, a)
+                },
+                60.0,
+                0u8,
+                255u8,
+            ),
+            common_text("A"),
+            synced_num_input(
+                store,
+                |c| c.to_rgba8().3,
+                |c, a| {
+                    let (r, g, b, _) = c.to_rgba8();
+                    rgba(r, g, b, a)
+                },
+                60.0,
+                0.0f32,
+                1.0f32,
+            ),
+        ],
+    )
+}
+
+fn hex_item(store: &ColorStore) -> Entity {
+    base_item(
+        "HEX",
+        |c| hex(c.to_hex()),
+        [
+            common_text("0x"),
+            synced_hex_input(
+                store,
+                |c| {
+                    // to_hex() の戻り値に合わせてフォーマット
+                    format!("{:06X}", c.to_hex())
+                },
+                |c, hex_str| {
+                    // 16進数文字列を u32 にパースして Color を生成
+                    u32::from_str_radix(hex_str, 16)
+                        .ok()
+                        .map(|val| hex(val).with_alpha(c.a)) // 元のアルファ値を維持
+                },
+                6,
+            ),
+        ],
+    )
+    .modify(ii().p_r(115.0))
+}
+
+fn hex_with_alpha_item(store: &ColorStore) -> Entity {
+    base_item(
+        "HEX with alpha",
+        |c| hex(c.to_hex()).with_alpha(c.a),
+        [
+            common_text("0x"),
+            synced_hex_input(
+                store,
+                |c| {
+                    // RGB 6桁 + Alpha 2桁 (00〜FF)
+                    let (r, g, b, _) = c.to_rgba8();
+                    let alpha_u8 = (c.a * 255.0).round() as u8;
+                    format!("{:02X}{:02X}{:02X}{:02X}", r, g, b, alpha_u8)
+                },
+                |_c, hex_str| {
+                    // 8桁 (RRGGBBAA) をパース
+                    let r = u8::from_str_radix(&hex_str[0..2], 16).ok()?;
+                    let g = u8::from_str_radix(&hex_str[2..4], 16).ok()?;
+                    let b = u8::from_str_radix(&hex_str[4..6], 16).ok()?;
+                    let a_u8 = u8::from_str_radix(&hex_str[6..8], 16).ok()?;
+
+                    let a = a_u8 as f32 / 255.0;
+                    Some(rgba(r, g, b, a))
+                },
+                8,
+            ),
+        ],
+    )
+}
+
+fn hsl_item(store: &ColorStore) -> Entity {
+    base_item(
+        "HSL",
+        |c| {
+            let (h, s, l) = c.to_hsl();
+            hsl(h, s, l)
+        },
+        [
+            common_text("H"),
+            synced_num_input(
+                store,
+                |c| c.to_hsl().0,
+                |c, h| {
+                    let (_, s, l) = c.to_hsl();
+                    hsl(h, s, l)
+                },
+                60.0,
+                0.0f32,
+                360.0f32,
+            ),
+            common_text("S"),
+            synced_num_input(
+                store,
+                |c| c.to_hsl().1,
+                |c, s| {
+                    let (h, _, l) = c.to_hsl();
+                    hsl(h, s, l)
+                },
+                60.0,
+                0.0f32,
+                100.0f32,
+            ),
+            common_text("L"),
+            synced_num_input(
+                store,
+                |c| c.to_hsl().2,
+                |c, l| {
+                    let (h, s, _) = c.to_hsl();
+                    hsl(h, s, l)
+                },
+                60.0,
+                0.0f32,
+                100.0f32,
+            ),
+        ],
+    )
+}
+
+fn hsla_item(store: &ColorStore) -> Entity {
+    base_item(
+        "HSL",
+        |c| {
+            let (h, s, l, a) = c.to_hsla();
+            hsla(h, s, l, a)
+        },
+        [
+            common_text("H"),
+            synced_num_input(
+                store,
+                |c| c.to_hsla().0,
+                |c, h| {
+                    let (_, s, l, a) = c.to_hsla();
+                    hsla(h, s, l, a)
+                },
+                60.0,
+                0.0f32,
+                360.0f32,
+            ),
+            common_text("S"),
+            synced_num_input(
+                store,
+                |c| c.to_hsla().1,
+                |c, s| {
+                    let (h, _, l, a) = c.to_hsla();
+                    hsla(h, s, l, a)
+                },
+                60.0,
+                0.0f32,
+                100.0f32,
+            ),
+            common_text("L"),
+            synced_num_input(
+                store,
+                |c| c.to_hsla().2,
+                |c, l| {
+                    let (h, s, _, a) = c.to_hsla();
+                    hsla(h, s, l, a)
+                },
+                60.0,
+                0.0f32,
+                100.0f32,
+            ),
+            common_text("A"),
+            synced_num_input(
+                store,
+                |c| c.to_hsla().3,
+                |c, a| {
+                    let (h, s, l, _) = c.to_hsla();
+                    hsla(h, s, l, a)
+                },
+                60.0,
+                0.0f32,
+                1.0f32,
+            ),
+        ],
+    )
+}
+
+fn oklab_item(store: &ColorStore) -> Entity {
+    base_item(
+        "OKLAB",
+        |c| {
+            let (l, a, b) = c.to_oklab();
+            oklab(l, a, b)
+        },
+        [
+            common_text("L"),
+            synced_num_input(
+                store,
+                |c| c.to_oklab().0,
+                |c, l| {
+                    let (_, a, b) = c.to_oklab();
+                    oklab(l, a, b)
+                },
+                60.0,
+                0.0f32,
+                1.0f32,
+            ),
+            common_text("A"),
+            synced_num_input(
+                store,
+                |c| c.to_oklab().1,
+                |c, a| {
+                    let (l, _, b) = c.to_oklab();
+                    oklab(l, a, b)
+                },
+                60.0,
+                -0.4f32,
+                0.4f32,
+            ),
+            common_text("B"),
+            synced_num_input(
+                store,
+                |c| c.to_oklab().2,
+                |c, b| {
+                    let (l, a, _) = c.to_oklab();
+                    oklab(l, a, b)
+                },
+                60.0,
+                -0.4f32,
+                0.4f32,
+            ),
+        ],
+    )
+}
+
+fn oklaba_item(store: &ColorStore) -> Entity {
+    base_item(
+        "OKLABA",
+        |c| {
+            let (l, a, b, alpha) = c.to_oklaba();
+            oklaba(l, a, b, alpha)
+        },
+        [
+            common_text("L"),
+            synced_num_input(
+                store,
+                |c| c.to_oklaba().0,
+                |c, l| {
+                    let (_, a, b, alpha) = c.to_oklaba();
+                    oklaba(l, a, b, alpha)
+                },
+                60.0,
+                0.0f32,
+                1.0f32,
+            ),
+            common_text("A"),
+            synced_num_input(
+                store,
+                |c| c.to_oklaba().1,
+                |c, a| {
+                    let (l, _, b, alpha) = c.to_oklaba();
+                    oklaba(l, a, b, alpha)
+                },
+                60.0,
+                -0.4f32,
+                0.4f32,
+            ),
+            common_text("B"),
+            synced_num_input(
+                store,
+                |c| c.to_oklaba().2,
+                |c, b| {
+                    let (l, a, _, alpha) = c.to_oklaba();
+                    oklaba(l, a, b, alpha)
+                },
+                60.0,
+                -0.4f32,
+                0.4f32,
+            ),
+            common_text("A"),
+            synced_num_input(
+                store,
+                |c| c.to_oklaba().3,
+                |c, alpha| {
+                    let (l, a, b, _) = c.to_oklaba();
+                    oklaba(l, a, b, alpha)
+                },
+                60.0,
+                0.0f32,
+                1.0f32,
+            ),
+        ],
+    )
+}
+
+fn oklch_item(store: &ColorStore) -> Entity {
+    base_item(
+        "OKLCH",
+        |c| {
+            let (l, c, h) = c.to_oklch();
+            oklch(l, c, h)
+        },
+        [
+            common_text("L"),
+            synced_num_input(
+                store,
+                |c| c.to_oklch().0,
+                |c, l| {
+                    let (_, c, h) = c.to_oklch();
+                    oklch(l, c, h)
+                },
+                60.0,
+                0.0f32,
+                1.0f32,
+            ),
+            common_text("C"),
+            synced_num_input(
+                store,
+                |c| c.to_oklch().1,
+                |c, ch| {
+                    let (l, _, h) = c.to_oklch();
+                    oklch(l, ch, h)
+                },
+                60.0,
+                0.0f32,
+                0.4f32,
+            ),
+            common_text("H"),
+            synced_num_input(
+                store,
+                |c| c.to_oklch().2,
+                |c, h| {
+                    let (l, c, _) = c.to_oklch();
+                    oklch(l, c, h)
+                },
+                60.0,
+                0.0f32,
+                360.0f32,
+            ),
+        ],
+    )
+}
+
+fn oklcha_item(store: &ColorStore) -> Entity {
+    base_item(
+        "OKLCHA",
+        |c| {
+            let (l, c, h, alpha) = c.to_oklcha();
+            oklcha(l, c, h, alpha)
+        },
+        [
+            common_text("L"),
+            synced_num_input(
+                store,
+                |c| c.to_oklcha().0,
+                |c, l| {
+                    let (_, c, h, alpha) = c.to_oklcha();
+                    oklcha(l, c, h, alpha)
+                },
+                60.0,
+                0.0f32,
+                1.0f32,
+            ),
+            common_text("C"),
+            synced_num_input(
+                store,
+                |c| c.to_oklcha().1,
+                |c, ch| {
+                    let (l, _, h, alpha) = c.to_oklcha();
+                    oklcha(l, ch, h, alpha)
+                },
+                60.0,
+                0.0f32,
+                0.4f32,
+            ),
+            common_text("H"),
+            synced_num_input(
+                store,
+                |c| c.to_oklcha().2,
+                |c, h| {
+                    let (l, c, _, alpha) = c.to_oklcha();
+                    oklcha(l, c, h, alpha)
+                },
+                60.0,
+                0.0f32,
+                360.0f32,
+            ),
+            common_text("A"),
+            synced_num_input(
+                store,
+                |c| c.to_oklcha().3,
+                |c, alpha| {
+                    let (l, c, h, _) = c.to_oklcha();
+                    oklcha(l, c, h, alpha)
+                },
+                60.0,
+                0.0f32,
+                1.0f32,
+            ),
+        ],
+    )
+}
+
+/// 入力パースの結果状態
+pub enum ParseResult<T> {
+    /// 空文字や入力途中（"-" や "."）→ 何もせず保留
+    Pending,
+    /// 範囲内の正常値 → 色だけ更新（テキストは触らない）
+    Valid(T),
+    /// 範囲外（999 や負数など） → 入力欄の文字もクランプ値に強制補正して色を更新
+    Clamped(T),
+}
+
+pub trait ClampInput: Copy + std::fmt::Display {
+    /// 負の符号 (-) を許可するかどうか
+    fn allows_negative(min: Self) -> bool;
+
+    /// 入力文字列をパースし、状態を判定する
+    fn parse_input(s: &str, min: Self, max: Self) -> ParseResult<Self>;
+
+    fn format_val(self) -> String {
+        self.to_string()
+    }
+}
+
+impl ClampInput for u8 {
+    fn allows_negative(_min: Self) -> bool {
+        false // u8 (RGB など) は常にマイナス禁止
+    }
+
+    fn parse_input(s: &str, min: Self, max: Self) -> ParseResult<Self> {
+        let s = s.trim();
+        if s.is_empty() {
+            return ParseResult::Pending;
+        }
+
+        match s.parse::<i64>() {
+            Ok(v) => {
+                if v < min as i64 {
+                    ParseResult::Clamped(min)
+                } else if v > max as i64 {
+                    ParseResult::Clamped(max)
+                } else {
+                    ParseResult::Valid(v as u8)
+                }
+            }
+            Err(e) => match e.kind() {
+                // 桁数が多すぎる場合は最大値に補正
+                std::num::IntErrorKind::PosOverflow => ParseResult::Clamped(max),
+                std::num::IntErrorKind::NegOverflow => ParseResult::Clamped(min),
+                _ => ParseResult::Pending,
+            },
+        }
+    }
+}
+
+impl ClampInput for f32 {
+    fn allows_negative(min: Self) -> bool {
+        min < 0.0 // OKLAB のように min が負の場合のみマイナス許可
+    }
+
+    fn parse_input(s: &str, min: Self, max: Self) -> ParseResult<Self> {
+        let s = s.trim();
+        // 空文字や入力途中の記号単体は保留
+        if s.is_empty() || s == "-" || s == "." || s == "-." {
+            return ParseResult::Pending;
+        }
+
+        match s.parse::<f64>() {
+            Ok(v) => {
+                let rounded = ((v * 10.0).round() / 10.0) as f32;
+                if rounded < min {
+                    ParseResult::Clamped(min)
+                } else if rounded > max {
+                    ParseResult::Clamped(max)
+                } else {
+                    ParseResult::Valid(rounded)
+                }
+            }
+            Err(_) => ParseResult::Pending,
+        }
+    }
+
+    fn format_val(self) -> String {
+        format!("{:.1}", self)
+    }
+}
+
+#[derive(Clone)]
+#[expect(clippy::type_complexity)]
+struct ColorStore {
+    color: (ReadSignal<Color>, WriteSignal<Color>),
+    // 色を受け取って全フィールドの文字列を更新するリスナーのリスト
+    listeners: Rc<RefCell<Vec<Box<dyn Fn(&Color)>>>>,
+}
+
+impl ColorStore {
+    fn new(initial: Color) -> Self {
+        Self {
+            color: create_signal(initial),
+            listeners: Rc::new(RefCell::new(Vec::new())),
+        }
+    }
+
+    /// パレットクリックや、入力確定時に呼ぶ
+    fn set_color(&self, new_color: Color) {
+        self.color.1.set(new_color);
+        // 登録されている全フィールドを新しい色で更新
+        for listener in self.listeners.borrow().iter() {
+            listener(&new_color);
+        }
+    }
+
+    /// 各 Input の更新関数を登録する
+    fn register<F>(&self, update_fn: F)
+    where
+        F: Fn(&Color) + 'static,
+    {
+        self.listeners.borrow_mut().push(Box::new(update_fn));
+    }
+}
+
+/// 同期機能つきの数値Inputを作るヘルパー
+fn synced_num_input<T, G, S>(
+    store: &ColorStore,
+    getter: G,
+    setter: S,
+    width: f32,
+    min: T,
+    max: T,
+) -> Entity
+where
+    T: ClampInput + 'static,
+    G: Fn(&Color) -> T + Copy + 'static,
+    S: Fn(&Color, T) -> Color + Copy + 'static,
+{
+    let text = create_signal(String::new());
+    let (text_r, text_w) = text;
+
+    // 自分が入力中かどうかを示すフラグ
+    let is_editing = Rc::new(Cell::new(false));
+
+    // 色が変わったときの同期処理
+    {
+        let is_editing = is_editing.clone();
+        store.register(move |color| {
+            // 自分が入力した結果で set_color された時は自分の文字を上書きしない
+            if is_editing.get() {
+                return;
+            }
+            let val = getter(color);
+            text_w.set(val.format_val());
+        });
+    }
+
+    // 自分が入力されたときは、新しい色を計算して Store に通知
+    let store_clone = store.clone();
+    input(move || {
+        InputContents::new((text_r, text_w))
+            .is_ime(false)
+            .numeric_only(true)
+    })
+    .modify(
+        ii().size((width, 35.0))
+            .r(3.0)
+            .cursor_text()
+            .select_text()
+            .p(2.0)
+            .items_center()
+            .text_center()
+            .text_color(dynamic(|t: &Theme| t.text))
+            .bg_color(dynamic(|t: &Theme| t.surface)),
+    )
+    .on_char_input(move |_| {
+        let raw = text_r.get();
+
+        // 負数が禁止されている項目で '-' が打たれたら即座に除去する
+        let input_text = if !T::allows_negative(min) && raw.contains('-') {
+            let cleaned: String = raw.chars().filter(|&c| c != '-').collect();
+            text_w.set(cleaned.clone());
+            cleaned
         } else {
-            div_n()
+            raw
+        };
+
+        match T::parse_input(&input_text, min, max) {
+            ParseResult::Pending => {
+                // 保留：全消し時や、"-" "." などの入力途中は何もしない
+            }
+            ParseResult::Valid(val) => {
+                // 正常値：色だけ更新しテキスト欄はそのまま
+                let current_color = store_clone.color.0.get();
+                let new_color = setter(&current_color, val);
+
+                is_editing.set(true);
+                store_clone.set_color(new_color);
+                is_editing.set(false);
+            }
+            ParseResult::Clamped(val) => {
+                // 範囲外：入力欄のテキスト自体も最大値/最小値に補正し色を更新
+                text_w.set(val.format_val());
+
+                let current_color = store_clone.color.0.get();
+                let new_color = setter(&current_color, val);
+
+                is_editing.set(true);
+                store_clone.set_color(new_color);
+                is_editing.set(false);
+            }
         }
     })
 }
 
-fn rgb_container() -> Entity {
-    let red = item("rgb(255, 0, 0)", ii().bg_color(rgb(255, 0, 0)));
-    let yellow = item_direct("rgb(255, 255, 0)", ii().bg_color(rgb(255, 255, 0)));
-    let white = item_event("rgb(255, 255, 255)", ii().bg_color(rgb(255, 255, 255)));
-    let lightblue = item_tag("rgb(0, 255, 255)", ii().bg_color(rgb(0, 255, 255)));
+/// 同期機能つきの HEX Input ヘルパー
+fn synced_hex_input<G, S>(store: &ColorStore, getter: G, setter: S, max_len: usize) -> Entity
+where
+    G: Fn(&Color) -> String + Copy + 'static,
+    S: Fn(&Color, &str) -> Option<Color> + Copy + 'static,
+{
+    let text = create_signal(String::new());
+    let (text_r, text_w) = text;
 
-    let blue = item("rgb(0, 0, 255)", ii().bg_color(rgb(0, 0, 255)));
-    let green = item("rgb(0, 255, 0)", ii().bg_color(rgb(0, 255, 0)));
+    // 色が変わったとき、最新の HEX 文字列をセット
+    store.register(move |color| {
+        let val = getter(color);
+        text_w.set(val);
+    });
 
-    v_flex(section_style()).children([
-        section_title("RGB"),
-        h_flex(wrapper_style()).children([red, yellow, white, lightblue, blue, green]),
-    ])
-}
-
-fn rgba_container() -> Entity {
-    let black1 = item("rgba(0, 0, 0, 0.2)", ii().bg_color(rgba(0, 0, 0, 0.2)));
-    let black2 = item("rgba(0, 0, 0, 0.4)", ii().bg_color(rgba(0, 0, 0, 0.4)));
-    let black3 = item("rgba(0, 0, 0, 0.6)", ii().bg_color(rgba(0, 0, 0, 0.6)));
-    let black4 = item("rgba(0, 0, 0, 0.8)", ii().bg_color(rgba(0, 0, 0, 0.8)));
-    let black5 = item("rgba(0, 0, 0, 1.0)", ii().bg_color(rgba(0, 0, 0, 1.0)));
-
-    v_flex(section_style()).children([
-        section_title("RGBA"),
-        h_flex(wrapper_style()).children([black1, black2, black3, black4, black5]),
-    ])
-}
-
-fn hex_container() -> Entity {
-    let red = item("hex(\"#ff0000\")", ii().bg_color(hex("#ff0000")));
-    let green = item("hex(0x00FF00)", ii().bg_color(hex(0x00_FF00)));
-    let blue = item("hex(0x0000ff)", ii().bg_color(hex(0x00_00ff)));
-    let white = item("hex(\"00000080\")", ii().bg_color(hex("00000080")));
-    let black = item("hex(\"0xFFFFFF80\")", ii().bg_color(hex("0xFFFFFF80")));
-
-    v_flex(section_style()).children([
-        section_title("HEX"),
-        h_flex(wrapper_style()).children([red, green, blue, white, black]),
-    ])
-}
-
-fn hsl_container() -> Entity {
-    let primary = item(
-        "hsl(318.0, 56.0, 59.0)",
-        ii().bg_color(hsl(318.0, 56.0, 59.0)),
-    );
-    let hsl_1 = item(
-        "hsl(318.0, 0.0, 59.0)",
-        ii().bg_color(hsl(318.0, 0.0, 59.0)),
-    );
-    let hsl_2 = item(
-        "hsl(318.0, 56.0, 0.0)",
-        ii().bg_color(hsl(318.0, 56.0, 0.0)),
-    );
-    let hsl_3 = item("hsl(0.0, 56.0, 59.0)", ii().bg_color(hsl(0.0, 56.0, 59.0)));
-    let hsl_4 = item("hsl(318.0, 0.0, 0.0)", ii().bg_color(hsl(318.0, 0.0, 0.0)));
-    let hsl_5 = item(
-        "hsl(318.0, 100.0, 100.0)",
-        ii().bg_color(hsl(318.0, 100.0, 100.0)),
-    );
-
-    v_flex(section_style()).children([
-        section_title("HSL"),
-        h_flex(wrapper_style()).children([primary, hsl_1, hsl_2, hsl_3, hsl_4, hsl_5]),
-    ])
-}
-
-fn hsla_container() -> Entity {
-    let primary = item(
-        "hsla(318.0, 56.0, 59.0, 1.0)",
-        ii().bg_color(hsla(318.0, 56.0, 59.0, 1.0)),
-    );
-    let hsla_1 = item(
-        "hsla(318.0, 56.0, 59.0, 0.8)",
-        ii().bg_color(hsla(318.0, 56.0, 59.0, 0.8)),
-    );
-    let hsla_2 = item(
-        "hsla(318.0, 56.0, 59.0, 0.6)",
-        ii().bg_color(hsla(318.0, 56.0, 59.0, 0.6)),
-    );
-    let hsla_3 = item(
-        "hsla(318.0, 56.0, 59.0, 0.4)",
-        ii().bg_color(hsla(318.0, 56.0, 59.0, 0.4)),
-    );
-    let hsla_4 = item(
-        "hsla(318.0, 56.0, 59.0, 0.2)",
-        ii().bg_color(hsla(318.0, 56.0, 59.0, 0.2)),
-    );
-
-    v_flex(section_style()).children([
-        section_title("HSLA"),
-        h_flex(wrapper_style()).children([primary, hsla_1, hsla_2, hsla_3, hsla_4]),
-    ])
-}
-
-// こういう実装方法も可能
-fn item_direct(label: &'static str, style: Modifier) -> Entity {
-    let e = flex(
-        style
-            .p(10.0)
-            .r(4.0)
-            .size((70.0, 70.0))
-            .justify_center()
+    // 入力時の処理
+    let store_clone = store.clone();
+    input(move || {
+        InputContents::new((text_r, text_w))
+            .is_ime(false)
+            .max_length(max_len)
+            .numeric_only(false) // A-F を受け付けるため false
+    })
+    .modify(
+        ii().size((100.0, 35.0))
+            .r(3.0)
+            .cursor_text()
+            .select_text()
+            .p(2.0)
             .items_center()
-            .relative(),
-    );
-
-    let e_enter = e;
-    let e_move = e;
-    let e_leave = e;
-
-    e.on_mouse_enter(move || {
-        e_enter.set_contents(create_tooltip(label, LayoutPoint::ZERO));
-    })
-    .on_cursor_moved(move |pos| {
-        e_move.set_contents(create_tooltip(label, pos));
-    })
-    .on_mouse_leave(move || {
-        e_leave.set_contents(div_n());
-    })
-}
-
-fn item_event(label: &'static str, style: Modifier) -> Entity {
-    flex(
-        style
-            .p(10.0)
-            .r(4.0)
-            .size((70.0, 70.0))
-            .justify_center()
-            .items_center()
-            .relative(),
+            .text_center()
+            .text_color(dynamic(|t: &Theme| t.text))
+            .bg_color(dynamic(|t: &Theme| t.surface)),
     )
-    .on_mouse_enter_with(move |cx| {
-        cx.current()
-            .set_contents(create_tooltip(label, LayoutPoint::ZERO));
-    })
-    .on_cursor_moved_with(move |cx, pos| {
-        cx.current().set_contents(create_tooltip(label, pos));
-    })
-    .on_mouse_leave_with(move |cx| {
-        cx.current().set_contents(div_n());
-    })
-}
+    .on_char_input(move |_| {
+        let input_str = text_r.get();
 
-fn item_tag(label: &'static str, style: Modifier) -> Entity {
-    struct SuperMichiu;
-    struct HyperMichiu;
-    struct UltraMichiu;
+        // 0-9, a-f, A-F 以外の文字を取り除き、大文字にして最大文字数で切り詰める
+        let filtered: String = input_str
+            .chars()
+            .filter(|c| c.is_ascii_hexdigit())
+            .take(max_len)
+            .flat_map(|c| c.to_uppercase())
+            .collect();
 
-    flex(
-        style
-            .p(10.0)
-            .r(4.0)
-            .size((70.0, 70.0))
-            .justify_center()
-            .items_center()
-            .relative(),
-    )
-    .tag::<SuperMichiu>()
-    .tag::<HyperMichiu>()
-    .tag::<UltraMichiu>()
-    .on_mouse_enter_with(move |cx| {
-        if let Some(e) = cx.try_query_first::<SuperMichiu>() {
-            e.set_contents(create_tooltip(label, LayoutPoint::ZERO));
+        // 入力フィールドの表示を整形後の文字に更新
+        text_w.set(filtered.clone());
+
+        // 規定の桁数（6桁または8桁）が揃った時だけ、ColorStore を更新する
+        if filtered.len() == max_len {
+            let current_color = store_clone.color.0.get();
+            if let Some(new_color) = setter(&current_color, &filtered) {
+                store_clone.set_color(new_color);
+            }
         }
     })
-    .on_cursor_moved_with(move |cx, pos| {
-        let e = cx.query_first::<HyperMichiu>();
-        e.set_contents(create_tooltip(label, pos));
-    })
-    .on_mouse_leave_with(move |cx| {
-        let e = cx.query_first::<UltraMichiu>();
-        e.set_contents(div_n());
-    })
-}
-
-fn create_tooltip(label: &'static str, pos: LayoutPoint) -> Entity {
-    let offset_x = pos.x + 12.0;
-    let offset_y = pos.y + 12.0;
-
-    flex(
-        ii().absolute()
-            .z_1()
-            .left(offset_x)
-            .top(offset_y)
-            .p((6.0, 10.0))
-            .r(4.0)
-            .bg_color(rgba(20, 20, 20, 0.95))
-            .pointer_events_none(),
-    )
-    .label(
-        label,
-        ii().text_color(rgba(210, 210, 210, 0.95))
-            .font_size(16.0)
-            .font_weight(400),
-    )
 }

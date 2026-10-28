@@ -1,3 +1,5 @@
+#![expect(clippy::many_single_char_names)]
+
 use bytemuck::{Pod, Zeroable};
 
 #[repr(C)]
@@ -179,6 +181,32 @@ impl Color {
         Self { b, ..self }
     }
 
+    #[inline]
+    #[must_use]
+    #[expect(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
+    pub fn to_rgba8(&self) -> (u8, u8, u8, f32) {
+        let f = |v: f32| (v.clamp(0.0, 1.0) * 255.0).round() as u8;
+        (f(self.r), f(self.g), f(self.b), self.a)
+    }
+
+    #[inline]
+    #[must_use]
+    #[expect(clippy::cast_lossless)]
+    pub fn to_hex(&self) -> u32 {
+        let (r, g, b, _) = self.to_rgba8();
+        ((r as u32) << 16) | ((g as u32) << 8) | (b as u32)
+    }
+
+    #[inline]
+    #[must_use]
+    #[expect(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
+    pub fn to_hex_string(&self) -> String {
+        let (r, g, b, a) = self.to_rgba8();
+        // ここでのみ一時的に f32 -> u8 変換を行う
+        let a = (a.clamp(0.0, 1.0) * 255.0).round() as u8;
+        format!("{r:02x}{g:02x}{b:02x}{a:02x}") // 例: "808080ff"
+    }
+
     /// Generates a [`Color`] from the HSL (Hue: 0..360, Saturation: 0..100%, Lightness: 0..100%).
     #[inline]
     #[must_use]
@@ -188,7 +216,6 @@ impl Color {
 
     /// Generate a [`Color`] by applying an alpha value (0.0..1.0) to HSL
     #[must_use]
-    #[expect(clippy::many_single_char_names)]
     pub fn hsla(h: f32, s: f32, l: f32, a: f32) -> Self {
         // 色相（h）を 0..360 の範囲に正規化
         let h_mod = (h % 360.0 + 360.0) % 360.0;
@@ -223,6 +250,62 @@ impl Color {
         }
     }
 
+    /// HSL (Hue: 0..360, Saturation: 0..100%, Lightness: 0..100%, alpha: 0.0..1.0)
+    #[inline]
+    #[must_use]
+    #[expect(clippy::float_cmp)]
+    pub fn to_hsla(self) -> (f32, f32, f32, f32) {
+        let r = self.r.clamp(0.0, 1.0);
+        let g = self.g.clamp(0.0, 1.0);
+        let b = self.b.clamp(0.0, 1.0);
+
+        let max = r.max(g).max(b);
+        let min = r.min(g).min(b);
+        let delta = max - min;
+
+        // Lightness (0.0 ~ 1.0)
+        let l = f32::midpoint(max, min);
+
+        // グレースケールの場合
+        if delta == 0.0 {
+            // 色相・彩度は 0
+            return (0.0, 0.0, l * 100.0, self.a);
+        }
+
+        // Saturation (0.0 ~ 1.0)
+        let s = if l > 0.5 {
+            delta / (2.0 - max - min)
+        } else {
+            delta / (max + min)
+        };
+
+        // Hue (0.0 ~ 360.0)
+        let mut h = if max == r {
+            let mut segment = (g - b) / delta;
+            if g < b {
+                segment += 6.0;
+            }
+            segment
+        } else if max == g {
+            ((b - r) / delta) + 2.0
+        } else {
+            ((r - g) / delta) + 4.0
+        };
+
+        h *= 60.0; // 0.0 ~ 360.0 にスケール
+
+        // (h: 0..360, s: 0..100%, l: 0..100%, a: そのまま)
+        (h, s * 100.0, l * 100.0, self.a)
+    }
+
+    /// HSL (Hue: 0..360, Saturation: 0..100%, Lightness: 0..100%)
+    #[inline]
+    #[must_use]
+    pub fn to_hsl(self) -> (f32, f32, f32) {
+        let (h, s, l, _) = self.to_hsla();
+        (h, s, l)
+    }
+
     /// Generate from Oklab (L: 0.0..1.0, a: -0.4..0.4, b: -0.4..0.4)
     #[inline]
     #[must_use]
@@ -249,38 +332,21 @@ impl Color {
 
         // Linear sRGB -> sRGB (ガンマ補正)
         Self {
-            r: linear_to_srgb(r_linear),
-            g: linear_to_srgb(g_linear),
-            b: linear_to_srgb(b_linear),
+            r: Self::linear_to_srgb(r_linear),
+            g: Self::linear_to_srgb(g_linear),
+            b: Self::linear_to_srgb(b_linear),
             a: alpha,
         }
     }
 
-    /// Generate from Oklch (L: 0.0..1.0, Chroma: 0.0..0.4+, Hue: 0..360°)
+    /// Oklaba (L: 0.0..1.0, a: -0.4..0.4, b: -0.4..0.4, alpha: f32)
     #[inline]
     #[must_use]
-    pub fn oklch(l: f32, c: f32, h: f32) -> Self {
-        Self::oklcha(l, c, h, 1.0)
-    }
-
-    /// Generate it by adding an alpha value to Oklch
-    #[must_use]
-    #[expect(clippy::many_single_char_names)]
-    pub fn oklcha(l: f32, c: f32, h: f32, alpha: f32) -> Self {
-        let h_rad = h.to_radians();
-        let a = c * h_rad.cos();
-        let b = c * h_rad.sin();
-        Self::oklaba(l, a, b, alpha)
-    }
-
-    /// Converts sRGB to Oklch (Lightness: 0.0..=1.0, Chroma: 0.0.., Hue: 0.0..=360.0)
-    #[must_use]
-    #[expect(clippy::many_single_char_names)]
-    pub fn to_oklch(self) -> (f32, f32, f32) {
-        // sRGB -> Linear sRGB
-        let r_lin = srgb_to_linear(self.r);
-        let g_lin = srgb_to_linear(self.g);
-        let b_lin = srgb_to_linear(self.b);
+    pub fn to_oklaba(self) -> (f32, f32, f32, f32) {
+        // ガンマ解除
+        let r_lin = Self::srgb_to_linear(self.r);
+        let g_lin = Self::srgb_to_linear(self.g);
+        let b_lin = Self::srgb_to_linear(self.b);
 
         // Linear sRGB -> LMS
         let l = 0.412_221_46 * r_lin + 0.536_332_55 * g_lin + 0.051_445_993 * b_lin;
@@ -292,18 +358,70 @@ impl Color {
         let s_ = s.cbrt();
 
         // LMS -> Oklab
-        let l_star = 0.210_454_26 * l_ + 0.793_617_8 * m_ - 0.004_072_047 * s_;
-        let a_star = 1.977_998_5 * l_ - 2.428_592_2 * m_ + 0.450_593_7 * s_;
-        let b_star = 0.025_904_037 * l_ + 0.782_771_77 * m_ - 0.808_675_77 * s_;
+        let ok_l = 0.210_454_26 * l_ + 0.793_617_8 * m_ - 0.004_072_047 * s_;
+        let ok_a = 1.977_998_5 * l_ - 2.428_592_2 * m_ + 0.450_593_7 * s_;
+        let ok_b = 0.025_904_037 * l_ + 0.782_771_77 * m_ - 0.808_675_77 * s_;
 
-        // Oklab -> Oklch (極座標変換)
-        let c = (a_star * a_star + b_star * b_star).sqrt();
-        let mut h = b_star.atan2(a_star).to_degrees();
-        if h < 0.0 {
-            h += 360.0;
-        }
+        (ok_l, ok_a, ok_b, self.a)
+    }
 
-        (l_star, c, h)
+    /// Oklab (L: 0.0..1.0, a: -0.4..0.4, b: -0.4..0.4)
+    #[inline]
+    #[must_use]
+    pub fn to_oklab(self) -> (f32, f32, f32) {
+        let (l, a, b, _) = self.to_oklaba();
+        (l, a, b)
+    }
+
+    /// Generate from Oklch (L: 0.0..1.0, Chroma: 0.0..0.4+, Hue: 0..360°)
+    #[inline]
+    #[must_use]
+    pub fn oklch(l: f32, c: f32, h: f32) -> Self {
+        Self::oklcha(l, c, h, 1.0)
+    }
+
+    /// Generate it by adding an alpha value to Oklch
+    #[inline]
+    #[must_use]
+    pub fn oklcha(l: f32, c: f32, h: f32, alpha: f32) -> Self {
+        let h_rad = h.to_radians();
+        let a = c * h_rad.cos();
+        let b = c * h_rad.sin();
+        Self::oklaba(l, a, b, alpha)
+    }
+
+    /// Converts sRGB to Oklcha (Lightness: 0.0..=1.0, Chroma: 0.0.., Hue: 0.0..=360.0, alpha: 0.0..=1.0)
+    #[inline]
+    #[must_use]
+    pub fn to_oklcha(self) -> (f32, f32, f32, f32) {
+        // 先に Oklab を取得
+        let (l, a, b, alpha) = self.to_oklaba();
+
+        // Chroma (彩度): a と b のユークリッド距離
+        let c = a.hypot(b);
+
+        // Hue (色相): atan2(b, a) から角度を計算
+        // 微小な浮動小数点誤差がある場合は、彩度・色相ともに完全な 0.0 に倒す
+        let (c, h) = if c < 1e-6 {
+            (0.0, 0.0)
+        } else {
+            let mut h = b.atan2(a).to_degrees();
+            if h < 0.0 {
+                // 角度がマイナスの場合は 0..360 の範囲に補正
+                h += 360.0;
+            }
+            (c, h)
+        };
+
+        (l, c, h, alpha)
+    }
+
+    /// Converts sRGB to Oklch (Lightness: 0.0..=1.0, Chroma: 0.0.., Hue: 0.0..=360.0)
+    #[inline]
+    #[must_use]
+    pub fn to_oklch(self) -> (f32, f32, f32) {
+        let (l, c, h, _) = self.to_oklcha();
+        (l, c, h)
     }
 
     /// Replace the Oklch brightness value (0.0..=1.0)
@@ -382,6 +500,22 @@ impl Color {
         self.saturate(-amount)
     }
 
+    /// Naturally interpolate between two colors in Oklab space (t: 0.0..=1.0)
+    #[inline]
+    #[must_use]
+    pub fn lerp(self, other: Self, t: f32) -> Self {
+        let t = t.clamp(0.0, 1.0);
+        let (l1, a1, b1, alpha1) = self.to_oklaba();
+        let (l2, a2, b2, alpha2) = other.to_oklaba();
+
+        Self::oklaba(
+            l1 + (l2 - l1) * t,
+            a1 + (a2 - a1) * t,
+            b1 + (b2 - b1) * t,
+            alpha1 + (alpha2 - alpha1) * t,
+        )
+    }
+
     /// Pass `self` to the closure to perform custom color changes inline.
     ///
     /// # Example
@@ -421,6 +555,30 @@ impl Color {
         F: FnOnce(Self) -> R,
     {
         f(self)
+    }
+
+    /// Convert Linear sRGB to Standard sRGB
+    #[inline]
+    #[must_use]
+    pub fn linear_to_srgb(x: f32) -> f32 {
+        let clamped = x.clamp(0.0, 1.0);
+        if clamped <= 0.003_130_8 {
+            12.92 * clamped
+        } else {
+            1.055 * clamped.powf(1.0 / 2.4) - 0.055
+        }
+    }
+
+    /// Remove the sRGB gamma and convert to Linear sRGB
+    #[inline]
+    #[must_use]
+    pub fn srgb_to_linear(x: f32) -> f32 {
+        let clamped = x.clamp(0.0, 1.0);
+        if clamped <= 0.04045 {
+            clamped / 12.92
+        } else {
+            ((clamped + 0.055) / 1.055).powf(2.4)
+        }
     }
 }
 
@@ -477,29 +635,8 @@ fn parse_u32_to_color(num: u32, is_8digit: bool) -> Color {
     }
 }
 
-// Linear sRGB を通常 sRGB に変換
-#[inline]
-fn linear_to_srgb(x: f32) -> f32 {
-    let clamped = x.clamp(0.0, 1.0);
-    if clamped <= 0.003_130_8 {
-        12.92 * clamped
-    } else {
-        1.055 * clamped.powf(1.0 / 2.4) - 0.055
-    }
-}
-
-// sRGB のガンマを除去して Linear sRGB に変換
-#[inline]
-fn srgb_to_linear(x: f32) -> f32 {
-    let clamped = x.clamp(0.0, 1.0);
-    if clamped <= 0.04045 {
-        clamped / 12.92
-    } else {
-        ((clamped + 0.055) / 1.055).powf(2.4)
-    }
-}
-
 #[cfg(test)]
+#[expect(clippy::float_cmp)]
 mod tests {
     use super::*;
 
@@ -839,5 +976,179 @@ mod tests {
 
         let is_bright = col.map_into(|c| c.r > 0.5);
         assert!(is_bright);
+    }
+
+    #[test]
+    fn test_to_rgba8() {
+        // 代表色の変換確認
+        assert_eq!(Color::RED.to_rgba8(), (255, 0, 0, 1.0));
+        assert_eq!(Color::GREEN.to_rgba8(), (0, 255, 0, 1.0));
+        assert_eq!(Color::BLUE.to_rgba8(), (0, 0, 255, 1.0));
+        assert_eq!(Color::BLACK.to_rgba8(), (0, 0, 0, 1.0));
+        assert_eq!(Color::WHITE.to_rgba8(), (255, 255, 255, 1.0));
+
+        // 0.5 は四捨五入で 128
+        assert_eq!(Color::GRAY.to_rgba8(), (128, 128, 128, 1.0));
+
+        // a (f32) がそのまま維持されることの確認
+        let semi_red = Color::RED.with_alpha(0.42);
+        assert_eq!(semi_red.to_rgba8(), (255, 0, 0, 0.42));
+
+        // 0.0 未満および 1.0 超過の値が安全に clamp されるか
+        let out_of_range = Color {
+            r: -0.5,
+            g: 1.5,
+            b: 0.5,
+            a: 2.0,
+        };
+        assert_eq!(out_of_range.to_rgba8(), (0, 255, 128, 2.0));
+    }
+
+    #[test]
+    fn test_to_hex() {
+        // 0xRRGGBB の数値 (u32) への変換
+        assert_eq!(Color::RED.to_hex(), 0x00FF_0000);
+        assert_eq!(Color::GREEN.to_hex(), 0x0000_FF00);
+        assert_eq!(Color::BLUE.to_hex(), 0x0000_00FF);
+        assert_eq!(Color::WHITE.to_hex(), 0x00FF_FFFF);
+        assert_eq!(Color::BLACK.to_hex(), 0x0000_0000);
+        assert_eq!(Color::GRAY.to_hex(), 0x0080_8080);
+        assert_eq!(Color::YELLOW.to_hex(), 0x00FF_FF00);
+        assert_eq!(Color::CYAN.to_hex(), 0x0000_FFFF);
+        assert_eq!(Color::MAGENTA.to_hex(), 0x00FF_00FF);
+    }
+
+    #[test]
+    fn test_to_hex_string() {
+        // "rrggbbaa" (8桁小文字) 文字列への変換
+        assert_eq!(Color::RED.to_hex_string(), "ff0000ff");
+        assert_eq!(Color::GREEN.to_hex_string(), "00ff00ff");
+        assert_eq!(Color::BLUE.to_hex_string(), "0000ffff");
+        assert_eq!(Color::WHITE.to_hex_string(), "ffffffff");
+        assert_eq!(Color::BLACK.to_hex_string(), "000000ff");
+        assert_eq!(Color::TRANSPARENT.to_hex_string(), "00000000");
+
+        // 半透明 (a: 0.5 -> "80")
+        let semi_gray = Color::GRAY.with_alpha(0.5);
+        assert_eq!(semi_gray.to_hex_string(), "80808080");
+    }
+
+    #[test]
+    fn test_to_hsla_and_hsl() {
+        // 1. 基本色の確認
+        let (h, s, l, a) = Color::RED.to_hsla();
+        assert!((h - 0.0).abs() < EPS);
+        assert!((s - 100.0).abs() < EPS);
+        assert!((l - 50.0).abs() < EPS);
+        assert_eq!(a, 1.0);
+
+        let (h, s, l, _) = Color::GREEN.to_hsla();
+        assert!((h - 120.0).abs() < EPS);
+        assert!((s - 100.0).abs() < EPS);
+        assert!((l - 50.0).abs() < EPS);
+
+        let (h, s, l, _) = Color::BLUE.to_hsla();
+        assert!((h - 240.0).abs() < EPS);
+        assert!((s - 100.0).abs() < EPS);
+        assert!((l - 50.0).abs() < EPS);
+
+        // 2. 無彩色（delta == 0）時の挙動確認
+        // GRAY は H=0, S=0, L=50%
+        let (h, s, l, _) = Color::GRAY.to_hsla();
+        assert_eq!(h, 0.0);
+        assert_eq!(s, 0.0);
+        assert!((l - 50.0).abs() < EPS);
+
+        // WHITE は H=0, S=0, L=100%
+        let (h, s, l, _) = Color::WHITE.to_hsla();
+        assert_eq!(h, 0.0);
+        assert_eq!(s, 0.0);
+        assert!((l - 100.0).abs() < EPS);
+
+        // BLACK は H=0, S=0, L=0%
+        let (h, s, l, _) = Color::BLACK.to_hsla();
+        assert_eq!(h, 0.0);
+        assert_eq!(s, 0.0);
+        assert_eq!(l, 0.0);
+
+        // 3. to_hsl とアルファの保持確認
+        let (h, s, l) = Color::RED.with_alpha(0.3).to_hsl();
+        assert!((h - 0.0).abs() < EPS);
+        assert!((s - 100.0).abs() < EPS);
+        assert!((l - 50.0).abs() < EPS);
+
+        let (_, _, _, a) = Color::RED.with_alpha(0.3).to_hsla();
+        assert_eq!(a, 0.3);
+    }
+
+    #[test]
+    fn test_to_oklaba_and_oklab() {
+        // 黒 (L=0, a=0, b=0)
+        let (l, a, b, alpha) = Color::BLACK.to_oklaba();
+        assert!(l.abs() < EPS);
+        assert!(a.abs() < EPS);
+        assert!(b.abs() < EPS);
+        assert_eq!(alpha, 1.0);
+
+        // 白 (L=1, a=0, b=0)
+        let (l, a, b, _) = Color::WHITE.to_oklaba();
+        assert!((l - 1.0).abs() < EPS);
+        assert!(a.abs() < EPS);
+        assert!(b.abs() < EPS);
+
+        // 赤 (代表的な Oklab 値との一致確認)
+        let (l, a, b, _) = Color::RED.to_oklaba();
+        assert!((l - 0.627_955).abs() < EPS);
+        assert!((a - 0.224_863).abs() < EPS);
+        assert!((b - 0.125_846).abs() < EPS);
+
+        // to_oklab (alphaなし) のタプル要素数・値の整合性
+        let (l2, a2, b2) = Color::RED.to_oklab();
+        assert_eq!(l, l2);
+        assert_eq!(a, a2);
+        assert_eq!(b, b2);
+
+        // 往復変換（Color -> to_oklaba -> oklaba -> Color）の整合性
+        let original = Color::rgba_f32(0.3, 0.6, 0.9, 0.7);
+        let (l, a, b, alpha) = original.to_oklaba();
+        let restored = Color::oklaba(l, a, b, alpha);
+        assert_color_approx_eq(restored, original);
+    }
+
+    #[test]
+    fn test_to_oklcha_and_oklch() {
+        // 無彩色: Chroma ≈ 0, Hue = 0
+        let (l, c, h, alpha) = Color::GRAY.to_oklcha();
+        assert!(l > 0.0);
+        assert_eq!(c, 0.0);
+        assert_eq!(h, 0.0); // 無彩色の色相不定ガード
+        assert_eq!(alpha, 1.0);
+
+        // 赤: L ≈ 0.628, Chroma ≈ 0.258, Hue ≈ 29.23°
+        let (l, c, h, alpha) = Color::RED.with_alpha(0.65).to_oklcha();
+        assert!((l - 0.627_955).abs() < EPS);
+        assert!((c - 0.257_683).abs() < EPS);
+        assert!((h - 29.233_885).abs() < 1e-2);
+        assert_eq!(alpha, 0.65);
+
+        // to_oklch (alphaなし) の整合性
+        let (l2, c2, h2) = Color::RED.to_oklch();
+        assert_eq!(l, l2);
+        assert_eq!(c, c2);
+        assert_eq!(h, h2);
+
+        // 色相（h）が常に 0.0..=360.0 の範囲に収まるか
+        let test_colors = [
+            Color::RED,
+            Color::GREEN,
+            Color::BLUE,
+            Color::YELLOW,
+            Color::CYAN,
+            Color::MAGENTA,
+        ];
+        for col in test_colors {
+            let (_, _, h) = col.to_oklch();
+            assert!((0.0..=360.0).contains(&h), "Hue out of range: {h}");
+        }
     }
 }
