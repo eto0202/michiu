@@ -6,6 +6,7 @@ pub mod cursor;
 pub mod font;
 pub mod from_into;
 pub mod geometry;
+pub mod gradient;
 pub mod index;
 pub mod input;
 pub mod interaction;
@@ -22,6 +23,7 @@ pub use cursor::*;
 pub use font::*;
 pub use from_into::*;
 pub use geometry::*;
+pub use gradient::*;
 pub use index::*;
 pub use input::*;
 pub use interaction::*;
@@ -212,28 +214,6 @@ pub struct GridLine<T> {
     pub end: T,
 }
 
-#[repr(C)]
-#[derive(Debug, Clone, Copy, PartialEq, Default, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct LinearGradient {
-    pub start_color: Color,
-    pub end_color: Color,
-    pub angle: f32,               // ラジアン単位の角度
-    pub(crate) padding: [f32; 3], // アライメント
-}
-
-impl LinearGradient {
-    #[inline]
-    #[must_use]
-    pub fn new(start_color: Color, end_color: Color, angle_degrees: f32) -> Self {
-        Self {
-            start_color,
-            end_color,
-            angle: angle_degrees.to_radians(),
-            padding: [0.0; 3],
-        }
-    }
-}
-
 /// Windows 11's Native System Background Blur Effect
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[repr(i32)]
@@ -267,7 +247,6 @@ pub enum BorderAlignment {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::f32::consts::PI;
 
     #[test]
     fn test_is_row() {
@@ -299,52 +278,6 @@ mod tests {
                 dir.is_row(),
                 dir.is_col(),
                 "{dir:?} should not be both or neither"
-            );
-        }
-    }
-
-    #[test]
-    fn test_linear_gradient_new() {
-        let start = Color::RED;
-        let end = Color::BLUE;
-        let deg = 180.0;
-
-        let grad = LinearGradient::new(start, end, deg);
-
-        // カラーが正しくセットされているか
-        assert_eq!(grad.start_color, start);
-        assert_eq!(grad.end_color, end);
-
-        // 角度がラジアンに変換されているか
-        let expected_rad = PI;
-        assert!(
-            (grad.angle - expected_rad).abs() < 1e-6,
-            "expected {expected_rad}, but got {}",
-            grad.angle
-        );
-
-        // パディングがゼロクリアされているか
-        assert_eq!(grad.padding.map(f32::to_bits), [0; 3]);
-    }
-
-    #[test]
-    fn test_linear_gradient_angle_variations() {
-        let dummy = Color::default();
-
-        // 代表的な角度の変換チェック
-        let cases = [
-            (0.0, 0.0),
-            (90.0, PI / 2.0),
-            (360.0, 2.0 * PI),
-            (-90.0, -PI / 2.0),
-        ];
-
-        for (deg, expected_rad) in cases {
-            let grad = LinearGradient::new(dummy, dummy, deg);
-            assert!(
-                (grad.angle - expected_rad).abs() < 1e-6,
-                "deg {deg}: expected {expected_rad}, got {}",
-                grad.angle
             );
         }
     }

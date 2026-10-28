@@ -192,17 +192,18 @@ use crate::{
     BatchType, BoxSizing, ClipRectsSecondary, Color, ComponentMask, Context, CornerRadius,
     DEFAULT_BASIC, DEFAULT_FLEX, DebugStore, DirtyLayoutEntitiesVec, DrawBatch, EdgeInsets,
     ElementState, Entity, EventStore, ExternalTextureAlphaMode, ExternalTextureCompositingMode,
-    ExternalTextureSparse, FlatDfsSequenceVec, FlexLayout, FocusStore, IDENTITY_MATRIX, ImeState,
-    InputContentsSparse, InteractionState, LayoutPoint, LayoutRect, LayoutSize, LayoutStore,
-    MichiuError, MichiuSoA, Modifiers, MouseButton, OptionTraceExt, OutputStore, ParentsSecondary,
-    PrevClipRectsSecondary, PrevRectsSecondary, QuadInstance, ReactiveStore, RectsSecondary,
-    RenderData, RenderStore, RendererView, ResolvedBasicSecondary, ResolvedFlexSecondary,
-    ResolvedGeometry, ResolvedGridSparse, ScrollBarState, ScrollOffsetsSecondary, ScrollStore,
-    ScrollbarStore, ScrollbarStylesSparse, StrikethroughStyle, SystemStore, TaffyNodesSecondary,
-    TaffyResultTraceExt, TaffyTreeEntity, TextEditStore, TextEngine, TextLayoutSize, TextSpan,
-    TopologyStore, TraceEventList, UnderlineStyle, VirtualKey, VisualProperty, bind_context,
-    handle_on_active, handle_on_char_input, handle_on_disable, handle_on_file_dropped,
-    handle_on_ime, handle_on_select,
+    ExternalTextureSparse, FlatDfsSequenceVec, FlexLayout, FocusStore, GradientType,
+    IDENTITY_MATRIX, ImeState, InputContentsSparse, InteractionState, LayoutPoint, LayoutRect,
+    LayoutSize, LayoutStore, LinearGradientInner, MichiuError, MichiuSoA, Modifiers, MouseButton,
+    OptionTraceExt, OutputStore, ParentsSecondary, PrevClipRectsSecondary, PrevRectsSecondary,
+    QuadInstance, ReactiveStore, RectsSecondary, RenderData, RenderStore, RendererView,
+    ResolvedBasicSecondary, ResolvedFlexSecondary, ResolvedGeometry, ResolvedGridSparse,
+    ScrollBarState, ScrollOffsetsSecondary, ScrollStore, ScrollbarStore, ScrollbarStylesSparse,
+    StrikethroughStyle, SystemStore, TaffyNodesSecondary, TaffyResultTraceExt, TaffyTreeEntity,
+    TextEditStore, TextEngine, TextLayoutSize, TextSpan, TopologyStore, TraceEventList,
+    UnderlineStyle, VirtualKey, VisualProperty, bind_context, handle_on_active,
+    handle_on_char_input, handle_on_disable, handle_on_file_dropped, handle_on_ime,
+    handle_on_select,
 };
 #[cfg(feature = "trace-lifecycle")]
 use crate::{
@@ -2276,9 +2277,12 @@ impl Pipeline {
         visual: &VisualProperty,
     ) {
         let bg_color = visual.bg_color.unwrap_or_default();
-        let (gradient_end_color, gradient_angle, bg_mode) = match visual.bg_gradient {
-            Some(g) => (g.end_color, g.angle, 1.0f32),
-            None => (bg_color, 0.0, 0.0f32),
+        let (gradient, bg_mode) = match visual.bg_gradient {
+            Some(g) => match g.grad_type {
+                GradientType::Linear => (g.inner, 1.0f32),
+                GradientType::FourCorners => (g.inner, 5.0f32),
+            },
+            None => (LinearGradientInner::default(), 0.0f32),
         };
 
         let bg_instance = QuadInstance {
@@ -2291,8 +2295,7 @@ impl Pipeline {
             border_color: params.border_color,
             border_lengths: params.border_lengths,
             opacity_mode_sizing: [params.opacity, bg_mode, params.box_sizing_val, 0.0],
-            gradient_end_color,
-            gradient_angle,
+            gradient,
             shadow_color: Color::WHITE,
             shadow_params: [0.0; 4],
             outline_width: params.outline_width,

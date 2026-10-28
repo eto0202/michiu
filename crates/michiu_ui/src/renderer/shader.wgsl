@@ -23,8 +23,9 @@ struct InstanceData {
     border_color: vec4<f32>,
     opacity_mode_sizing: vec4<f32>,
     uv_range: vec4<f32>,
-    gradient_end_color: vec4<f32>,
-    gradient_angle_and_origin: vec4<f32>,
+    gradient: LinearGradientInner,
+    transform_origin: vec2<f32>,
+    _transform_origin_pad: vec2<f32>,
     shadow_color: vec4<f32>,
     shadow_params: vec4<f32>,
     border_lengths: vec4<f32>,
@@ -33,6 +34,14 @@ struct InstanceData {
     outline_lengths: vec4<f32>,
     outline_offset_and_flags: vec4<f32>,
     alpha_mode_y_flip_srgb_gamma: vec4<f32>,
+};
+
+struct LinearGradientInner {
+    colors: array<vec4<f32>, 4>, // 64B (各要素は vec4 なので align 16, stride 16)
+    stops: vec4<f32>,            // 16B
+    angle: f32,                  // 4B
+    stop_count: u32,             // 4B
+    origin: vec2<f32>,           // 8B
 };
 
 @group(0) @binding(3) var<storage, read> instances: array<InstanceData>;
@@ -98,7 +107,7 @@ fn vs_main(vertex: VertexInput, @builtin(instance_index) instance_idx: u32) -> V
     );
 
     // トランスフォーム中心 (Transform Origin) の考慮
-    let origin_pixel = instance.gradient_angle_and_origin.yz * size_vec;
+    let origin_pixel = instance.transform_origin * size_vec;
     // 拡張されたピクセル座標にトランスフォームを適用
     let pos_centered = local_pixel - origin_pixel;
     let pos_transformed = (transform * vec4<f32>(pos_centered, 0.0, 1.0)).xy + origin_pixel;
@@ -185,7 +194,6 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // 入力されるすべての sRGB カラーを Linear 空間へ一斉デガンマ
     let color_linear = srgb_to_linear(instance.color);
     let border_color_linear = srgb_to_linear(instance.border_color);
-    let gradient_end_linear = srgb_to_linear(instance.gradient_end_color);
     let shadow_color_linear = srgb_to_linear(instance.shadow_color);
 
     let min_edge = min(size_vec.x, size_vec.y);
@@ -497,12 +505,12 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         // 通常（Solid / グラデーション描画、PMA）
         var base_color = color_linear;
         if mode == 1.0 {
-            // 2色グラデーション
-            let angle = instance.gradient_angle_and_origin.x;
-            let dir = vec2<f32>(cos(angle), sin(angle));
-            let proj = dot(local_center, dir) / (length(size_vec) * 0.5);
-            let t = clamp(proj * 0.5 + 0.5, 0.0, 1.0);
-            base_color = mix(color_linear, gradient_end_linear, t);
+            // 線形グラデーションの原点ピクセル (デフォルトは中央 size * 0.5)
+            let grad_center = in.local_pos - (instance.gradient.origin * size_vec);
+            base_color = sample_gradient(instance.gradient, grad_center, size_vec);
+        } else if mode == 5.0 {
+            // 四隅グラデーション
+            base_color = sample_four_corner_gradient(instance.gradient, in.local_pos, size_vec);
         }
         entity_color = vec4<f32>(base_color.rgb * base_color.a * opacity, base_color.a * opacity);
     }
@@ -529,4 +537,73 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     final_color = base_with_outline + shadow_out * (1.0 - base_with_outline.a);
 
     return final_color;
+}
+
+fn sample_gradient(grad: LinearGradientInner, local_pos: vec2<f32>, size: vec2<f32>) -> vec4<f32> {
+    // CSS角度から方向ベクトルを計算 (Y軸が下向き画面の場合)
+    // CSS: 0deg = 上 (0, -1), 90deg = 右 (1, 0)
+    let dir = vec2<f32>(sin(grad.angle), -cos(grad.angle));
+
+    // CSS仕様のグラデーション全長 (対角四隅が収まる長さ)
+    let grad_length = abs(size.x * dir.x) + abs(size.y * dir.y);
+
+    // 中心からの投影距離を 0.0 ~ 1.0 に正規化
+    let proj = dot(local_pos, dir);
+    let t = clamp((proj / grad_length) + 0.5, 0.0, 1.0);
+
+    // カラーストップの評価
+    // 最初のストップより前
+    if t <= grad.stops[0] {
+        return srgb_to_linear(grad.colors[0]);
+    }
+
+    // ストップ間の補間 (ループで探索)
+    for (var i = 0u; i < grad.stop_count - 1u; i = i + 1u) {
+        let s0 = grad.stops[i];
+        let s1 = grad.stops[i + 1u];
+
+        if t >= s0 && t <= s1 {
+            let factor = select(0.0, (t - s0) / (s1 - s0), s1 > s0);
+            let c0 = srgb_to_linear(grad.colors[i]);
+            let c1 = srgb_to_linear(grad.colors[i + 1u]);
+            return mix(c0, c1, factor);
+        }
+    }
+
+    // 最後のストップ以降
+    return srgb_to_linear(grad.colors[grad.stop_count - 1u]);
+}
+
+fn sample_four_corner_gradient(grad: LinearGradientInner, local_pos: vec2<f32>, size: vec2<f32>) -> vec4<f32> {
+    let uv = clamp(local_pos / size, vec2<f32>(0.0), vec2<f32>(1.0));
+
+    // ゼロ除算防止のため origin を 0.001 ~ 0.999 に安全にクランプ
+    let ox = clamp(grad.origin.x, 0.001, 0.999);
+    let oy = clamp(grad.origin.y, 0.001, 0.999);
+
+    // origin の位置を中間点 0.5にするよう UV を区分線形変換
+    // origin が 0.5, 0.5 のときは、通常の u = uv.x, v = uv.y と完全に一致
+    let u = select(
+        0.5 + 0.5 * ((uv.x - ox) / (1.0 - ox)),
+        0.5 * (uv.x / ox),
+        uv.x < ox
+    );
+    let v = select(
+        0.5 + 0.5 * ((uv.y - oy) / (1.0 - oy)),
+        0.5 * (uv.y / oy),
+        uv.y < oy
+    );
+
+    // 各隅の色をリニア空間に変換
+    let c_top_left = srgb_to_linear(grad.colors[0]);
+    let c_top_right = srgb_to_linear(grad.colors[1]);
+    let c_bottom_left = srgb_to_linear(grad.colors[2]);
+    let c_bottom_right = srgb_to_linear(grad.colors[3]);
+
+    // X方向に補間
+    let top = mix(c_top_left, c_top_right, u);
+    let bottom = mix(c_bottom_left, c_bottom_right, u);
+
+    // Y方向に補間してブレンド
+    return mix(top, bottom, v);
 }

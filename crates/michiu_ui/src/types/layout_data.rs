@@ -1,10 +1,11 @@
 use crate::{
     AlignContent, AlignItems, AlignSelf, Backdrop, BaseVisualPropertiesSecondary, BorderAlignment,
     BorderStyle, BoxShadow, BoxSizing, Color, ComponentMask, CornerRadius, CursorIcon, Direction,
-    Display, EdgeInsets, Entity, FlexDirection, FlexWrap, Focusable, FontDate, GridAutoFlow,
-    GridLine, GridPlacement, IDENTITY_MATRIX, JustifyContent, KeyframeAnimation, LayoutOverflow,
-    Length, LinearGradient, MichiuSoA, ModTarget, Modifier, Point, PointerEvents, Position, Rect,
-    Size, TextAlign, Transition, UserSelect, Val, VisualPropertiesSecondary,
+    Display, EdgeInsets, Entity, FlexDirection, FlexWrap, Focusable, FontDate,
+    GridAutoFlow, GridLine, GridPlacement, IDENTITY_MATRIX, JustifyContent, KeyframeAnimation,
+    LayoutOverflow, Length, LinearGradient, MichiuSoA, ModTarget, Modifier,
+    Point, PointerEvents, Position, Rect, Size, TextAlign, Transition, UserSelect, Val,
+    VisualPropertiesSecondary,
 };
 use std::{
     borrow::Cow,
@@ -375,6 +376,8 @@ impl VisualProperty {
     pub(crate) fn override_with(&mut self, other: &Self, mask: ComponentMask) {
         if mask.has(ComponentMask::STYLE_BG_COLOR) {
             self.bg_color = other.bg_color;
+        }
+        if mask.has(ComponentMask::STYLE_GRADIENT) {
             self.bg_gradient = other.bg_gradient;
         }
         if mask.has(ComponentMask::STYLE_BORDER_COLOR) {

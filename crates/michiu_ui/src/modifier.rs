@@ -5683,7 +5683,7 @@ impl Modifier {
         self
     }
 
-    /// Set a two-color linear gradient as the background.
+    /// Set a linear gradient as the background.
     #[inline]
     #[must_use]
     pub fn bg_gradient(mut self, gradient: impl IntoModValue<LinearGradient>) -> Self {
@@ -5691,11 +5691,11 @@ impl Modifier {
             ModValue::Static(v) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.visual_property.bg_gradient = Some(v);
-                inner.mask.set(ComponentMask::STYLE_BG_COLOR);
+                inner.mask.set(ComponentMask::STYLE_GRADIENT);
             }
             ModValue::Dynamic(getter) => {
                 let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(ComponentMask::STYLE_BG_COLOR);
+                inner.mask.set(ComponentMask::STYLE_GRADIENT);
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
                     cx.get_visual_property_mut(id, target).bg_gradient = Some(val);
