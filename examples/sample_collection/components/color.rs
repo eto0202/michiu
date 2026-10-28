@@ -2,6 +2,7 @@ use crate::app::theme::Theme;
 use michiu::prelude::*;
 use std::{
     cell::{Cell, RefCell},
+    ops::{Deref, DerefMut},
     rc::Rc,
 };
 
@@ -85,7 +86,7 @@ fn section(left: Entity, right: Entity) -> Entity {
 
 fn base_item<F, I>(t: &'static str, color_f: F, entities: I) -> Entity
 where
-    F: Fn(&Color) -> Color + Send + Sync + 'static,
+    F: Fn(&CurrentColor) -> Color + Send + Sync + 'static,
     I: IntoIterator<Item = Entity>,
 {
     let title = text(t).modify(ii().text_color(dynamic(|t: &Theme| t.text)));
@@ -96,7 +97,7 @@ where
             flex(
                 ii().r(3.0)
                     .size(60.0)
-                    .bg_color(dynamic(move |c: &Color| color_f(c))),
+                    .bg_color(dynamic(move |c: &CurrentColor| color_f(c))),
             ),
             h_flex(ii().gap(6.0).justify_start().items_start()).children(entities),
         ]),
@@ -594,20 +595,32 @@ fn oklcha_item(store: &ColorStore) -> Entity {
     )
 }
 
+/// Resulting state after parsing the input
+///
 /// 入力パースの結果状態
-pub enum ParseResult<T> {
+enum ParseResult<T> {
+    /// Empty characters or characters entered mid-input (such as “-” or “.”) → Do nothing; hold
+    ///
     /// 空文字や入力途中（"-" や "."）→ 何もせず保留
     Pending,
+    /// Values within the range → Update only the color (do not change the text)
+    ///
     /// 範囲内の正常値 → 色だけ更新（テキストは触らない）
     Valid(T),
+    /// Out of range (e.g., 999 or negative numbers) → Force the text in the input field to match the clamping value and update the color
+    ///
     /// 範囲外（999 や負数など） → 入力欄の文字もクランプ値に強制補正して色を更新
     Clamped(T),
 }
 
-pub trait ClampInput: Copy + std::fmt::Display {
+trait ClampInput: Copy + std::fmt::Display {
+    /// Whether to allow negative signs (-)
+    ///
     /// 負の符号 (-) を許可するかどうか
     fn allows_negative(min: Self) -> bool;
 
+    /// Parse the input string and determine its state
+    ///
     /// 入力文字列をパースし、状態を判定する
     fn parse_input(s: &str, min: Self, max: Self) -> ParseResult<Self>;
 
@@ -618,7 +631,9 @@ pub trait ClampInput: Copy + std::fmt::Display {
 
 impl ClampInput for u8 {
     fn allows_negative(_min: Self) -> bool {
-        false // u8 (RGB など) は常にマイナス禁止
+        // u8 (RGB, etc.) must never be negative
+        // u8 (RGB など) は常にマイナス禁止
+        false
     }
 
     fn parse_input(s: &str, min: Self, max: Self) -> ParseResult<Self> {
@@ -639,6 +654,7 @@ impl ClampInput for u8 {
             }
             Err(e) => match e.kind() {
                 // 桁数が多すぎる場合は最大値に補正
+                // If there are too many digits, round to the maximum value
                 std::num::IntErrorKind::PosOverflow => ParseResult::Clamped(max),
                 std::num::IntErrorKind::NegOverflow => ParseResult::Clamped(min),
                 _ => ParseResult::Pending,
@@ -649,11 +665,14 @@ impl ClampInput for u8 {
 
 impl ClampInput for f32 {
     fn allows_negative(min: Self) -> bool {
-        min < 0.0 // OKLAB のように min が負の場合のみマイナス許可
+        // // As with OKLAB, negative values are allowed only when min is negative
+        // OKLAB のように min が負の場合のみマイナス許可
+        min < 0.0
     }
 
     fn parse_input(s: &str, min: Self, max: Self) -> ParseResult<Self> {
         let s = s.trim();
+        // Empty characters and individual symbols entered mid-input are held
         // 空文字や入力途中の記号単体は保留
         if s.is_empty() || s == "-" || s == "." || s == "-." {
             return ParseResult::Pending;
@@ -682,37 +701,63 @@ impl ClampInput for f32 {
 #[derive(Clone)]
 #[expect(clippy::type_complexity)]
 struct ColorStore {
-    color: (ReadSignal<Color>, WriteSignal<Color>),
-    // 色を受け取って全フィールドの文字列を更新するリスナーのリスト
-    listeners: Rc<RefCell<Vec<Box<dyn Fn(&Color)>>>>,
+    color: (ReadSignal<CurrentColor>, WriteSignal<CurrentColor>),
+    /// A list of listeners that receive a color and update the strings in all fields
+    ///
+    /// 色を受け取って全フィールドの文字列を更新するリスナーのリスト
+    listeners: Rc<RefCell<Vec<Box<dyn Fn(&CurrentColor)>>>>,
+}
+
+#[derive(Clone)]
+struct CurrentColor {
+    color: Color,
+}
+
+impl Deref for CurrentColor {
+    type Target = Color;
+    fn deref(&self) -> &Self::Target {
+        &self.color
+    }
+}
+impl DerefMut for CurrentColor {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.color
+    }
 }
 
 impl ColorStore {
     fn new(initial: Color) -> Self {
         Self {
-            color: create_signal(initial),
+            color: create_signal(CurrentColor { color: initial }),
             listeners: Rc::new(RefCell::new(Vec::new())),
         }
     }
 
+    /// Called when a palette is clicked or when input is confirmed
+    ///
     /// パレットクリックや、入力確定時に呼ぶ
     fn set_color(&self, new_color: Color) {
-        self.color.1.set(new_color);
+        self.color.1.set(CurrentColor { color: new_color });
+        // Update all registered fields with the new color
         // 登録されている全フィールドを新しい色で更新
         for listener in self.listeners.borrow().iter() {
-            listener(&new_color);
+            listener(&CurrentColor { color: new_color });
         }
     }
 
+    /// /// Register update functions for each input
+    ///
     /// 各 Input の更新関数を登録する
     fn register<F>(&self, update_fn: F)
     where
-        F: Fn(&Color) + 'static,
+        F: Fn(&CurrentColor) + 'static,
     {
         self.listeners.borrow_mut().push(Box::new(update_fn));
     }
 }
 
+/// A helper for creating a numeric input field with synchronization functionality
+///
 /// 同期機能つきの数値Inputを作るヘルパー
 fn synced_num_input<T, G, S>(
     store: &ColorStore,
@@ -730,14 +775,17 @@ where
     let text = create_signal(String::new());
     let (text_r, text_w) = text;
 
+    // A flag indicating whether the user is currently typing
     // 自分が入力中かどうかを示すフラグ
     let is_editing = Rc::new(Cell::new(false));
 
+    // Synchronization When the Color Changes
     // 色が変わったときの同期処理
     {
         let is_editing = is_editing.clone();
         store.register(move |color| {
-            // 自分が入力した結果で set_color された時は自分の文字を上書きしない
+            // When `set_color` is triggered by something you entered, do not overwrite your own text.
+            // 自分が入力した結果で `set_color` された時は自分の文字を上書きしない
             if is_editing.get() {
                 return;
             }
@@ -746,6 +794,7 @@ where
         });
     }
 
+    // When I am entered, calculate a new color and notify Store
     // 自分が入力されたときは、新しい色を計算して Store に通知
     let store_clone = store.clone();
     input(move || {
@@ -767,6 +816,7 @@ where
     .on_char_input(move |_| {
         let raw = text_r.get();
 
+        // If a ‘-’ is entered in a field where negative numbers are not allowed, remove it immediately.
         // 負数が禁止されている項目で '-' が打たれたら即座に除去する
         let input_text = if !T::allows_negative(min) && raw.contains('-') {
             let cleaned: String = raw.chars().filter(|&c| c != '-').collect();
@@ -778,10 +828,12 @@ where
 
         match T::parse_input(&input_text, min, max) {
             ParseResult::Pending => {
-                // 保留：全消し時や、"-" "." などの入力途中は何もしない
+                // Do nothing when all characters are cleared or while typing characters such as “-” or “.”
+                // 全消し時や、"-" "." などの入力途中は何もしない
             }
             ParseResult::Valid(val) => {
-                // 正常値：色だけ更新しテキスト欄はそのまま
+                // Only the color is updated; the text field remains unchanged.
+                // 色だけ更新しテキスト欄はそのまま
                 let current_color = store_clone.color.0.get();
                 let new_color = setter(&current_color, val);
 
@@ -790,7 +842,8 @@ where
                 is_editing.set(false);
             }
             ParseResult::Clamped(val) => {
-                // 範囲外：入力欄のテキスト自体も最大値/最小値に補正し色を更新
+                // Adjust the text in the input field to the maximum/minimum values and update its color
+                // 入力欄のテキスト自体も最大値/最小値に補正し色を更新
                 text_w.set(val.format_val());
 
                 let current_color = store_clone.color.0.get();
@@ -804,6 +857,8 @@ where
     })
 }
 
+/// HEX Input helper with synchronization functionality
+///
 /// 同期機能つきの HEX Input ヘルパー
 fn synced_hex_input<G, S>(store: &ColorStore, getter: G, setter: S, max_len: usize) -> Entity
 where
@@ -813,19 +868,21 @@ where
     let text = create_signal(String::new());
     let (text_r, text_w) = text;
 
+    // When the color changes, set the latest HEX string
     // 色が変わったとき、最新の HEX 文字列をセット
     store.register(move |color| {
         let val = getter(color);
         text_w.set(val);
     });
 
-    // 入力時の処理
     let store_clone = store.clone();
     input(move || {
         InputContents::new((text_r, text_w))
             .is_ime(false)
             .max_length(max_len)
-            .numeric_only(false) // A-F を受け付けるため false
+            // Set to false to accept A-F
+            // A-F を受け付けるため false
+            .numeric_only(false)
     })
     .modify(
         ii().size((100.0, 35.0))
@@ -841,6 +898,8 @@ where
     .on_char_input(move |_| {
         let input_str = text_r.get();
 
+        // Remove characters other than 0-9, a-f, and A-F,
+        // convert them to uppercase, and truncate to the maximum character count
         // 0-9, a-f, A-F 以外の文字を取り除き、大文字にして最大文字数で切り詰める
         let filtered: String = input_str
             .chars()
@@ -849,9 +908,11 @@ where
             .flat_map(|c| c.to_uppercase())
             .collect();
 
+        // Update the input field to display the formatted text
         // 入力フィールドの表示を整形後の文字に更新
         text_w.set(filtered.clone());
 
+        // Update ColorStore only when the required number of digits (6 or 8) is met.
         // 規定の桁数（6桁または8桁）が揃った時だけ、ColorStore を更新する
         if filtered.len() == max_len {
             let current_color = store_clone.color.0.get();
