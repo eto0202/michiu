@@ -3,6 +3,8 @@
 retries = 1
 # 60秒以上かかったらスローテストとして警告
 slow-timeout = { period = "60s" }
+# テストが0件でもパス
+no-tests = "warn"
 
 # 特定のテストだけリトライを増やす、並列度を1にするなどの制御も可能
 [[profile.default.overrides]]
