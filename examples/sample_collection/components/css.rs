@@ -1,13 +1,13 @@
 use crate::app::theme::Theme;
-pub use michiu::prelude::*;
+use michiu::prelude::*;
 use michiu::ui::{CssMapSet, CssSetSignalExt};
 
-pub fn container() -> Element {
-    v_flex(ts().gap(16.0).p(16.0).r(4.0)).children([css_flex(), merge_border()])
+pub fn container() -> Entity {
+    v_flex(ii().gap(16.0).p(16.0).r(4.0)).children([css_flex(), merge_border()])
 }
 
-// flex_1 と flex_2 は同じ ThisStyle を持つ
-pub fn css_flex() -> Element {
+// flex_1 と flex_2 は同じ Modifier を持つ
+pub fn css_flex() -> Entity {
     div_n().child(move || {
         let css = use_provided::<CssMapSet>().sheet("global");
         let flex_1 = css.class("flex-1");
@@ -20,7 +20,7 @@ pub fn css_flex() -> Element {
     })
 }
 
-pub fn merge_border() -> Element {
+pub fn merge_border() -> Entity {
     div_n().child(move || {
         let css = use_provided::<CssMapSet>();
         let border = css.class("global", "merge-border");
@@ -28,7 +28,7 @@ pub fn merge_border() -> Element {
 
         flex(border.border_dashed(2.0)) // マージ
             .child(flex(
-                ts()
+                ii()
                     // width: 100%; 追加
                     .p(16.0) // 追加
                     .border_bottom(BorderStyle::Dashed, 2.0) // マージ

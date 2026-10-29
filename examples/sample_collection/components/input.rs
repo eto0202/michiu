@@ -1,11 +1,11 @@
 use std::time::Duration;
 
 use crate::{app::theme::Theme, components::section_title};
+use michiu::prelude::*;
 use michiu::ui::VirtualKey;
-pub use michiu::prelude::*;
 
-pub fn container() -> Element {
-    v_flex(ts().gap(16.0).p(16.0)).children([
+pub fn container() -> Entity {
+    v_flex(ii().gap(16.0).p(16.0)).children([
         basic_container(),
         restrict_container(),
         btn_container(),
@@ -13,38 +13,38 @@ pub fn container() -> Element {
     ])
 }
 
-fn section_style() -> ThisStyle {
-    ts().gap(12.0)
+fn section_style() -> Modifier {
+    ii().gap(12.0)
 }
 
-fn wrapper_style() -> ThisStyle {
-    ts().w_full().gap((16.0, 10.0)).p(6.0)
+fn wrapper_style() -> Modifier {
+    ii().w_full().gap((16.0, 10.0)).p(6.0)
 }
 
-fn input_item(d: &'static str, el: Element) -> Element {
+fn input_item(d: &'static str, e: Entity) -> Entity {
     let desc = div_n().label(
         d,
-        ts().text_color(dynamic(|t: &Theme| t.text))
+        ii().text_color(dynamic(|t: &Theme| t.text))
             .font_size(14.0)
             .font_weight(400),
     );
 
     let wrapper = flex(
-        ts().flex()
+        ii().flex()
             .items_center()
             .p((6.0, 4.0))
             .r(4.0)
             .size((160.0, 40.0))
-            .bg_color(dynamic(|t: &Theme| t.background_hover))
+            .bg_color(dynamic(|t: &Theme| t.surface))
             .border_solid(1.0)
             .border_color(dynamic(|t: &Theme| t.border)),
     );
 
-    v_flex(ts().gap(6.0).justify_center().items_center()).children([desc, wrapper.child(el)])
+    v_flex(ii().gap(6.0).justify_center().items_center()).children([desc, wrapper.child(e)])
 }
 
-fn input_style(family: &'static str) -> ThisStyle {
-    ts().h_auto()
+fn input_style(family: &'static str) -> Modifier {
+    ii().h_auto()
         .w_full()
         .font_size(16.0)
         .font_family(family)
@@ -54,11 +54,11 @@ fn input_style(family: &'static str) -> ThisStyle {
         .overflow_hidden()
 }
 
-fn basic_container() -> Element {
+fn basic_container() -> Entity {
     let (read_1, write_1) = create_signal(String::new());
     let basic_1 = input_item(
         "Font Family : Segoe UI",
-        input(InputContents::new((read_1, write_1))).style(input_style("Segoe UI")),
+        input(InputContents::new((read_1, write_1))).modify(input_style("Segoe UI")),
     );
 
     let (read_2, write_2) = create_signal(String::new());
@@ -73,7 +73,7 @@ fn basic_container() -> Element {
                 .is_blink(true)
                 .blink_frequency(Duration::from_millis(500)),
         )
-        .style(input_style("Arial")),
+        .modify(input_style("Arial")),
     );
 
     let (read_3, write_3) = create_signal(String::new());
@@ -84,13 +84,13 @@ fn basic_container() -> Element {
                 .placeholder("placeholder")
                 .placeholder_color(Color::BLACK),
         )
-        .style(input_style("Consolas")),
+        .modify(input_style("Consolas")),
     );
 
     let (read_4, write_4) = create_signal("Yu Gothic UI".to_string());
     let basic_4 = input_item(
         "Font Family : Yu Gothic UI",
-        input(InputContents::new((read_4, write_4))).style(input_style("Yu Gothic UI")),
+        input(InputContents::new((read_4, write_4))).modify(input_style("Yu Gothic UI")),
     );
 
     v_flex(section_style()).children([
@@ -99,12 +99,12 @@ fn basic_container() -> Element {
     ])
 }
 
-fn restrict_container() -> Element {
+fn restrict_container() -> Entity {
     let (read_1, write_1) = create_signal(String::new());
     let basic_1 = input_item(
         "Numeric only",
         input(InputContents::new((read_1, write_1)).numeric_only(true))
-            .style(input_style("Segoe UI")),
+            .modify(input_style("Segoe UI")),
     );
 
     let (read_2, write_2) = create_signal(String::new());
@@ -115,19 +115,19 @@ fn restrict_container() -> Element {
                 .password(true)
                 .mask_text("*"),
         )
-        .style(input_style("Segoe UI")),
+        .modify(input_style("Segoe UI")),
     );
 
     let (read_3, write_3) = create_signal(String::new());
     let basic_3 = input_item(
         "Max length",
-        input(InputContents::new((read_3, write_3)).max_length(10)).style(input_style("Segoe UI")),
+        input(InputContents::new((read_3, write_3)).max_length(10)).modify(input_style("Segoe UI")),
     );
 
     let (read_4, write_4) = create_signal(String::new());
     let basic_4 = input_item(
         "No IME",
-        input(InputContents::new((read_4, write_4)).is_ime(false)).style(input_style("Segoe UI")),
+        input(InputContents::new((read_4, write_4)).is_ime(false)).modify(input_style("Segoe UI")),
     );
 
     v_flex(section_style()).children([
@@ -136,24 +136,24 @@ fn restrict_container() -> Element {
     ])
 }
 
-fn btn_container() -> Element {
+fn btn_container() -> Entity {
     v_flex(section_style()).children([
         section_title("Input with button"),
         h_flex(wrapper_style()).children([spin_box(), password_box(), search_box()]),
     ])
 }
 
-fn spin_box() -> Element {
-    let btn = ts()
+fn spin_box() -> Entity {
+    let btn = ii()
         .justify_center()
         .items_center()
         .size(40.0)
-        .hovered(ts().bg_color(dynamic(|t: &Theme| t.border)));
-    let label = ts()
-        .text_color(dynamic(|t: &Theme| t.secondary))
+        .hovered(ii().bg_color(dynamic(|t: &Theme| t.surface_hover)));
+    let label = ii()
+        .text_color(dynamic(|t: &Theme| t.accent))
         .font_size(25.0)
         .font_weight(400)
-        .pressed_parent(ts().transform_scale(0.9, 0.9));
+        .pressed_parent(ii().transform_scale(0.9, 0.9));
 
     let (read_1, write_1) = create_signal(String::new());
 
@@ -182,14 +182,12 @@ fn spin_box() -> Element {
         });
 
     let input_center = h_flex(
-        ts().items_center()
-            .justify_center()
-            .p((6.0, 4.0))
+        ii().p((6.0, 4.0))
             .size((80.0, 40.0))
             .border_solid((0.0, 1.0))
             .border_color(dynamic(|t: &Theme| t.border))
             .focused_visible_within(
-                ts().outline_solid(1.0)
+                ii().outline_solid(1.0)
                     .outline_color(dynamic(|t: &Theme| t.text)),
             ),
     )
@@ -202,9 +200,10 @@ fn spin_box() -> Element {
                 .placeholder("-99~99")
                 .placeholder_color(t.text_muted)
         })
-        .style(
-            ts().flex()
+        .modify(
+            ii().flex()
                 .text_center()
+                .items_center()
                 .size_full()
                 .font_size(16.0)
                 .text_color(dynamic(|t: &Theme| t.text))
@@ -215,26 +214,26 @@ fn spin_box() -> Element {
     );
 
     h_flex(
-        ts().r(4.0)
-            .bg_color(dynamic(|t: &Theme| t.background_hover))
+        ii().r(4.0)
+            .bg_color(dynamic(|t: &Theme| t.surface))
             .border_solid(1.0)
             .border_color(dynamic(|t: &Theme| t.border)),
     )
     .children([btn_left, input_center, btn_right])
 }
 
-fn password_box() -> Element {
+fn password_box() -> Entity {
     let (read_text, write_text) = create_signal(String::new());
     let (is_mask, set_is_mask) = create_signal(true);
 
-    let suffix_element = text("👁")
-        .style_d(move |t: &Theme| {
-            let base_style = ts()
+    let suffix_entity = text("👁")
+        .modify_d(move |t: &Theme| {
+            let base_style = ii()
                 .text_color(t.text_muted)
                 .font_size(12.0)
                 .p_r(6.0)
                 .h_full()
-                .hovered(ts().text_color(t.text));
+                .hovered(ii().text_color(t.text));
 
             if read_text.get().is_empty() {
                 base_style.hidden()
@@ -247,14 +246,14 @@ fn password_box() -> Element {
         });
 
     h_flex_d(|t: &Theme| {
-        ts().r(4.0)
-            .bg_color(t.background_hover)
+        ii().r(4.0)
+            .bg_color(t.surface)
             .border_solid(1.0)
             .border_color(t.border)
     })
     .child(
         h_flex(
-            ts().items_center()
+            ii().items_center()
                 .justify_center()
                 .gap(2.0)
                 .p((6.0, 4.0))
@@ -269,8 +268,8 @@ fn password_box() -> Element {
                     .placeholder("Password")
                     .placeholder_color(t.text_muted)
             })
-            .style(
-                ts().flex()
+            .modify(
+                ii().flex()
                     .text_center()
                     .size_full()
                     .font_size(16.0)
@@ -279,13 +278,13 @@ fn password_box() -> Element {
                     .cursor_text()
                     .overflow_hidden(),
             ),
-            suffix_element,
+            suffix_entity,
         ]),
     )
 }
 
 #[expect(clippy::too_many_lines)]
-fn search_box() -> Element {
+fn search_box() -> Entity {
     let (read_text, write_text) = create_signal(String::new());
     let (menu_open, set_menu_open) = create_signal(false);
     let (read_history, write_history) = create_signal::<Vec<String>>(vec![]);
@@ -303,9 +302,7 @@ fn search_box() -> Element {
     };
 
     let input_left = h_flex(
-        ts().items_center()
-            .justify_center()
-            .p((4.0, 6.0, 4.0, 10.0))
+        ii().p((4.0, 6.0, 4.0, 10.0))
             .size((200.0, 40.0))
             .outline_solid((0.0, 1.0, 0.0, 0.0))
             .outline_align(BorderAlignment::Center)
@@ -318,8 +315,8 @@ fn search_box() -> Element {
                 .placeholder("Search")
                 .placeholder_color(t.text_muted)
         })
-        .style(
-            ts().flex()
+        .modify(
+            ii().flex()
                 .size_full()
                 .font_size(16.0)
                 .text_color(dynamic(|t: &Theme| t.text))
@@ -349,23 +346,23 @@ fn search_box() -> Element {
     );
 
     let btn_right = h_flex(
-        ts().justify_center()
+        ii().justify_center()
             .items_center()
             .r_right(3.0)
             .size(40.0)
             .prevent_focus_steal(true)
-            .hovered(ts().bg_color(dynamic(|t: &Theme| t.border))),
+            .hovered(ii().bg_color(dynamic(|t: &Theme| t.surface_hover))),
     )
     .label(
         "🔎",
-        ts().text_color(dynamic(|t: &Theme| t.text_muted))
+        ii().text_color(dynamic(|t: &Theme| t.text_muted))
             .font_size(12.0)
             .font_weight(200),
     )
     .on_click(wrote_history);
 
     let candidate = v_flex_d(move |t: &Theme| {
-        let base = ts()
+        let base = ii()
             .absolute()
             .r_bottom(4.0)
             .z_1()
@@ -373,11 +370,11 @@ fn search_box() -> Element {
             .top(41.0)
             .left(-1.0)
             .border_solid((0.0, 1.0, 1.0, 1.0))
-            .border_color(t.primary)
-            .bg_color(t.background_hover);
+            .border_color(t.accent)
+            .bg_color(t.surface);
 
         if menu_open.get() {
-            base.block()
+            base.flex()
         } else {
             base.hidden()
         }
@@ -395,19 +392,20 @@ fn search_box() -> Element {
             let h_to_delete = h.clone();
             let is_last = idx == len - 1;
 
-            let mut item_style = ts()
+            let mut item_style = ii()
                 .w_full()
-                .hovered_within(ts().bg_color(dynamic(|t: &Theme| t.border_hover)));
+                .h(30.0)
+                .hovered_within(ii().bg_color(dynamic(|t: &Theme| t.surface_hover)))
+                .pressed_within(ii().bg_color(dynamic(|t: &Theme| t.background_hover)));
             if is_last {
                 item_style = item_style.r_bottom(4.0);
             }
 
             let item = h_flex(item_style).children([
                 text(h.clone())
-                    .style_d(move |t: &Theme| {
-                        let mut s = ts()
-                            .w_full()
-                            .p_y(6.0)
+                    .modify_d(move |t: &Theme| {
+                        let mut s = ii()
+                            .size_full()
                             .p_l(10.0)
                             .font_size(14.0)
                             .text_color(t.text)
@@ -422,16 +420,16 @@ fn search_box() -> Element {
                     .on_mouse_leave(move || set_hovered.set(false))
                     .on_click(move || write_text.set(h_val.clone())),
                 text("✕")
-                    .style_d(move |t: &Theme| {
-                        let mut base_style = ts()
+                    .modify_d(move |t: &Theme| {
+                        let mut base_style = ii()
+                            .w(30.0)
                             .h_full()
-                            .w(40.0)
-                            .p((6.0, 14.0))
                             .text_center()
+                            .p_t(3.0)
                             .text_color(t.text_muted)
-                            .font_size(12.0)
+                            .font_size(14.0)
                             .prevent_focus_steal(steal_focus.get())
-                            .hovered(ts().text_color(t.primary));
+                            .hovered(ii().text_color(t.accent));
 
                         if is_last {
                             base_style = base_style.r((0.0, 0.0, 4.0, 0.0));
@@ -465,16 +463,16 @@ fn search_box() -> Element {
 
             list.push(item);
         }
-        v_flex(ts().w_full()).children(list)
+        v_flex(ii().w_full()).children(list)
     });
 
     h_flex_d(move |t: &Theme| {
-        let base = ts()
+        let base = ii()
             .r(4.0)
-            .bg_color(t.background_hover)
+            .bg_color(t.surface)
             .border_solid(1.0)
             .border_color(t.border)
-            .focused_within(ts().border_color(t.primary));
+            .focused_within(ii().border_color(t.accent));
 
         if menu_open.get() {
             base.r_bottom(0.0).border_bottom(BorderStyle::Solid, 0.0)
@@ -485,23 +483,23 @@ fn search_box() -> Element {
     .children([input_left, btn_right, candidate])
 }
 
-fn multiline_container() -> Element {
+fn multiline_container() -> Entity {
     let (read, write) = create_signal(String::new());
     let area = flex(
-        ts().flex()
+        ii().flex()
             .p((6.0, 6.0))
             .r(4.0)
             .size((400.0, 100.0))
             .min_size((200.0, 40.0))
             .resizable_right(true)
             .resizable_bottom(true)
-            .bg_color(dynamic(|t: &Theme| t.background_hover))
+            .bg_color(dynamic(|t: &Theme| t.surface))
             .border_solid(1.0)
             .border_color(dynamic(|t: &Theme| t.border)),
     )
     .child(
-        input_area(InputContents::new((read, write))).style(
-            ts().size_full()
+        input_area(InputContents::new((read, write))).modify(
+            ii().size_full()
                 .font_size(16.0)
                 .auto_wrap(true)
                 .text_color(dynamic(|t: &Theme| t.text))

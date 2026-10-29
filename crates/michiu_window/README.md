@@ -10,7 +10,7 @@ This crate handles the windows for the `michiu` crate.
 
 ## Examples
 
-[michiu_window examples](https://github.com/eto0202/michiu/tree/main/michiu_window/examples)
+[michiu_window examples](https://github.com/eto0202/michiu/tree/main/crates/michiu_window/examples)
 
 ## Quick Start
 

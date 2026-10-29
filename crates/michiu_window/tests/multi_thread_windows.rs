@@ -1,9 +1,7 @@
-#![allow(clippy::unwrap_used)]
-#![allow(clippy::expect_used)]
-#![allow(clippy::panic)]
+#![expect(clippy::unwrap_used)]
 
 use michiu_window::{
-    MichiuComContext, LogicalSize, MichiuEventPump, MichiuWindowBuilder, WindowHandle, MichiuWindow,
+    LogicalSize, MichiuComContext, MichiuEventPump, MichiuWindow, MichiuWindowBuilder, WindowHandle,
 };
 use std::{
     sync::mpsc::{self, Receiver, Sender},

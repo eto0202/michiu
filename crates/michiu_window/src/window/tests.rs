@@ -1,6 +1,6 @@
-#![allow(clippy::unwrap_used)]
-#![allow(clippy::expect_used)]
-#![allow(clippy::panic)]
+#![expect(clippy::unwrap_used)]
+#![expect(clippy::expect_used)]
+#![expect(clippy::panic)]
 #![expect(clippy::cast_possible_truncation)]
 
 use super::*;
@@ -399,7 +399,7 @@ unsafe extern "system" fn mock_user_subclass_proc(
     msg: u32,
     wparam: WPARAM,
     lparam: LPARAM,
-    #[allow(unused)] id_subclass: usize,
+    #[expect(unused)] id_subclass: usize,
     ref_data: usize,
 ) -> LRESULT {
     // 特定のカスタムメッセージが来た場合のみ、インターセプトして書き換える

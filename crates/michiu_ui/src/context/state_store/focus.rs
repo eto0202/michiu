@@ -1,6 +1,6 @@
 use crate::{
     ActiveMasksSecondary, BasicLayoutsSecondary, ComponentMask, Context, Display, EntitiesSlot,
-    EntityId, MichiuSoA, ParentsSecondary, Pipeline, SystemStore, TextEditStore,
+    Entity, MichiuSoA, ParentsSecondary, Pipeline, SystemStore, TextEditStore,
     VisualPropertiesSecondary, handle_on_blur, handle_on_focus,
 };
 
@@ -34,7 +34,7 @@ impl FocusStore {
     /// 指定要素またはその親階層において、フォーカスの略奪を防止すべきか判定
     #[inline]
     #[track_caller]
-    pub(crate) fn should_prevent_focus_steal(cx: &Context, target_id: EntityId) -> bool {
+    pub(crate) fn should_prevent_focus_steal(cx: &Context, target_id: Entity) -> bool {
         let mut curr = Some(target_id);
         while let Some(curr_id) = curr {
             let mask = cx.topology.topo_active_masks.at(curr_id);
@@ -67,8 +67,8 @@ impl FocusStore {
         false
     }
 
-    pub(crate) fn restrict_focusable_element(
-        id: EntityId,
+    pub(crate) fn restrict_focusable_entity(
+        id: Entity,
         topo_active_masks: &ActiveMasksSecondary,
         rnd_visual: &VisualPropertiesSecondary,
     ) -> bool {
@@ -93,7 +93,7 @@ impl FocusStore {
     #[inline]
     pub(crate) fn set_focused_by_trigger(
         cx: &mut Context,
-        id: EntityId,
+        id: Entity,
         focused: bool,
         trigger: ActiveFocusTrigger,
     ) {
@@ -105,7 +105,7 @@ impl FocusStore {
     #[track_caller]
     pub(crate) fn auto_focus_switch_by_trigger(
         cx: &mut Context,
-        id: EntityId,
+        id: Entity,
         trigger: ActiveFocusTrigger,
     ) {
         // 同一要素をクリックした場合はフォーカス可視化の同期のみ
@@ -184,7 +184,7 @@ impl FocusStore {
     /// 対象の要素がキーボードフォーカス可能であるかを検証
     #[track_caller]
     pub(crate) fn is_keyboard_focusable(
-        id: EntityId,
+        id: Entity,
         topo_entities: &EntitiesSlot,
         topo_active_masks: &ActiveMasksSecondary,
         topo_parents: &ParentsSecondary,

@@ -1,5 +1,5 @@
 use crate::app::theme::Theme;
-pub use michiu_ui::prelude::*;
+use michiu_ui::prelude::*;
 use michiu_ui::{AlignContent, AlignItems, AlignSelf, FlexDirection, FlexWrap, JustifyContent};
 
 #[derive(Clone, Copy)]
@@ -10,7 +10,7 @@ impl Default for Gap {
     }
 }
 
-pub fn container() -> Element {
+pub fn container() -> Entity {
     let (gap, _) = create_signal(Gap::default());
     let (flex_direction, _) = create_signal(FlexDirection::default());
     let (flex_wrap, _) = create_signal(FlexWrap::default());
@@ -18,7 +18,7 @@ pub fn container() -> Element {
     let (align_items, _) = create_signal(AlignItems::default());
     let (align_content, _) = create_signal(AlignContent::default());
     let (justify_content, _) = create_signal(JustifyContent::default());
-    v_flex(ts().gap(12.0).p(12.0).max_width(1000.0).size_full())
+    v_flex(ii().gap(12.0).p(12.0).max_width(1000.0).size_full())
         .provide(gap)
         .provide(flex_direction)
         .provide(flex_wrap)
@@ -29,18 +29,19 @@ pub fn container() -> Element {
         .children([main_aria(), setting_aria()])
 }
 
-fn common_inner() -> [Element; 9] {
+fn common_inner() -> [Entity; 9] {
     let inner = |label: &'static str| {
-        flex(ts()
-            .border_solid(1.0)
-            .r(4.0)
-            .size((80.0, 40.0))
-            .shrink_0()
-            .justify_center()
-            .border_color(dynamic(|t: &Theme| t.border)))
+        flex(
+            ii().border_solid(1.0)
+                .r(4.0)
+                .size((80.0, 40.0))
+                .shrink_0()
+                .justify_center()
+                .border_color(dynamic(|t: &Theme| t.border)),
+        )
         .label(
             label,
-            ts().text_color(dynamic(|t: &Theme| t.text)).font_size(14.0),
+            ii().text_color(dynamic(|t: &Theme| t.text)).font_size(14.0),
         )
     };
 
@@ -49,16 +50,17 @@ fn common_inner() -> [Element; 9] {
         inner("2"),
         inner("3"),
         inner("4"),
-        flex(ts()
-            .border_solid(1.0)
-            .r(4.0)
-            .min_size((80.0, 40.0))
-            .justify_center()
-            .align_self(dynamic(|f: &AlignSelf| (*f).into()))
-            .border_color(dynamic(|t: &Theme| t.border)))
+        flex(
+            ii().border_solid(1.0)
+                .r(4.0)
+                .min_size((80.0, 40.0))
+                .justify_center()
+                .align_self(dynamic(|f: &AlignSelf| (*f).into()))
+                .border_color(dynamic(|t: &Theme| t.border)),
+        )
         .label(
             "AlignSelf 5",
-            ts().text_color(dynamic(|t: &Theme| t.text)).font_size(14.0),
+            ii().text_color(dynamic(|t: &Theme| t.text)).font_size(14.0),
         ),
         inner("6"),
         inner("7"),
@@ -67,23 +69,24 @@ fn common_inner() -> [Element; 9] {
     ]
 }
 
-fn main_aria() -> Element {
-    v_flex(ts().gap(8.0).shrink().min_height(0.0).overflow_hidden())
+fn main_aria() -> Entity {
+    v_flex(ii().gap(8.0).shrink().min_height(0.0).overflow_hidden())
         .label(
             "Results",
-            ts().text_color(dynamic(|t: &Theme| t.text)).font_size(16.0),
+            ii().text_color(dynamic(|t: &Theme| t.text)).font_size(16.0),
         )
         .child(|| {
-            flex(ts()
-                .gap(use_provided::<Gap>().get().0)
-                .flex_direction(use_provided::<FlexDirection>().get())
-                .flex_wrap_internal(use_provided::<FlexWrap>().get())
-                .align_self(use_provided::<AlignSelf>().get())
-                .align_items(use_provided::<AlignItems>().get())
-                .align_content(use_provided::<AlignContent>().get())
-                .justify_content(use_provided::<JustifyContent>().get()))
-            .style_d(|t: &Theme| {
-                ts().p(8.0)
+            flex(
+                ii().gap(use_provided::<Gap>().get().0)
+                    .flex_direction(use_provided::<FlexDirection>().get())
+                    .flex_wrap_internal(use_provided::<FlexWrap>().get())
+                    .align_self(use_provided::<AlignSelf>().get())
+                    .align_items(use_provided::<AlignItems>().get())
+                    .align_content(use_provided::<AlignContent>().get())
+                    .justify_content(use_provided::<JustifyContent>().get()),
+            )
+            .modify_d(|t: &Theme| {
+                ii().p(8.0)
                     .r(4.0)
                     .min_size((400.0, 200.0))
                     .max_size((950.0, 400.0))
@@ -96,12 +99,12 @@ fn main_aria() -> Element {
                     .scrollbar_mode(ScrollbarMode::Overlay)
                     .scrollbar(
                         ScrollbarStyle::new(10.0).v_thumb(
-                            ts().m_y(4.0)
+                            ii().m_y(4.0)
                                 .p_r(5.0)
                                 .width(7.0)
                                 .r_full()
                                 .bg_color(t.border)
-                                .hovered(ts().bg_color(t.border_hover)),
+                                .hovered(ii().bg_color(t.border_hover)),
                         ),
                     )
             })
@@ -109,38 +112,38 @@ fn main_aria() -> Element {
         })
 }
 
-fn setting_aria() -> Element {
-    v_flex(ts().gap(8.0).m_t(auto()).shrink_0())
+fn setting_aria() -> Entity {
+    v_flex(ii().gap(8.0).m_t(auto()).shrink_0())
         .label(
             "Setting",
-            ts().text_color(dynamic(|t: &Theme| t.text)).font_size(16.0),
+            ii().text_color(dynamic(|t: &Theme| t.text)).font_size(16.0),
         )
         .child(table())
 }
 
-fn table() -> Element {
+fn table() -> Entity {
     let (gap, set_gap) = create_signal(String::from("8"));
 
-    let label = ts().font_size(12.0).text_color(dynamic(|t: &Theme| t.text));
+    let label = ii().font_size(12.0).text_color(dynamic(|t: &Theme| t.text));
 
-    let row_1 = ts()
+    let row_1 = ii()
         .w_full()
         .border_right(BorderStyle::Dashed, 1.0)
         .border_color(dynamic(|t: &Theme| t.border));
 
-    let row_2 = ts().w_full();
+    let row_2 = ii().w_full();
 
-    let col_1 = ts()
+    let col_1 = ii()
         .p_x(4.0)
         .h(40.0)
         .justify_start()
-        .selected(ts().bg_color(dynamic(|t: &Theme| t.primary)));
+        .selected(ii().bg_color(dynamic(|t: &Theme| t.accent)));
     let col_2 = col_1
         .clone()
         .bg_color(dynamic(|t: &Theme| t.background_hover));
 
     h_flex_d(|t: &Theme| {
-        ts().r(4.0)
+        ii().r(4.0)
             .justify_evenly()
             .border_dashed(1.0)
             .border_color(t.border)
@@ -149,18 +152,18 @@ fn table() -> Element {
             .scrollbar_mode(ScrollbarMode::Overlay)
             .scrollbar(
                 ScrollbarStyle::new(10.0).h_thumb(
-                    ts().m_x(4.0)
+                    ii().m_x(4.0)
                         .p_b(5.0)
                         .h(7.0)
                         .r_full()
                         .bg_color(t.border)
-                        .hovered(ts().bg_color(t.border_hover)),
+                        .hovered(ii().bg_color(t.border_hover)),
                 ),
             )
     })
     .children([
         v_flex(&row_1).children({
-            let col_1 = ts().p_x(4.0).h(40.0).justify_start();
+            let col_1 = ii().p_x(4.0).h(40.0).justify_start();
             let col_2 = col_1
                 .clone()
                 .bg_color(dynamic(|t: &Theme| t.background_hover));
@@ -176,11 +179,11 @@ fn table() -> Element {
             ]
         }),
         v_flex(&row_1).children({
-            let default = ts()
+            let default = ii()
                 .p_x(4.0)
                 .h(40.0)
                 .justify_start()
-                .hovered(ts().bg_color(dynamic(|t: &Theme| t.border)));
+                .hovered(ii().bg_color(dynamic(|t: &Theme| t.border)));
             [
                 flex(default).label("Default", &label).on_click(move || {
                     use_provided_setter::<Gap>().set(Gap::default());
@@ -199,7 +202,7 @@ fn table() -> Element {
                             .is_ime(false)
                             .placeholder("0 ~ 30")
                     })
-                    .style(col_2.clone().merge(&label))
+                    .modify(col_2.clone().merge(&label))
                     .on_char_input(move |_| {
                         let mut i = gap.get().parse::<i32>().unwrap_or(0);
                         i = i.clamp(0, 30);

@@ -25,16 +25,16 @@ pub mod transform;
 use crate::app::theme::Theme;
 use michiu::prelude::*;
 
-pub fn section_title(text_val: &'static str) -> Element {
-    text(text_val).style(
-        ts().text_color(dynamic(|t: &Theme| t.text_muted))
+pub fn section_title(text_val: &'static str) -> Entity {
+    text(text_val).modify(
+        ii().text_color(dynamic(|t: &Theme| t.text_muted))
             .font_size(14.0)
             .font_weight(400),
     )
 }
 
-pub fn label_style() -> ThisStyle {
-    ts().text_color(dynamic(|t: &Theme| t.text_muted))
+pub fn label_style() -> Modifier {
+    ii().text_color(dynamic(|t: &Theme| t.text_muted))
         .font_size(16.0)
         .font_weight(400)
 }

@@ -1,4 +1,4 @@
-use crate::{EntityId, LayoutRect, LayoutSize};
+use crate::{Entity, LayoutRect, LayoutSize};
 use windows::Win32::UI::Input::Ime::HIMC;
 
 #[derive(Clone)]
@@ -35,9 +35,9 @@ impl WindowStore {
         self.win_default_himc = None;
     }
 
-    #[allow(clippy::unused_self)]
+    #[expect(clippy::unused_self)]
     #[inline]
-    pub(crate) fn despawn(&mut self, _id: EntityId) {}
+    pub(crate) fn despawn(&mut self, _id: Entity) {}
 }
 
 impl WindowStore {
@@ -86,3 +86,6 @@ impl WindowStore {
         &mut self.win_last_size
     }
 }
+
+#[cfg(test)]
+mod tests {}

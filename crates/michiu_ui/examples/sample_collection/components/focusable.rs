@@ -5,40 +5,42 @@ use crate::{
 use michiu_ui::prelude::*;
 use std::time::Duration;
 
-pub fn container() -> Element {
-    v_flex(ts().gap(28.0).p(16.0)).children([section_inherit(), section_self(), section_within()])
+pub fn container() -> Entity {
+    v_flex(ii().gap(28.0).p(16.0)).children([section_inherit(), section_self(), section_within()])
 }
 
-fn section_style() -> ThisStyle {
-    ts().grow().gap(16.0)
+fn section_style() -> Modifier {
+    ii().grow().gap(16.0)
 }
 
-fn wrapper_style() -> ThisStyle {
-    ts().w_full().gap(16.0)
+fn wrapper_style() -> Modifier {
+    ii().w_full().gap(16.0)
 }
 
-fn item(label: &'static str, style: ThisStyle) -> Element {
-    flex(style
-        .p(12.0)
-        .r(4.0)
-        .justify_center()
-        .items_center()
-        .border_solid(1.0)
-        .border_color(dynamic(|t: &Theme| t.border))
-        .hovered(ts().bg_color(dynamic(|t: &Theme| t.background_hover))))
+fn item(label: &'static str, style: Modifier) -> Entity {
+    flex(
+        style
+            .p(12.0)
+            .r(4.0)
+            .justify_center()
+            .items_center()
+            .border_solid(1.0)
+            .border_color(dynamic(|t: &Theme| t.border))
+            .hovered(ii().bg_color(dynamic(|t: &Theme| t.background_hover))),
+    )
     .label(label, label_style())
 }
 
-fn section_inherit() -> Element {
-    let item_1 = item("Focus 3", ts().focusable_inherit_keyboard());
-    let item_2 = item("Focus 4", ts().focusable_inherit_keyboard());
-    let item_3 = item("Focus 5", ts().focusable_inherit_keyboard());
-    let item_4 = item("Focus 6", ts().focusable_inherit_keyboard());
+fn section_inherit() -> Entity {
+    let item_1 = item("Focus 3", ii().focusable_inherit_keyboard());
+    let item_2 = item("Focus 4", ii().focusable_inherit_keyboard());
+    let item_3 = item("Focus 5", ii().focusable_inherit_keyboard());
+    let item_4 = item("Focus 6", ii().focusable_inherit_keyboard());
 
     let wrapper = h_flex(wrapper_style()).children([item_1, item_2, item_3, item_4]);
 
     let parent_focused = section_style().focused(
-        ts().outline_solid(1.0)
+        ii().outline_solid(1.0)
             .outline_offset(2.0)
             .outline_color(dynamic(|t: &Theme| t.text)),
     );
@@ -46,30 +48,30 @@ fn section_inherit() -> Element {
     v_flex(parent_focused).children([section_title("Keyboard & Inherit"), wrapper])
 }
 
-fn section_self() -> Element {
+fn section_self() -> Entity {
     let item_1 = item(
         "Focus 7",
-        ts().focusable_self_keyboard().focused(
-            ts().outline_dashed(2.0)
+        ii().focusable_self_keyboard().focused(
+            ii().outline_dashed(2.0)
                 .outline_offset(2.0)
-                .outline_color(dynamic(|t: &Theme| t.primary)),
+                .outline_color(dynamic(|t: &Theme| t.accent)),
         ),
     );
     let item_2 = item(
         "Focus 8",
-        ts().focusable_self_keyboard()
-            .focused(ts().bg_color(dynamic(|t: &Theme| t.border_hover))),
+        ii().focusable_self_keyboard()
+            .focused(ii().bg_color(dynamic(|t: &Theme| t.border_hover))),
     );
     let item_3 = item(
         "Focus 9",
-        ts().focusable_self_keyboard()
+        ii().focusable_self_keyboard()
             .trans_transform(Duration::from_millis(300), AnimationCurve::EaseInOutQuad)
-            .focused(ts().transform_scale(1.1, 1.1)),
+            .focused(ii().transform_scale(1.1, 1.1)),
     );
     let item_4 = item(
         "Focus 10",
-        ts().focusable_self_keyboard().focused(
-            ts().box_shadow(
+        ii().focusable_self_keyboard().focused(
+            ii().box_shadow(
                 shadow()
                     .blur(8.0)
                     .offset(0.0)
@@ -84,27 +86,27 @@ fn section_self() -> Element {
     v_flex(section_style()).children([section_title("Keyboard & SelfStyle"), wrapper])
 }
 
-fn section_within() -> Element {
+fn section_within() -> Entity {
     let item_1 = item(
         "Focus 12",
-        ts().focusable_self_keyboard().focused(
-            ts().outline_dashed(2.0)
+        ii().focusable_self_keyboard().focused(
+            ii().outline_dashed(2.0)
                 .outline_offset(2.0)
-                .outline_color(dynamic(|t: &Theme| t.primary)),
+                .outline_color(dynamic(|t: &Theme| t.accent)),
         ),
     );
 
-    let item_2 = item("Focus 12", ts().focusable_inherit_keyboard());
+    let item_2 = item("Focus 12", ii().focusable_inherit_keyboard());
 
     let wrapper = h_flex(
-        ts().w_full()
+        ii().w_full()
             .gap(16.0)
             .p(6.0)
             .border_solid(1.0)
             .border_color(dynamic(|t: &Theme| t.border))
-            .focused(ts().bg_color(dynamic(|t: &Theme| t.primary)))
+            .focused(ii().bg_color(dynamic(|t: &Theme| t.accent)))
             .focused_within(
-                ts().outline_solid(1.0)
+                ii().outline_solid(1.0)
                     .outline_offset(2.0)
                     .outline_color(dynamic(|t: &Theme| t.text)),
             ),

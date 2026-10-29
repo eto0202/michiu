@@ -1,5 +1,5 @@
-#![allow(clippy::print_stdout)]
-#![allow(clippy::print_stderr)]
+#![expect(clippy::print_stdout)]
+#![expect(clippy::print_stderr)]
 
 use michiu_window::{
     LogicalSize, MichiuAnyEvent, MichiuComContext, MichiuEvent, MichiuEventPump, MichiuIcon,

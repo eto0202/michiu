@@ -2,13 +2,12 @@ use crate::{
     ActiveInteractionStates, ActiveMasksSecondary, ActiveTransitionsSparse,
     BaseBasicLayoutsSecondary, BaseVisualPropertiesSecondary, BasicLayoutsSecondary,
     CapacityConfig, DEFAULT_BASIC, DEFAULT_FLEX, DebugStore, DirtyLayoutEntitiesVec,
-    DirtyRenderEntitiesVec, Display, EntityId, FlexLayoutsSecondary, GridLayoutsSparse,
+    DirtyRenderEntitiesVec, Display, Entity, FlexLayoutsSecondary, GridLayoutsSparse,
     InteractionPropertiesSecondary, LayoutPoint, LayoutSize, LayoutStore, Length, MichiuSoA,
-    ParentsSecondary, Rect, RectsSecondary, RenderStore, ResolvedBasicSecondary,
+    Modifier, ParentsSecondary, Rect, RectsSecondary, RenderStore, ResolvedBasicSecondary,
     ResolvedFlexSecondary, ResolvedGeometry, ResolvedGridSparse, ScrollOffsetsSecondary,
     ScrollSizesSecondary, ScrollStore, Size, TaffyNodesSecondary, TaffyResultTraceExt,
-    TaffyTreeEntityId, ThisStyle, Val, VisualPropertiesSecondary, WindowStore,
-    define_sparse_secondary,
+    TaffyTreeEntity, Val, VisualPropertiesSecondary, WindowStore, define_sparse_secondary,
 };
 use slotmap::SparseSecondaryMap;
 use smallvec::SmallVec;
@@ -42,13 +41,13 @@ pub struct ScrollbarStyle {
     /// スクロールバーの表示モード
     pub mode: ScrollbarMode,
     /// 縦スクロールバー（Y軸）のトラック（レール）部分のスタイル
-    pub v_track: Option<ThisStyle>,
+    pub v_track: Option<Modifier>,
     /// 縦スクロールバー（Y軸）のサム（つまみ）部分のスタイル
-    pub v_thumb: Option<ThisStyle>,
+    pub v_thumb: Option<Modifier>,
     /// 横スクロールバー（X軸）のトラック（レール）部分のスタイル
-    pub h_track: Option<ThisStyle>,
+    pub h_track: Option<Modifier>,
     /// 横スクロールバー（X軸）のサム（つまみ）部分のスタイル
-    pub h_thumb: Option<ThisStyle>,
+    pub h_thumb: Option<Modifier>,
 }
 
 impl Default for ScrollbarStyle {
@@ -92,25 +91,25 @@ impl ScrollbarStyle {
     }
 
     #[must_use]
-    pub fn v_track(mut self, style: ThisStyle) -> Self {
+    pub fn v_track(mut self, style: Modifier) -> Self {
         self.v_track = Some(style);
         self
     }
 
     #[must_use]
-    pub fn v_thumb(mut self, style: ThisStyle) -> Self {
+    pub fn v_thumb(mut self, style: Modifier) -> Self {
         self.v_thumb = Some(style);
         self
     }
 
     #[must_use]
-    pub fn h_track(mut self, style: ThisStyle) -> Self {
+    pub fn h_track(mut self, style: Modifier) -> Self {
         self.h_track = Some(style);
         self
     }
 
     #[must_use]
-    pub fn h_thumb(mut self, style: ThisStyle) -> Self {
+    pub fn h_thumb(mut self, style: Modifier) -> Self {
         self.h_thumb = Some(style);
         self
     }
@@ -128,11 +127,11 @@ enum ScrollbarComponent {
 pub struct ScrollBarState {
     pub style: ScrollbarStyle,
 
-    // レイアウトツリーに動的挿入される Element の EntityId
-    pub v_track_id: Option<EntityId>,
-    pub v_thumb_id: Option<EntityId>,
-    pub h_track_id: Option<EntityId>,
-    pub h_thumb_id: Option<EntityId>,
+    // レイアウトツリーに動的挿入される Entity の Entity
+    pub v_track_id: Option<Entity>,
+    pub v_thumb_id: Option<Entity>,
+    pub h_track_id: Option<Entity>,
+    pub h_thumb_id: Option<Entity>,
 
     // ホバー・ドラッグのランタイム状態
     pub v_thumb_hovered: bool,
@@ -182,7 +181,7 @@ impl ScrollbarStore {
     }
 
     #[inline]
-    pub(crate) fn despawn(&mut self, id: EntityId) {
+    pub(crate) fn despawn(&mut self, id: Entity) {
         self.bar_styles.remove(id);
     }
 }
@@ -191,8 +190,8 @@ impl ScrollbarStore {
     #[inline]
     pub(crate) fn get_scrollbar_dirty_ids(
         bar_styles: &mut ScrollbarStylesSparse,
-    ) -> SmallVec<[EntityId; 4]> {
-        let mut dirty_ids = SmallVec::<[EntityId; 4]>::new();
+    ) -> SmallVec<[Entity; 4]> {
+        let mut dirty_ids = SmallVec::<[Entity; 4]>::new();
 
         for (id, state) in bar_styles.iter_mut() {
             if state.v_thumb_dragged || state.h_thumb_dragged {
@@ -205,15 +204,15 @@ impl ScrollbarStore {
     }
 
     #[track_caller]
-    pub(crate) fn hit_decision_element_scrollbar(
-        target_id: EntityId,
+    pub(crate) fn hit_decision_entity_scrollbar(
+        target_id: Entity,
         pointer_pos: LayoutPoint,
         win_last_size: Option<LayoutSize>,
         evt_interaction_states: &mut ActiveInteractionStates,
         topo_active_masks: &mut ActiveMasksSecondary,
         topo_parents: &ParentsSecondary,
         lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
-        lay_taffy_tree: &mut TaffyTreeEntityId,
+        lay_taffy_tree: &mut TaffyTreeEntity,
         bar_styles: &mut ScrollbarStylesSparse,
         lay_taffy_nodes: &TaffyNodesSecondary,
         lay_resolved_basic: &ResolvedBasicSecondary,
@@ -448,7 +447,7 @@ impl ScrollbarStore {
         win_last_size: Option<LayoutSize>,
         topo_active_masks: &ActiveMasksSecondary,
         topo_parents: &ParentsSecondary,
-        lay_taffy_tree: &mut TaffyTreeEntityId,
+        lay_taffy_tree: &mut TaffyTreeEntity,
         lay_basic: &mut BasicLayoutsSecondary,
         lay_base_basic: &mut BaseBasicLayoutsSecondary,
         lay_resolved_basic: &mut ResolvedBasicSecondary,
@@ -467,7 +466,7 @@ impl ScrollbarStore {
         sc_sizes: &ScrollSizesSecondary,
         debug: &mut DebugStore,
     ) {
-        let scrollbar_ids: Vec<EntityId> = bar_styles.keys().collect();
+        let scrollbar_ids: Vec<Entity> = bar_styles.keys().collect();
 
         for id in scrollbar_ids {
             let sb_state = bar_styles.at(id);
@@ -717,7 +716,7 @@ pub(crate) struct ExtractedThumb {
 pub(crate) struct ScrollbarSyncContext<'a> {
     pub topo_active_masks: &'a ActiveMasksSecondary,
     pub topo_parents: &'a ParentsSecondary,
-    pub lay_taffy_tree: &'a mut TaffyTreeEntityId,
+    pub lay_taffy_tree: &'a mut TaffyTreeEntity,
     pub lay_basic: &'a mut BasicLayoutsSecondary,
     pub lay_base_basic: &'a mut BaseBasicLayoutsSecondary,
     pub lay_resolved_basic: &'a mut ResolvedBasicSecondary,
@@ -736,8 +735,8 @@ pub(crate) struct ScrollbarSyncContext<'a> {
 
 impl ScrollbarSyncContext<'_> {
     #[inline]
-    pub fn update_el(&mut self, el_id: EntityId, size: Size<Val>, rect: Rect<Val>, opacity: f32) {
-        ScrollbarStore::update_scrollbar_element(
+    pub fn update_el(&mut self, el_id: Entity, size: Size<Val>, rect: Rect<Val>, opacity: f32) {
+        ScrollbarStore::update_scrollbar_entity(
             el_id,
             size,
             rect,
@@ -762,8 +761,8 @@ impl ScrollbarSyncContext<'_> {
         );
     }
     #[inline]
-    pub fn hide_el(&mut self, el_id: EntityId) {
-        ScrollbarStore::hide_scrollbar_element(
+    pub fn hide_el(&mut self, el_id: Entity) {
+        ScrollbarStore::hide_scrollbar_entity(
             el_id,
             self.lay_taffy_tree,
             self.lay_basic,
@@ -776,8 +775,8 @@ impl ScrollbarSyncContext<'_> {
 
 impl ScrollbarStore {
     /// スクロールバー用要素のレイアウト情報を同期して更新。
-    fn update_scrollbar_element_layout(
-        id: EntityId,
+    fn update_scrollbar_entity_layout(
+        id: Entity,
         size: Size<Val>,
         inset: Rect<Val>,
         lay_basic: &mut BasicLayoutsSecondary,
@@ -794,8 +793,8 @@ impl ScrollbarStore {
 
     /// スクロールバー用要素の不透明度（解決値と静的ベース値）を同時同期して更新します。
     #[inline]
-    fn update_scrollbar_element_opacity(
-        id: EntityId,
+    fn update_scrollbar_entity_opacity(
+        id: Entity,
         opacity: f32,
         rnd_visual: &mut VisualPropertiesSecondary,
         rnd_base_visual: &mut BaseVisualPropertiesSecondary,
@@ -809,14 +808,14 @@ impl ScrollbarStore {
 
     /// スクロールバー用要素（TrackやThumb）のレイアウト、不透明度、Taffyスタイルへの反映を一括して同期更新します。
     #[inline]
-    fn update_scrollbar_element(
-        id: EntityId,
+    fn update_scrollbar_entity(
+        id: Entity,
         size: Size<Val>,
         inset: Rect<Val>,
         opacity: f32,
         topo_active_masks: &ActiveMasksSecondary,
         topo_parents: &ParentsSecondary,
-        lay_taffy_tree: &mut TaffyTreeEntityId,
+        lay_taffy_tree: &mut TaffyTreeEntity,
         lay_basic: &mut BasicLayoutsSecondary,
         lay_base_basic: &mut BaseBasicLayoutsSecondary,
         lay_resolved_basic: &mut ResolvedBasicSecondary,
@@ -832,8 +831,8 @@ impl ScrollbarStore {
         rnd_active_transitions: &ActiveTransitionsSparse,
         debug: &mut DebugStore,
     ) {
-        ScrollbarStore::update_scrollbar_element_layout(id, size, inset, lay_basic, lay_base_basic);
-        ScrollbarStore::update_scrollbar_element_opacity(id, opacity, rnd_visual, rnd_base_visual);
+        ScrollbarStore::update_scrollbar_entity_layout(id, size, inset, lay_basic, lay_base_basic);
+        ScrollbarStore::update_scrollbar_entity_opacity(id, opacity, rnd_visual, rnd_base_visual);
 
         // 変更されたスクロールバー要素のキャッシュを更新
         LayoutStore::update_resolved_active_layout_cache(
@@ -871,9 +870,9 @@ impl ScrollbarStore {
     /// スクロールバー用要素をレイアウト上から安全に隠します。
     #[track_caller]
     #[inline]
-    fn hide_scrollbar_element(
-        id: EntityId,
-        lay_taffy_tree: &mut TaffyTreeEntityId,
+    fn hide_scrollbar_entity(
+        id: Entity,
+        lay_taffy_tree: &mut TaffyTreeEntity,
         lay_basic: &mut BasicLayoutsSecondary,
         lay_base_basic: &mut BaseBasicLayoutsSecondary,
         lay_taffy_nodes: &TaffyNodesSecondary,

@@ -12,8 +12,6 @@
 
 The `michiu` is developing a GUI library for Windows.
 
-Please note that since this is still under development, breaking changes may occur without prior notice.
-
 ### Crates.io
 
 - [michiu](https://crates.io/crates/michiu)
@@ -31,7 +29,7 @@ Add the following to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-michiu = "0.0.4"
+michiu = "0.0.5"
 pollster = "1.0.1"
 ```
 
@@ -59,10 +57,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 2. Initialize renderer
     let scale_factor = window.scale_factor() as f32;
     let handle = window.handle().assume_valid();
+    let rect = handle.client_rect();
     // MichiuRenderer::new is async. Use any executor of your choice.
     let renderer = pollster::block_on(MichiuRenderer::new(
         handle.hwnd(),
-        LayoutSize::new(600.0, 500.0),
+        rect.cast(),
         scale_factor,
     ))?;
 
@@ -72,23 +71,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let (count, set_count) = create_signal(0u32);
 
         flex(
-            ts().size_full()
+            ii().size_full()
                 .justify_center()
                 .items_center()
                 .bg_color(rgb(22, 24, 29)))
         .child(
             flex(
-                ts().size((200.0, 100.0))
+                ii().size((200.0, 100.0))
                     .r(6.0)
                     .justify_center()
                     .border_solid(2.0)
                     .border_color(rgb(209, 92, 174))
-                    .pressed(ts().transform_scale(0.98, 0.98)),
+                    .pressed(ii().transform_scale(0.98, 0.98)),
              )
              .on_click(move || set_count.set(count.get() + 1))
              .label(
                  move || format!("Count: {}", count.get()),
-                 ts().text_color(rgb(156, 158, 163)).font_size(22.0),
+                 ii().text_color(rgb(156, 158, 163)).font_size(22.0),
              ),
          )
      })?;
@@ -144,7 +143,7 @@ cargo run --release
     <img 
         width="600" 
         alt="Flexbox Sample" 
-        src="https://github.com/user-attachments/assets/7aa60ea4-3b2c-4da2-8d24-dfc3a083ee8a" />
+        src="https://github.com/user-attachments/assets/40a4db29-c702-488d-ac6e-c846c63221d5" />
 </p>
 
 #### WebView2 (External Visual) Sample
@@ -153,7 +152,7 @@ cargo run --release
     <img 
         width="600" 
         alt="WebView2 (External Visual) Sample" 
-        src="https://github.com/user-attachments/assets/709b6fc1-9848-427b-abf8-f6aae284f864" />
+        src="https://github.com/user-attachments/assets/4f06183f-a2ec-48ba-b26a-83c8b1dc7259" />
 </p>
 
 ## License

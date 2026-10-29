@@ -2,10 +2,11 @@ use crate::{MichiuError, PhysicalPoint};
 #[cfg(any(feature = "serde", docsrs))]
 use serde as _;
 use std::{
-    io::Write,
+    fmt::Write as _,
+    io::Write as _,
     net::{TcpListener, TcpStream},
     sync::{
-        Arc, Mutex,
+        Arc,
         mpsc::{Sender, channel},
     },
 };
@@ -49,9 +50,9 @@ impl ImeContext {
     /// # Examples
     ///
     /// ```no_run
-    /// # use michiu_window::{Window, WindowBuilder, ImeContext};
+    /// # use michiu_window::{MichiuWindow, MichiuWindowBuilder, ImeContext};
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// # let window = Window::build(WindowBuilder::new().into_unvalidated().try_into()?)?;
+    /// # let window = MichiuWindow::build(MichiuWindowBuilder::new().into_unvalidated().try_into()?)?;
     /// // Safely acquire the IME context for the window
     /// let ime_ctx = ImeContext::new(window.hwnd())?;
     /// # Ok(())
@@ -194,24 +195,32 @@ impl ImeContext {
             }
 
             // バッファサイズ (u16の要素数) を、万が一の奇数バイト報告に備えて安全に切り上げて確保
-            let size_bytes = size_bytes as usize;
+            // 直前のチェックで size_bytes > 0 が保証されてる
+            let size_bytes = usize::try_from(size_bytes)
+                .map_err(|_| MichiuError::Internal("failed to convert size_bytes to usize"))?;
             let u16_count = size_bytes.div_ceil(2);
             let mut buf = vec![0u16; u16_count];
 
-            // 確保されたバッファの実際の最大許容バイト数を第4引数に渡す
-            let buffer_capacity_bytes = buf.len() * 2;
+            // 確保されたバッファの実際のバイト長を第4引数に渡す
+            let buffer_capacity_bytes = u32::try_from(std::mem::size_of_val(&buf[..]))
+                .map_err(|_| MichiuError::Internal("buffer capacity exceeded u32"))?;
+
             let res_bytes = ImmGetCompositionStringW(
                 self.himc,
                 index,
                 Some(buf.as_mut_ptr().cast()),
-                buffer_capacity_bytes as u32,
+                buffer_capacity_bytes,
             );
 
-            if res_bytes > 0 && res_bytes != IMM_ERROR_NODATA && res_bytes != IMM_ERROR_GENERAL {
-                // 事前クエリ値ではなく、実際に書き込まれたバイト数分のスライスのみを UTF-16 文字列に変換
-                let written_u16_count = (res_bytes as usize) / 2;
-                let valid_slice = &buf[..std::cmp::min(written_u16_count, buf.len())];
-                Ok(String::from_utf16(valid_slice).ok())
+            if let Ok(res_bytes) = usize::try_from(res_bytes) {
+                if res_bytes > 0 {
+                    // 事前クエリ値ではなく、実際に書き込まれたバイト数分のスライスのみを UTF-16 文字列に変換
+                    let written_u16_count = res_bytes / 2;
+                    let valid_slice = &buf[..written_u16_count.min(buf.len())];
+                    Ok(String::from_utf16(valid_slice).ok())
+                } else {
+                    Ok(None)
+                }
             } else {
                 Ok(None)
             }
@@ -236,8 +245,13 @@ impl Drop for ImeContext {
 pub fn get_active_keyboard_layout_id() -> u32 {
     unsafe {
         let hkl = GetKeyboardLayout(0);
-        // HKLの低位16ビット（LOWORD）に LANGID が格納されている
-        (hkl.0 as usize & 0xFFFF) as u32
+
+        let bytes = hkl.0.addr().to_le_bytes();
+        // 先頭2バイト（下位16bit）から LANGID (u16) を復元
+        let lang_id = u16::from_le_bytes([bytes[0], bytes[1]]);
+
+        // u16 -> u32 はオーバーフローしないので From で安全に拡大
+        u32::from(lang_id)
     }
 }
 
@@ -245,7 +259,7 @@ pub fn get_active_keyboard_layout_id() -> u32 {
 ///
 /// This structure implements (`serde::Serialize`) and (`serde::Deserialize`) when the `serde`
 /// feature is enabled, allowing seamless serialization into JSON for cross-process communication.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct ImeStateUpdate {
     /// The unique ID of the window where this IME state update occurred (HWND as isize).
     pub window_id: isize,
@@ -297,7 +311,8 @@ impl ImeRelayServer {
     /// ```
     pub fn start(port: u16) -> std::io::Result<Self> {
         let (tx, rx) = channel::<ImeStateUpdate>();
-        let clients: Arc<Mutex<Vec<TcpStream>>> = Arc::new(Mutex::new(Vec::new()));
+        let clients: Arc<parking_lot::Mutex<Vec<TcpStream>>> =
+            Arc::new(parking_lot::Mutex::new(Vec::new()));
 
         // 新規接続を待ち受けるリスナースレッド
         let clients_listener = clients.clone();
@@ -307,7 +322,7 @@ impl ImeRelayServer {
             for stream in listener.incoming().flatten() {
                 // スレッドをフリーズさせないよう非ブロッキングに
                 let _ = stream.set_nonblocking(true);
-                let mut guard = clients_listener.lock().unwrap();
+                let mut guard = clients_listener.lock();
                 guard.push(stream);
             }
         });
@@ -332,7 +347,7 @@ impl ImeRelayServer {
                     caret_json,
                 );
 
-                let mut guard = clients.lock().unwrap();
+                let mut guard = clients.lock();
                 // 切断されたクライアントを自動検知してリストから安全に除外 (retain_mut)
                 guard.retain_mut(|stream| {
                     // 本体の書き込み
@@ -375,7 +390,7 @@ fn escape_json(s: &str) -> String {
             '\t' => escaped.push_str("\\t"),
             c if c.is_ascii_control() => {
                 // 0x00〜0x1F, 0x7F などの制御文字を規格通りの \uXXXX 形式へエスケープ
-                escaped.push_str(&format!("\\u{:04x}", c as u32));
+                let _ = write!(escaped, "\\u{:04x}", c as u32);
             }
             c => escaped.push(c),
         }
@@ -512,14 +527,14 @@ impl<'de> serde::Deserialize<'de> for ImeStateUpdate {
     }
 }
 
-#[allow(clippy::unwrap_used)]
-#[allow(clippy::expect_used)]
+#[expect(clippy::unwrap_used)]
+#[expect(clippy::expect_used)]
 #[cfg(test)]
 mod tests {
     use michiu_guard::Validate;
 
     use super::*;
-    use crate::{MichiuWindowBuilder, MichiuWindow};
+    use crate::{MichiuWindow, MichiuWindowBuilder};
 
     fn run_on_clean_thread<F>(f: F)
     where

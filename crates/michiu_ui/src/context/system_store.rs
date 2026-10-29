@@ -1,6 +1,6 @@
 use crate::{
-    CapacityConfig, Context, EntityId, InputContents, LayoutPoint, LayoutRect, MichiuSoA,
-    ResolvedGeometry, TextEngine, UiaValue, define_sparse_secondary,
+    CapacityConfig, Context, Entity, InputContents, LayoutPoint, LayoutRect, MichiuError,
+    MichiuSoA, ResolvedGeometry, TextEngine, define_sparse_secondary,
 };
 use cosmic_text::Buffer;
 use slotmap::SparseSecondaryMap;
@@ -25,15 +25,20 @@ pub struct MichiuTaskSender {
 }
 
 impl MichiuTaskSender {
-    /// ワーカースレッド等からメインスレッドで実行してほしい処理（クロージャ）を送信します。
-    /// ライブラリ内部で自動的に Box に包むため、呼び出し側での `Box::new` は不要です。
-    #[expect(clippy::result_unit_err)]
-    pub fn send<F>(&self, f: F) -> Result<(), ()>
+    /// Sends a closure—a piece of code to be executed on the main thread—from a worker thread or similar.
+    /// Since the library automatically wraps it in a `Box`, the caller does not need to call `Box::new`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MichiuError::SendError`] If the receiver has already terminated or dropped the connection.
+    pub fn send<F>(&self, f: F) -> Result<(), MichiuError>
     where
         F: FnOnce(&mut Context) + Send + 'static,
     {
-        // 内部で Box::new に包んで送信し、複雑なエラー型はシンプルな Result<(), ()> に変換して隠蔽する
-        self.inner.send(Box::new(f)).map_err(|_| ())?;
+        // 内部で Box::new に包んで送信
+        self.inner
+            .send(Box::new(f))
+            .map_err(|_| MichiuError::SendError)?;
 
         // タスク送信に成功したら即座にメインスレッドをウェイクアップさせる
         if let Some(ref waker) = self.waker {
@@ -44,7 +49,6 @@ impl MichiuTaskSender {
 }
 
 define_sparse_secondary!(pub struct TextBufferSparseInner(Rc<Buffer>));
-define_sparse_secondary!(pub struct UiaPropertiesSparse(Vec<(i32, UiaValue)>));
 
 pub type TextBufferSparse = RefCell<TextBufferSparseInner>;
 pub(crate) type TaskRecv = Box<dyn FnOnce(&mut Context) + Send + 'static>;
@@ -56,10 +60,26 @@ pub struct SystemStore {
     pub(crate) sys_task_receiver: Receiver<TaskRecv>,
 }
 
+impl Default for SystemStore {
+    fn default() -> Self {
+        let (tx, rx) = std::sync::mpsc::channel();
+        Self::new(
+            MichiuTaskSender {
+                inner: tx,
+                waker: None,
+            },
+            rx,
+        )
+    }
+}
+
 impl SystemStore {
     #[inline]
     #[must_use]
-    pub(crate) fn new(sys_task_sender: MichiuTaskSender, sys_task_receiver: Receiver<TaskRecv>) -> Self {
+    pub(crate) fn new(
+        sys_task_sender: MichiuTaskSender,
+        sys_task_receiver: Receiver<TaskRecv>,
+    ) -> Self {
         Self {
             sys_text_engine: TextEngine::new(),
             sys_text_buffers: RefCell::new(TextBufferSparseInner(SparseSecondaryMap::new())),
@@ -92,7 +112,7 @@ impl SystemStore {
     }
 
     #[inline]
-    pub(crate) fn despawn(&mut self, id: EntityId) {
+    pub(crate) fn despawn(&mut self, id: Entity) {
         self.sys_text_buffers.borrow_mut().remove(id);
     }
 }
@@ -100,14 +120,14 @@ impl SystemStore {
 impl SystemStore {
     /// テキスト変更やスタイル更新時にキャッシュを安全に破棄します。
     #[inline]
-    pub(crate) fn clear_text_buffer_cache(id: EntityId, sys_text_buffers: &TextBufferSparse) {
+    pub(crate) fn clear_text_buffer_cache(id: Entity, sys_text_buffers: &TextBufferSparse) {
         sys_text_buffers.borrow_mut().remove(id);
     }
 
     /// キャッシュされたレイアウトがあればそれを返し、無ければ安全に生成して保持。
     #[inline]
     pub(crate) fn get_or_create_text_buffer<F>(
-        id: EntityId,
+        id: Entity,
         max_width_opt: Option<f32>,
         sys_text_buffers: &TextBufferSparse,
         create_buffer: F,

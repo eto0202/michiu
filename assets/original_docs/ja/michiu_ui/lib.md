@@ -30,7 +30,7 @@ use michiu_ui::prelude::*;
 struct AppState {
    renderer: MichiuRenderer,
    context: Context,
-   root_id: EntityId,
+   root_id: Entity,
 }
 
 // 1. 任意の方法でウィンドウを作成し、HWND とスケールファクターを取得
@@ -53,14 +53,14 @@ let root = build_ui(&mut context, move || {
     let (count, set_count) = create_signal(0u32); // Initialize the signal.
 
     flex(
-        ts().size_full()
+        ii().size_full()
             .justify_center()
             .bg_color(rgb(22, 24, 29))
     )
     .on_click(move || set_count.set(count.get() + 1))
     .label(
         move || format!("Count: {}", count.get()),
-        ts().text_color(rgb(156, 158, 163)),
+        ii().text_color(rgb(156, 158, 163)),
     )
 });
 
@@ -164,7 +164,7 @@ wgpu によるUIレンダリング層の下に、外部コンポーネントが�
 
 `Context` の内部は、フラットなDOD（Data-Oriented Design）で設計されています。
 
-`Element` の実体は肥大なUIオブジェクトではなく、内部にあるSoAのキー（[`EntityId`]）です。そのため Rust の所有権や借用規則に縛られることなく、要件に合わせて以下の4つのアプローチを自由に選択・混用できます。
+`Entity` の実体は肥大なUIオブジェクトではなく、内部にあるSoAのキー（[`Entity`]）です。そのため Rust の所有権や借用規則に縛られることなく、要件に合わせて以下の4つのアプローチを自由に選択・混用できます。
 
 | アプローチ           | メリット                               | 推奨ユースケース                       |
 | :------------------- | :------------------------------------- | :------------------------------------- |
@@ -182,24 +182,24 @@ wgpu によるUIレンダリング層の下に、外部コンポーネントが�
 let (count, set_count) = create_signal(0u32);
 
 div_n().on_click(move || set_count.set(count.get() + 1))
-       .label(move || format!("Signal: {}", count.get()), ts())
+       .label(move || format!("Signal: {}", count.get()), ii())
 ```
 
 #### 2. Direct アプローチ（ローカル変数の直接キャプチャ）
 
-`Element` をそのまま イベントハンドラ (例: `on_click` ) クロージャ内へ `move` して、命令的に操作します。
+`Entity` をそのまま イベントハンドラ (例: `on_click` ) クロージャ内へ `move` して、命令的に操作します。
 
 ```rust
 # use michiu_ui::prelude::*;
-let el = h_flex(ts().bg_color(Color::BLUE));
+let e = h_flex(ii().bg_color(Color::BLUE));
 
 let mut count = 0u32;
 
-el.label(move || format!("Direct: {count}"), ts())
+e.label(move || format!("Direct: {count}"), ii())
   .on_click(move || {
        count += 1;
-       el.set_contents(div_n().label(move || format!("Direct: {count}"), ts()))
-         .style(ts().bg_color(Color::RED));
+       e.set_contents(div_n().label(move || format!("Direct: {count}"), ii()))
+         .modify(ii().bg_color(Color::RED));
   })
 ```
 
@@ -212,13 +212,13 @@ el.label(move || format!("Direct: {count}"), ts())
 let mut count = 0u32;
 
 h_flex(
-    ts().bg_color(Color::BLUE)
+    ii().bg_color(Color::BLUE)
 )
-.label(move || format!("Event: {count}"), ts())
+.label(move || format!("Event: {count}"), ii())
 .on_click_with(move |cx| {
      count += 1;
-     cx.current().set_contents(div_n().label(move || format!("Event: {count}"), ts()))
-       .style(ts().bg_color(Color::RED));
+     cx.current().set_contents(div_n().label(move || format!("Event: {count}"), ii()))
+       .modify(ii().bg_color(Color::RED));
 })
 ```
 
@@ -235,15 +235,15 @@ Tag機能は、UIツリーの任意の要素に型情報を付与し、
 # use michiu_ui::prelude::*;
 let mut count = 0u32;
 
-let left = flex(ts()).tag::<a11y::AButton>();
+let left = flex(ii()).tag::<a11y::AButton>();
 
-let right = flex(ts()).label("Click", ts()).on_click_with(move |cx| {
-    let el = cx.query_first::<a11y::AButton>();
+let right = flex(ii()).label("Click", ii()).on_click_with(move |cx| {
+    let e = cx.query_first::<a11y::AButton>();
     count += 1;
-    el.set_contents(div_n().label(move || format!("Tag: {count}"), ts()));
+    e.set_contents(div_n().label(move || format!("Tag: {count}"), ii()));
 });
 
-h_flex(ts()).children([left, right])
+h_flex(ii()).children([left, right])
 ```
 
 #### メリット
@@ -268,11 +268,11 @@ h_flex(ts()).children([left, right])
 use michiu_ui::prelude::*;
 
 // 1. ルート（または上位ノード）でシグナルを生成して provide
-pub fn create_root() -> Element {
+pub fn create_root() -> Entity {
     let (theme, _) = create_signal(Theme::dark());
     let (search_text, _) = create_signal(SearchText(String::new()));
 
-    v_flex(move || ts().size_full().bg_color(theme.get().background))
+    v_flex(move || ii().size_full().bg_color(theme.get().background))
         .provide(theme)
         .provide(search_text)
         .children([
@@ -283,9 +283,9 @@ pub fn create_root() -> Element {
 }
 
 // 2. 下流の任意のコンポーネントで購読
-fn some_label() -> Element {
+fn some_label() -> Entity {
     // provide された Theme から primary カラーを購読（自動追従）
-    div_n().label("Hello", ts().text_color(dynamic(|t: &Theme| t.primary)))
+    div_n().label("Hello", ii().text_color(dynamic(|t: &Theme| t.primary)))
 }
 ```
 
@@ -303,24 +303,24 @@ fn some_label() -> Element {
 # 動的スタイリングとパフォーマンスガイド
 
 `michiu_ui` では、テーマ変更や状態遷移に応じた動的なスタイル指定として、
-「スタイル全体の動的評価（`style_d` / `style`）」 と 「プロパティ単位の評価（`dynamic`）」 の2系統を提供しています。
+「スタイル全体の動的評価（`modify_d` / `modify`）」 と 「プロパティ単位の評価（`dynamic`）」 の2系統を提供しています。
 
 ---
 
-## 1. `style(move || ...)` と `style_d` の等価性
+## 1. `modify(move || ...)` と `modify_d` の等価性
 
 以下の2つの記述は、ライブラリ内部において全く同一の挙動および再評価コストを持ちます。
 
 ```rust
-// パターン A: 通常の style メソッドに引数なしの動的クロージャを渡す
-.style(move || {
+// パターン A: 通常の modify メソッドに引数なしの動的クロージャを渡す
+.modify(move || {
     let t = use_provided::<Theme>().get();
-    ts().bg_color(t.background)
+    ii().bg_color(t.background)
 })
 
-// パターン B: style_d メソッドを使用する（糖衣構文）
-.style_d(|t: &Theme| {
-    ts().bg_color(t.background)
+// パターン B: modify_d メソッドを使用する（糖衣構文）
+.modify_d(|t: &Theme| {
+    ii().bg_color(t.background)
 })
 ```
 
@@ -331,11 +331,11 @@ fn some_label() -> Element {
 
 ## 2. スタイルの全体評価とプロパティ単位の評価（`dynamic`）
 
-| 比較項目                            | スタイル全体 (`style_d`)                                              | プロパティ単位 (`dynamic`)                                      |
+| 比較項目                            | スタイル全体 (`modify_d`)                                              | プロパティ単位 (`dynamic`)                                      |
 | :---------------------------------- | :-------------------------------------------------------------------- | :-------------------------------------------------------------- |
-| **評価単位**                        | `ThisStyle` オブジェクト単位                                          | 各プロパティ単体（色、サイズ等）                                |
+| **評価単位**                        | `Modifier` オブジェクト単位                                          | 各プロパティ単体（色、サイズ等）                                |
 | **ツリー遡上回数 (`use_provided`)** | **1回のみ**（クロージャ開始時に一括解決）                             | **プロパティの個数分発生**（各セッターが個別解決）              |
-| **再評価時の挙動**                  | 新しい `ThisStyle` を再生成し、SoA全体を一括マージ（`override_with`） | 対象の動的セッターのみを実行し、SoAの該当フィールドだけを直書き |
+| **再評価時の挙動**                  | 新しい `Modifier` を再生成し、SoA全体を一括マージ（`override_with`） | 対象の動的セッターのみを実行し、SoAの該当フィールドだけを直書き |
 | **メモリとCPU特性**                 | 一括代入による優れたCPUキャッシュ効率                                 | 構造体生成を完全にバイパスする最小フットプリント                |
 
 > `michiu_ui` の内部SoAマージはヒープ確保を伴わない単純なメモリ値（数値等）の連続代入のみで完結します。
@@ -348,26 +348,26 @@ fn some_label() -> Element {
 ### 基準A: 動的な値が少数（1〜数個程度）の場合
 
 - **推奨**: **プロパティ単位の `dynamic()`**
-- **理由**: `ThisStyle` の生成やSoAの再マージを完全にスキップできるためオーバーヘッドが極小になります。
+- **理由**: `Modifier` の生成やSoAの再マージを完全にスキップできるためオーバーヘッドが極小になります。
 
 ```rust
-div(ts().bg_color(dynamic(|t: &Theme| t.background)))
+div(ii().bg_color(dynamic(|t: &Theme| t.background)))
 ```
 
 ### 基準B: 動的な値が多数（境界線、背景、ホバー、テキスト色など）の場合
 
-- **推奨**: **スタイル全体の `style_d()`**
+- **推奨**: **スタイル全体の `modify_d()`**
 - **理由**:
   - **親ツリー探索（`use_provided`）の削減**: 依存シグナルを親へ遡る処理が1回で完了します（ツリーが深いほど差が大きくなります）。
   - **CPUキャッシュ効率の最大化**: 多数のクロージャを順次スタック評価するより、一括メモリ代入の方が高速に動作します。
   - **可読性の向上**: 静的なレイアウトと動的なレイアウトが明確に分離されます。
 
 ```rust
-div(ts().w_full().p_y(4.0))
-    .style_d(|t: &Theme| {
-        ts().border_color(t.border)
+div(ii().w_full().p_y(4.0))
+    .modify_d(|t: &Theme| {
+        ii().border_color(t.border)
             .bg_color(t.background)
-            .pressed(ts().border_color(t.primary).bg_color(t.background_hover))
+            .pressed(ii().border_color(t.primary).bg_color(t.background_hover))
     })
 ```
 
@@ -377,13 +377,13 @@ div(ts().w_full().p_y(4.0))
 
 | ケース                                 | 推奨アプローチ                  |
 | :------------------------------------- | :------------------------------ |
-| 静的なスタイルのみ                     | `style(ts())`                   |
-| 条件分岐などでスタイルを変えたい       | `style(\|\| ts())`              |
+| 静的なスタイルのみ                     | `modify(ii())`                   |
+| 条件分岐などでスタイルを変えたい       | `modify(\|\| ii())`              |
 | 動的なプロパティが数個                 | `dynamic(\|t: &T\|)`            |
-| 多数の動的なプロパティ                 | `style_d(\|t: &T\|)`            |
-| 動的なプロパティと条件分岐の組み合わせ | `style_d`                       |
-| 静的スタイルと一部だけ動的なプロパティ | `style` + `dynamic`             |
-| 静的・動的なプロパティがともに多数     | `style(静的)` + `style_d(動的)` |
+| 多数の動的なプロパティ                 | `modify_d(\|t: &T\|)`            |
+| 動的なプロパティと条件分岐の組み合わせ | `modify_d`                       |
+| 静的スタイルと一部だけ動的なプロパティ | `modify` + `dynamic`             |
+| 静的・動的なプロパティがともに多数     | `modify(静的)` + `modify_d(動的)` |
 
 ---
 
@@ -394,9 +394,9 @@ div(ts().w_full().p_y(4.0))
 - [**レンダラーの実装**](crate::renderer) - DirectComposition サーフェス管理と wgpu による描画コマンドの生成
 - [**`Context` の構造**](crate::context) - 全体状態の保持、ストレージ管理、ライフサイクル制御
 - [**`pipeline` モジュール**](crate::pipeline) - フレーム進行のオーケストレーター
-- [**UIの構築とスタイリング**](crate::element) - [`build_ui`] によるウィジェットツリー構築と `ts()`（スタイルビルダー）のプロパティ一覧
+- [**UIの構築とスタイリング**](crate::entity) - [`build_ui`] によるウィジェットツリー構築と `ii()`（スタイルビルダー）のプロパティ一覧
 - [**リアクティビティ**](crate::signal) - [`create_signal`] によるリアクティブプログラミングモデルと依存関係の追跡
-- [**Tag機能**](crate::tag) - Element への識別タグ付与とツリー探索・クエリ
+- [**Tag機能**](crate::tag) - Entity への識別タグ付与とツリー探索・クエリ
 - [**アクセシビリティ**](crate::context::acce_store) - AccessKit との連携およびツリー同期
 - [**外部要素の埋め込み**](crate::external) - 画像や動画、外部ファイル、`IDCompositionVisual2` の統合
 - [**デバッグツール**](crate::context::debug_store) - エラーを含むログの収集やライフサイクルの可視化

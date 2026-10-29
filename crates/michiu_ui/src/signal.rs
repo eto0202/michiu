@@ -1,7 +1,7 @@
 #[cfg(feature = "trace-error")]
 use crate::trace_error;
 use crate::{
-    Context, DebugStore, Effects, MichiuError, MichiuTrace, OptionTraceExt, MichiuTaskSender,
+    Context, DebugStore, Effects, MichiuError, MichiuTaskSender, MichiuTrace, OptionTraceExt,
     with_context,
 };
 use slotmap::new_key_type;
@@ -10,29 +10,29 @@ use std::cell::Cell;
 use std::marker::PhantomData;
 
 new_key_type! {
-    /// 登録されたシグナルを識別する一意なID
+    /// A unique ID that identifies a registered signal
     pub struct SignalId;
-    /// 登録されたエフェクトを識別する一意なID
+    /// A unique ID that identifies a registered effect
     pub struct EffectId;
 }
 
 thread_local! {
     // 現在メインスレッド上で評価中のエフェクトIDを記録するスレッドローカル
     pub(crate) static ACTIVE_EFFECT: Cell<Option<EffectId>> = const { Cell::new(None) };
-    // 現在メインスレッド上で処理中のEntityId
-    pub(crate) static ACTIVE_ELEMENT: Cell<Option<crate::EntityId>> = const { Cell::new(None) };
+    // 現在メインスレッド上で処理中のEntity
+    pub(crate) static ACTIVE_ENTITY: Cell<Option<crate::Entity>> = const { Cell::new(None) };
 }
 
-/// Automatically restore `ACTIVE_ELEMENT` when exiting the scope
-pub struct ActiveElementGuard {
-    prev: Option<crate::EntityId>,
+/// Automatically restore `ACTIVE_ENTITY` when exiting the scope
+pub struct ActiveEntityGuard {
+    prev: Option<crate::Entity>,
 }
 
-impl ActiveElementGuard {
+impl ActiveEntityGuard {
     #[inline]
     #[must_use]
-    pub fn new(id: crate::EntityId) -> Self {
-        let prev = ACTIVE_ELEMENT.with(|cell| {
+    pub fn new(id: crate::Entity) -> Self {
+        let prev = ACTIVE_ENTITY.with(|cell| {
             let prev = cell.get();
             cell.set(Some(id));
             prev
@@ -41,10 +41,10 @@ impl ActiveElementGuard {
     }
 }
 
-impl Drop for ActiveElementGuard {
+impl Drop for ActiveEntityGuard {
     #[inline]
     fn drop(&mut self) {
-        ACTIVE_ELEMENT.with(|cell| cell.set(self.prev));
+        ACTIVE_ENTITY.with(|cell| cell.set(self.prev));
     }
 }
 
@@ -463,7 +463,7 @@ pub(crate) fn execute_effect(effect_id: EffectId) {
             prev
         });
 
-        // 実行（内部で get() が呼ばれたシグナルと、この effect_id が自動で紐づきます）
+        // 実行（内部で get() が呼ばれたシグナルと、この effect_id が自動で紐づく）
         effect_closure.0(cx);
 
         // 実行完了後、退避していた元のエフェクトIDを正確に復元する
@@ -488,4 +488,305 @@ where
     // 初回評価を実行し、同時にシグナルとの依存関係マップを自動構築する
     execute_effect(id);
     id
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{Entity, bind_context};
+    use slotmap::SlotMap;
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
+
+    // `test_active_entity_guard_lifecycle`
+    //  - 初期状態（`None`）からガード生成で `Some(id1)` に設定されること。
+    //  - ネストしたガード（`Some(id2)`）を作成し、内側のドロップで `Some(id1)`、外側のドロップで `None` に順次復元されること。
+    //
+    // `test_signal_basic_get_and_set`
+    //  - 初期値が `get()`, `with()`, `get_untracked()` で正しく取得できること。
+    //  - `write_signal.set(new_val)` 後に更新された値が取得できること。
+    //
+    // `test_signal_not_found_panics`
+    //  - 未登録の `SignalId` に対して `get()` を呼んだ場合、`MichiuError::SignalNotFound` でパニックすること。
+    //
+    // `test_signal_downcast_failed_panics`
+    //  - `i32` 型として登録されたシグナルを `ReadSignal<String>` として `get()` しようとした場合、`MichiuError::DowncastFailed` でパニックすること。
+    //
+    // `test_effect_initial_run_and_tracking`
+    //  - `create_effect` の登録時に初回評価が即座に実行されること。
+    //  - エフェクト内で `read_signal.get()` を呼ぶと、`cx.reactive.react_subscribers` に自動で依存関係が構築されること。
+    //  - `read_signal.get_untracked()` で呼んだ場合は依存関係に登録されないこと。
+    //  - `write_signal.set()` を呼び出すと、依存しているエフェクトのみが再評価されること。
+    //  - 無関係なシグナルを `set()` しても再評価されないこと。
+    //
+    // `test_multiple_signals_dependency`
+    //  - 1つのエフェクトが2つのシグナル（A, B）を購読している場合、A の更新、B の更新のどちらでもエフェクトが再実行されること。
+    //
+    // `test_recursive_effect_protection`
+    //  - エフェクト自身の実行ブロック内で、自身をトリガーする `write_signal.set()` を実行。
+    //  - スタックオーバーフロー（無限再帰）を起こさず安全にスキップされ、エラーハンドリング（`RecursiveEffectDetected`）が機能すること。
+    //
+    // `test_read_signal_map`
+    //  - 元シグナル S をマッピングした派生シグナル U（例: 数値 -> 文字列）を作成。
+    //  - S を更新すると、U も自動的に変換後の値へ同期されること。
+    //
+    // `test_signal_bi_map`
+    //  - 双方向マッピングを作成。
+    //  - 元シグナル S を更新 -> 派生シグナル U に反映されること。
+    //  - 派生シグナル U を更新 -> 元シグナル S に逆変換されて反映されること。
+    //
+    // `test_get_else_and_get_else_with`
+    //  - `ReadSignal<bool>` に対する `get_else`, `get_else_with` で、真偽値に応じて期待する値やクロージャ結果が返ること。
+    //
+    // `test_get_else_by_and_get_else_with_by`
+    //  - 任意の型シグナルに対する述語関数 `cond_fn` の結果に基づき、適切な分岐の値が返ること。
+    //
+    // `test_signal_sender`
+    //  - `write_signal.sender()` を別スレッドに移動し、`sender.send(new_val)` を実行。
+    //  - メインスレッドのタスクキューを消化した後に、シグナル値が正しく更新され、依存エフェクトがトリガーされること。
+
+    #[test]
+    fn test_active_entity_guard_lifecycle() {
+        let mut sm = SlotMap::<Entity, ()>::with_key();
+        let e1 = sm.insert(());
+        let e2 = sm.insert(());
+
+        assert_eq!(ACTIVE_ENTITY.with(Cell::get), None);
+
+        {
+            let _g1 = ActiveEntityGuard::new(e1);
+            assert_eq!(ACTIVE_ENTITY.with(Cell::get), Some(e1));
+
+            {
+                let _g2 = ActiveEntityGuard::new(e2);
+                assert_eq!(ACTIVE_ENTITY.with(Cell::get), Some(e2));
+            }
+
+            // 内側ドロップで e1 に復元
+            assert_eq!(ACTIVE_ENTITY.with(Cell::get), Some(e1));
+        }
+
+        // 外側ドロップで None に復元
+        assert_eq!(ACTIVE_ENTITY.with(Cell::get), None);
+    }
+
+    #[test]
+    fn test_signal_basic_get_and_set() {
+        let mut cx = Context::default();
+        let _guard = bind_context(&mut cx);
+
+        let (r, w) = with_context(|c| c.create_signal(10));
+
+        assert_eq!(r.get(), 10);
+        assert_eq!(r.get_untracked(), 10);
+        assert_eq!(r.with(|&v| v * 2), 20);
+
+        w.set(42);
+        assert_eq!(r.get(), 42);
+        assert_eq!(r.get_untracked(), 42);
+        assert_eq!(r.with(|&v| v + 1), 43);
+    }
+
+    #[test]
+    fn test_signal_not_found_panics() {
+        let mut cx = Context::default();
+        let _guard = bind_context(&mut cx);
+
+        let missing_signal = ReadSignal::<i32>::new(SignalId::default());
+
+        let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _ = missing_signal.get();
+        }));
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn test_signal_downcast_failed_panics() {
+        let mut cx = Context::default();
+        let _guard = bind_context(&mut cx);
+
+        let (_r, w) = with_context(|c| c.create_signal(100_i32));
+        let fake_r = ReadSignal::<String>::new(w.id());
+
+        let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _ = fake_r.get();
+        }));
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn test_effect_initial_run_and_tracking() {
+        let mut cx = Context::default();
+        let _guard = bind_context(&mut cx);
+
+        let (r_tracked, w_tracked) = with_context(|c| c.create_signal(1));
+        let (r_untracked, w_untracked) = with_context(|c| c.create_signal(100));
+
+        let eval_count = Arc::new(AtomicUsize::new(0));
+        let eval_count_clone = Arc::clone(&eval_count);
+
+        // エフェクト作成時に初回評価が即座に行われる
+        create_effect(move |_| {
+            eval_count_clone.fetch_add(1, Ordering::SeqCst);
+            let _ = r_tracked.get();
+            let _ = r_untracked.get_untracked();
+        });
+
+        assert_eq!(eval_count.load(Ordering::SeqCst), 1);
+
+        // トラッキングされているシグナルを更新 -> 再評価される
+        w_tracked.set(2);
+        assert_eq!(eval_count.load(Ordering::SeqCst), 2);
+
+        // トラッキングされていないシグナルを更新 -> 再評価されない
+        w_untracked.set(200);
+        assert_eq!(eval_count.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    #[expect(clippy::cast_sign_loss)]
+    fn test_multiple_signals_dependency() {
+        let mut cx = Context::default();
+        let _guard = bind_context(&mut cx);
+
+        let (r1, w1) = with_context(|c| c.create_signal(10));
+        let (r2, w2) = with_context(|c| c.create_signal(20));
+
+        let sum = Arc::new(AtomicUsize::new(0));
+        let sum_clone = Arc::clone(&sum);
+
+        create_effect(move |_| {
+            sum_clone.store((r1.get() + r2.get()) as usize, Ordering::SeqCst);
+        });
+
+        assert_eq!(sum.load(Ordering::SeqCst), 30);
+
+        w1.set(15);
+        assert_eq!(sum.load(Ordering::SeqCst), 35);
+
+        w2.set(25);
+        assert_eq!(sum.load(Ordering::SeqCst), 40);
+    }
+
+    #[test]
+    fn test_recursive_effect_protection() {
+        let mut cx = Context::default();
+        let _guard = bind_context(&mut cx);
+
+        let (r, w) = with_context(|c| c.create_signal(0));
+        let run_count = Arc::new(AtomicUsize::new(0));
+        let run_count_clone = Arc::clone(&run_count);
+
+        create_effect(move |_| {
+            let count = run_count_clone.fetch_add(1, Ordering::SeqCst);
+            let _val = r.get();
+
+            // 自身をトリガーする set を実行（再帰呼び出しを意図）
+            if count == 0 {
+                w.set(999);
+            }
+        });
+
+        // 無限ループにならず、ダミー置き換えにより再帰が抑制されること
+        assert_eq!(run_count.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn test_read_signal_map() {
+        let mut cx = Context::default();
+        let _guard = bind_context(&mut cx);
+
+        let (r, w) = with_context(|c| c.create_signal(5));
+        let mapped = r.map(|&v| v * 10);
+
+        assert_eq!(mapped.get(), 50);
+
+        w.set(7);
+        assert_eq!(mapped.get(), 70);
+    }
+
+    #[test]
+    fn test_signal_bi_map() {
+        let mut cx = Context::default();
+        let _guard = bind_context(&mut cx);
+
+        let (r_int, w_int) = with_context(|c| c.create_signal(10));
+        let (r_str, w_str) = r_int.bi_map(
+            w_int,
+            |&v| v.to_string(),
+            |s: String| s.parse::<i32>().unwrap_or(0),
+        );
+
+        assert_eq!(r_str.get(), "10");
+
+        // 順方向同期
+        w_int.set(42);
+        assert_eq!(r_str.get(), "42");
+
+        // 逆方向同期
+        w_str.set("99".to_string());
+        assert_eq!(r_int.get(), 99);
+    }
+
+    #[test]
+    fn test_get_else_and_get_else_with() {
+        let mut cx = Context::default();
+        let _guard = bind_context(&mut cx);
+
+        let (r, w) = with_context(|c| c.create_signal(true));
+
+        let getter = r.get_else("yes", "no");
+        assert_eq!(getter(), "yes");
+
+        w.set(false);
+        assert_eq!(getter(), "no");
+
+        let getter_fn = r.get_else_with(|| 100, || 200);
+        assert_eq!(getter_fn(), 200);
+
+        w.set(true);
+        assert_eq!(getter_fn(), 100);
+    }
+
+    #[test]
+    fn test_get_else_by_and_get_else_with_by() {
+        let mut cx = Context::default();
+        let _guard = bind_context(&mut cx);
+
+        let (r, w) = with_context(|c| c.create_signal(15));
+
+        let getter = r.get_else_by(|&v| v > 10, "large", "small");
+        assert_eq!(getter(), "large");
+
+        w.set(5);
+        assert_eq!(getter(), "small");
+
+        let getter_fn = r.get_else_with_by(|&v| v == 0, || "zero", || "nonzero");
+        assert_eq!(getter_fn(), "nonzero");
+
+        w.set(0);
+        assert_eq!(getter_fn(), "zero");
+    }
+
+    #[test]
+    #[expect(clippy::expect_used)]
+    fn test_signal_sender() {
+        let mut cx = Context::default();
+        let _guard = bind_context(&mut cx);
+
+        let (r, w) = with_context(|c| c.create_signal(0));
+        let sender = w.sender();
+
+        // sender を別スレッドに move して送信を実行
+        let handle = std::thread::spawn(move || {
+            sender.send(42);
+        });
+        handle.join().expect("Worker thread panicked");
+
+        // メインスレッド側でキューされたタスクを消化
+        cx.process_main_thread_tasks();
+        assert_eq!(r.get(), 42);
+    }
 }

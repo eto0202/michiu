@@ -1,13 +1,15 @@
-#![allow(clippy::pedantic, clippy::restriction)]
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+#![expect(
+    clippy::pedantic,
+    clippy::print_stdout,
+    clippy::unwrap_used,
+    clippy::expect_used
+)]
 
 use crate::logger::logger;
 use michiu::{
-    AutoSyncMode, MichiuApp, MichiuAppBuilder,
-    ui::{
-        CapacityConfig, CssLoader, ExternalDataSetBuilder, WebView2Contents, WebView2Visual,
-        prelude::*,
-    },
-    window::prelude::*,
+    prelude::*,
+    ui::{CapacityConfig, CssLoader, ExternalDataSetBuilder, WebView2Contents, WebView2Visual},
 };
 use std::cell::{Cell, RefCell};
 
@@ -22,6 +24,7 @@ pub struct CratesVisual(WebView2Visual);
 
 pub const ALLOW_LOG: bool = false;
 // これ起動めちゃ遅くなるので注意
+// Be careful—this makes startup really slow.
 pub const ALLOW_STRESS_TEST: bool = false;
 
 #[cfg(feature = "dhat-heap")]
@@ -32,62 +35,79 @@ static ALLOC: dhat::Alloc = dhat::Alloc;
 // cargo run --features dhat-heap
 // cargo build  --release
 // cargo run  --release --features dhat-heap
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     #[cfg(feature = "dhat-heap")]
     let _profiler = dhat::Profiler::builder().trim_backtraces(None).build();
 
+    // とりあえず書いとけばOK
+    // ↓Just write it down for now
     let _ = MichiuWindow::init_dpi_awareness();
-    let com = MichiuComContext::new_ro_single()?;
+    let com = MichiuComContext::new_ro_single()?; // This one, too
 
     let builder = MichiuWindowBuilder::new()
         .with_title("Sample Collection")
+        // アクセシビリティ機能を使う場合は非表示で作成
+        // If you plan to use accessibility features, please create it as hidden.
         .with_visible(false)
+        // カスタムタイトルバーを作るので装飾は無し
+        // To create a custom title bar, remove all decorations
         .with_decorations(false)
-        .with_no_redirection_bitmap(true)
+        .with_no_redirection_bitmap(true) // This is also required
         .with_inner_size(LogicalSize::new(1000.0, 800.0))
-        .with_com_context(&com)
-        .with_default_ime_window(false)
+        .with_com_context(&com) // This is also required
+        .with_default_ime_window(false) // This is also required
+        // ここでカスタムタイトルバーを作る
+        // Create a custom title bar here
         .with_message_filter(filter)
-        .into_unvalidated();
+        .into_unvalidated(); // This is also required
 
+    // `try_into`でサクッと検証できるよ～
+    // You can quickly validation it with `try_into`~
     let window = MichiuWindow::build(builder.try_into()?)?;
 
     let scale_factor = window.scale_factor() as f32;
+    // 作ったばっかだから検証は無くてもヨシ！
+    // I just made it, so it's okay if there's no validation!
     let handle = window.handle().assume_valid();
     let hwnd = handle.hwnd();
 
     let client_rect = handle.client_rect();
-    let width = client_rect.width as f32;
-    let height = client_rect.height as f32;
 
     // レンダラーを作成
-    let renderer = pollster::block_on(MichiuRenderer::new(
-        hwnd,
-        LayoutSize::new(width, height),
-        scale_factor,
-    ))?;
+    // Create a Renderer
+    // `cargo add pollster`
+    let renderer = pollster::block_on(MichiuRenderer::new(hwnd, client_rect.cast(), scale_factor))?;
 
-    let inspector = MichiuInspector::new();
+    let inspector = MichiuInspector::new(); // It's fine even if it's not there
     let _sub = inspector.subscribe(None);
 
     // デバッグログ用のスレッド
+    // Thread for Debug Logs
     logger(_sub);
 
+    // 状況に応じて設定
+    // Adjust the settings as needed
     let (mut app, mut pump) = MichiuAppBuilder::new(window)
         .with_accessibility_support(true)
         .with_capacity_config(CapacityConfig::from_base_nodes(1024))
         .with_inspector(inspector)
         .with_sync_mode(AutoSyncMode::DwmFlush)
-        .with_external_visual_support(true)
+        .with_external_visual_support(true) // Required when using `ExternalVisual`
         .with_default_shortcuts(true)
         .with_auto_resolve_cursor(true)
         .build(renderer)?;
 
+    // `ExternalVisual`を使う場合は必須
+    // Required when using `ExternalVisual`
     let device = app.renderer.composition_device()?;
     let task_sender = app.context.task_sender();
 
+    // webview2 環境を事前に用意しておく
+    // Set up the WebView2 environment in advance
     WebView2Visual::prewarm_webview2();
 
+    // ここからテキトウ
+    // From here on, just wing it
     let github = WebView2Contents::from_url("https://github.com/eto0202/michiu/tree/main")
         .enable_context_menu(true)
         .enable_dev_tools(true)
@@ -102,11 +122,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let crates_visual = WebView2Visual::new(&device, hwnd, crates, scale_factor, &task_sender)
         .expect("Failed to create WebView2Visual");
 
+    // ここでは CSS ファイルを読みこんでるけど、`ExternalData` は CSS 専用というわけではない。
+    // Although we're loading a CSS file here, `ExternalData` isn't limited to CSS.
     let css_path = concat!(env!("CARGO_MANIFEST_DIR"), "/sample_collection/global.css");
     let (styles_sig, _guard) = ExternalDataSetBuilder::new()
-        .add("global", css_path, CssLoader)
+        .add("global", css_path, CssLoader) // CSS -> Modifier
         .watch(&mut app.context)?;
 
+    // `build_ui` 以降、`MichiuApp` にルート要素が登録される。
+    // After `build_ui`, the root element is registered in `MichiuApp`.
     app.build_ui(move || {
         let (read_github, _) = create_signal(GitHubVisual(github_visual));
         let (read_youtube, _) = create_signal(CratesVisual(crates_visual));
@@ -118,6 +142,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .provide(read_handle)
     });
 
+    // ウィンドウを非表示で作成しているので、ここで表示に切り替える。
+    // Since the window was created in hidden mode, switch it to visible here.
     app.set_visible(true);
 
     event_loop(&mut app, &mut pump)?;
@@ -125,8 +151,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn event_loop(app: &mut MichiuApp, pump: &mut MichiuEventPump) -> michiu::window::Result<()> {
+fn event_loop(app: &mut MichiuApp, pump: &mut MichiuEventPump) -> michiu::Result<()> {
+    // `wait_event` は、イベントが無いときはループが止まる省エネモード
+    // `wait_event` is an energy-saving mode that pauses the loop when there are no events.
     while pump.wait_event(|event, _, raw| {
+        // 基本的なイベント処理を提供
+        // Provides basic event handling ↓
         let resp = app.standard_handle_window_event(&event, &raw);
 
         if resp.needs_redraw {
@@ -143,13 +173,19 @@ fn event_loop(app: &mut MichiuApp, pump: &mut MichiuEventPump) -> michiu::window
         if let MichiuAnyEvent::Window { event, .. } = event {
             match event {
                 MichiuEvent::CloseRequested => {
+                    // ウィンドウを消すようリクエストする
+                    // Request that the window be closed
                     app.destroy();
                 }
                 MichiuEvent::Destroyed => {
+                    // イベントループを停止する
+                    // Stop the event loop
                     app.quit();
                 }
                 MichiuEvent::RedrawRequested => {
-                    redraw_requested(app);
+                    // ここで再描画
+                    // Redraw here
+                    redraw(app);
                 }
                 _ => {}
             }
@@ -159,41 +195,65 @@ fn event_loop(app: &mut MichiuApp, pump: &mut MichiuEventPump) -> michiu::window
     Ok(())
 }
 
-fn redraw_requested(app: &mut MichiuApp) {
+// 重要なとこだけコメント
+// Comments on only the important parts
+fn redraw(app: &mut MichiuApp) {
     let frame_start = std::time::Instant::now();
 
     let update_start = std::time::Instant::now();
+    // キューに溜まったイベントを消費
+    // Process the events queued up
     app.context.begin_frame();
+    // 基本的なカーソル更新処理を提供
+    // Provides basic cursor update processing
     app.standard_update_cursor_icon();
+    // トランジションやアニメーションなどを 1tick 進める
+    // Advance transitions, animations, etc., by 1 tick
     app.context.tick_system_frame(&TickType::All);
     let update_elapsed = update_start.elapsed();
 
+    let active_entities = app.context.active_entities();
+    let dirty_entities = app
+        .context
+        .raw_context_mut()
+        .layouts
+        .dirty_entities_mut()
+        .len();
+
     let layout_start = std::time::Instant::now();
+    // レイアウトの再計算。必須。
+    // Recalculate the layout. Required.
     app.context
-        .sync_layout(app.root_id(), app.renderer.layout_size());
+        .sync_layout(app.root(), app.renderer.layout_size());
     let layout_elapsed = layout_start.elapsed();
 
     let comp_start = std::time::Instant::now();
+    // これも必須
+    // This is also required
     app.renderer.update_composition_tree(&mut app.context);
     let comp_elapsed = comp_start.elapsed();
 
     let draw_start = std::time::Instant::now();
-
-    app.context.update_accessibility();
-
-    if let Some(_ctx) = app.window.begin_paint() {
-        app.renderer.draw(&mut app.context);
-    }
-
+    // これも必須
+    // This is also required
+    app.renderer.draw(&mut app.context);
     let draw_elapsed = draw_start.elapsed();
+
+    // アクセシビリティ機能を使う場合は必須。`draw` の前でもオッケー。
+    // This is required when using accessibility features. It's okay to place it before `draw`.
+    app.context.update_accessibility();
 
     let cpu_active_elapsed = update_elapsed + layout_elapsed + comp_elapsed + draw_elapsed;
 
     let sync_start = std::time::Instant::now();
+    // アニメーションやトランジションがあるなら必須
+    // A must-have if there are animations or transitions
     if app.context.has_active_frame() {
-        app.handle.dwm_flush();
+        let _ = app.handle.dwm_flush();
         app.handle.redraw_requested();
     }
+    // ここから先はログの集計とカスタムタイトルバーの実装だけなので見なくてオッケー。
+    // From here on out, it's just log aggregation and implementing a custom title bar, so you don't need to read any further.
     let sync_elapsed = sync_start.elapsed();
     let total_elapsed = frame_start.elapsed();
 
@@ -245,22 +305,23 @@ fn redraw_requested(app: &mut MichiuApp) {
         FRAME_DATA.with(|data| {
             let mut frames = data.borrow_mut();
             let count = frames.len();
+            let count_f64 = count as f64;
             if count > 0 {
                 // 各メトリクスの平均値
                 let avg_update =
-                    frames.iter().map(|f| f.update).sum::<f64>() / count as f64;
+                    frames.iter().map(|f| f.update).sum::<f64>() / count_f64;
                 let avg_layout =
-                    frames.iter().map(|f| f.layout).sum::<f64>() / count as f64;
+                    frames.iter().map(|f| f.layout).sum::<f64>() / count_f64;
                 let avg_comp =
-                    frames.iter().map(|f| f.comp).sum::<f64>() / count as f64;
+                    frames.iter().map(|f| f.comp).sum::<f64>() / count_f64;
                 let avg_draw =
-                    frames.iter().map(|f| f.draw).sum::<f64>() / count as f64;
+                    frames.iter().map(|f| f.draw).sum::<f64>() / count_f64;
                 let avg_sync =
-                    frames.iter().map(|f| f.sync).sum::<f64>() / count as f64;
+                    frames.iter().map(|f| f.sync).sum::<f64>() / count_f64;
                 let avg_cpu =
-                    frames.iter().map(|f| f.cpu_active).sum::<f64>() / count as f64;
+                    frames.iter().map(|f| f.cpu_active).sum::<f64>() / count_f64;
                 let avg_total =
-                    frames.iter().map(|f| f.total).sum::<f64>() / count as f64;
+                    frames.iter().map(|f| f.total).sum::<f64>() / count_f64;
 
                 // P99を計算
                 frames.sort_by(|a, b| a.cpu_active.partial_cmp(&b.cpu_active).unwrap());
@@ -270,9 +331,10 @@ fn redraw_requested(app: &mut MichiuApp) {
 
                 if ALLOW_LOG {
                     println!(
-                        "[Loop Count: {:>3}] (Total Frame: {:5.2}ms)\n\
-                            ├─ Phase Avg:   Upd: {:5.2}ms | Lay: {:5.2}ms | Cmp: {:5.2}ms | Drw: {:5.2}ms | Sync: {:5.2}ms\n\
-                            └─ CPU Active:  Avg: {:5.2}ms | P99: {:5.2}ms | Max: {:5.2}ms",
+                        "[Loop Count: {:>3}] (Total Frame: {:6.3}ms)\n\
+                            ├─ Phase Avg:   Upd: {:6.3}ms | Lay: {:6.3}ms | Cmp: {:6.3}ms | Drw: {:6.3}ms | Sync: {:6.3}ms\n\
+                            ├─ CPU Active:  Avg: {:6.3}ms | P99: {:6.3}ms | Max: {:6.3}ms\n\
+                            └─ Active Entities: {active_entities} | Dirty Entities: {dirty_entities}",
                         count,
                         avg_total,
                         avg_update,

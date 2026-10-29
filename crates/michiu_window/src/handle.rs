@@ -154,10 +154,10 @@ impl WindowHandle {
     /// # Examples
     ///
     /// ```no_run
-    /// # use michiu_window::{Window, WindowBuilder, WindowHandle};
+    /// # use michiu_window::{MichiuWindow, MichiuWindowBuilder, WindowHandle};
     /// # use std::sync::mpsc;
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// # let window = Window::build(WindowBuilder::new().into_unvalidated().try_into()?)?;
+    /// # let window = MichiuWindow::build(MichiuWindowBuilder::new().into_unvalidated().try_into()?)?;
     /// let (tx, rx) = mpsc::channel();
     /// let handle = window.handle().assume_valid();
     ///
@@ -426,12 +426,16 @@ impl WindowHandle {
 
                 // 現在のメッセージのスクリーン座標を取得
                 let pos = GetMessagePos();
+                // Windowsは最低32bitなので絶対成功する
+                let pos_usize = usize::try_from(pos).unwrap_or(0);
+                // usize のネイティブバイト列をそのまま isize として解釈
+                let lparam_val = isize::from_ne_bytes(pos_usize.to_ne_bytes());
 
                 SendMessageW(
                     self.hwnd,
                     WM_SYSCOMMAND,
                     Some(WPARAM(SC_DRAGMOVE)),
-                    Some(LPARAM(pos as isize)),
+                    Some(LPARAM(lparam_val)),
                 );
             }
         } else {
@@ -471,10 +475,10 @@ impl WindowHandle {
     /// # Examples
     ///
     /// ```no_run
-    /// # use michiu_window::{Window, WindowBuilder, WindowHandle};
+    /// # use michiu_window::{MichiuWindow, MichiuWindowBuilder, WindowHandle};
     /// # use windows::Win32::Graphics::Gdi::InvalidateRect;
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// # let window = Window::build(WindowBuilder::new().into_unvalidated().try_into()?)?;
+    /// # let window = MichiuWindow::build(MichiuWindowBuilder::new().into_unvalidated().try_into()?)?;
     /// let handle = window.handle().assume_valid();
     ///
     /// std::thread::spawn(move || {
@@ -585,9 +589,9 @@ impl WindowHandle {
     /// # Examples
     ///
     /// ```no_run
-    /// # use michiu_window::{Window, WindowBuilder, WindowHandle};
+    /// # use michiu_window::{MichiuWindow, MichiuWindowBuilder, WindowHandle};
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// # let window = Window::build(WindowBuilder::new().into_unvalidated().try_into()?)?;
+    /// # let window = MichiuWindow::build(MichiuWindowBuilder::new().into_unvalidated().try_into()?)?;
     /// let handle = window.handle().assume_valid();
     ///
     /// // Destroy the window thread-safely from a background thread
@@ -649,12 +653,26 @@ impl WindowHandle {
     /// # Performance
     /// - **On the UI thread**: Directly invokes `DwmFlush` with zero overhead.
     /// - **On a background thread**: Automatically dispatches the request to the UI thread asynchronously.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MichiuError::UnexpectedOsError`] if `DwmFlush` fails.
+    ///
+    /// This typically happens when the Desktop Window Manager (DWM) is temporarily unavailable (e.g., screen lock, UAC prompt, RDP session)
+    /// or when the GPU driver restarts.
+    ///
+    /// # Note
+    ///
+    /// If this function is used solely for frame synchronization/VSync pacing,
+    /// it is usually safe to **ignore this error** (or log a warning) and continue the render loop.
+    /// The error is often transient, resulting only in a single dropped or skipped frame rather than a permanent failure.
     #[inline]
-    pub fn dwm_flush(&self) {
+    pub fn dwm_flush(&self) -> Result<()> {
         if self.is_on_ui_thread() {
-            let _ = unsafe { DwmFlush() };
+            unsafe { DwmFlush().map_err(MichiuError::UnexpectedOsError) }
         } else {
             self.post_command(SetWindowCommand::DwmFlush);
+            Ok(())
         }
     }
 
@@ -732,10 +750,10 @@ impl Validate for WindowHandle {
     /// # Examples
     ///
     /// ```no_run
-    /// # use michiu_window::{Window, WindowBuilder, WindowHandle};
+    /// # use michiu_window::{MichiuWindow, MichiuWindowBuilder, WindowHandle};
     /// # use michiu_guard::{Unvalidated, Validated};
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// # let window = Window::build(WindowBuilder::new().into_unvalidated().try_into()?)?;
+    /// # let window = MichiuWindow::build(MichiuWindowBuilder::new().into_unvalidated().try_into()?)?;
     /// let unvalidated_handle: Unvalidated<WindowHandle> = window.handle();
     ///
     /// // Safe validation check before usage

@@ -1,8 +1,8 @@
-#![allow(clippy::ref_as_ptr)]
-#![allow(clippy::inline_always)]
+#![expect(clippy::ref_as_ptr)]
+#![expect(clippy::inline_always)]
 
 use crate::error::{MichiuError, Result};
-use crate::{MichiuEvent, MichiuAnyEvent, MichiuRawEvent, WindowId, dispatch_to_active_handler};
+use crate::{MichiuAnyEvent, MichiuEvent, MichiuRawEvent, WindowId, dispatch_to_active_handler};
 use michiu_guard::Unvalidated;
 use std::marker::PhantomData;
 use std::path::PathBuf;
@@ -157,6 +157,10 @@ impl MichiuComContext {
 
     /// A dedicated method for initializing `WinRT` (STA) and OLE in this order.
     /// Required when using OLE drag and drop and `WinRT` API (notifications, etc.) on the same thread.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MichiuError::ComInitializationFailed`] if `RoInitialize` and `OleInitialize` fails.
     #[inline]
     pub fn new_winrt_ole_combo() -> Result<Self> {
         unsafe {
@@ -254,7 +258,7 @@ impl Drop for MichiuComContext {
 /// # use windows::Win32::System::Ole::IDropTarget;
 /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// # let com_ctx = MichiuComContext::new_com_single()?;
-/// # let window = MichiuWindow::build(WindowBuilder::new().with_com_context(&com_ctx).into_unvalidated().try_into()?)?;
+/// # let window = MichiuWindow::build(MichiuWindowBuilder::new().with_com_context(&com_ctx).into_unvalidated().try_into()?)?;
 /// let drop_target_impl = FileDropTarget::new(window.hwnd());
 /// // Convert to raw COM IDropTarget interface for invocation
 /// let drop_target: IDropTarget = drop_target_impl.into();
@@ -275,7 +279,7 @@ impl FileDropTarget {
     /// ```no_run
     /// # use michiu_window::{MichiuWindow, MichiuWindowBuilder, FileDropTarget, MichiuComContext};
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// # let com_ctx = ComContext::new_com_single()?;
+    /// # let com_ctx = MichiuComContext::new_com_single()?;
     /// # let window = MichiuWindow::build(MichiuWindowBuilder::new().with_com_context(&com_ctx).into_unvalidated().try_into()?)?;
     /// // Create a drop target bound to the window's HWND
     /// let drop_target = FileDropTarget::new(window.hwnd());
@@ -306,7 +310,7 @@ impl FileDropTarget {
     }
 }
 
-#[allow(clippy::not_unsafe_ptr_arg_deref)]
+#[expect(clippy::not_unsafe_ptr_arg_deref)]
 impl IDropTarget_Impl for FileDropTarget_Impl {
     fn DragEnter(
         &self,
@@ -413,9 +417,9 @@ impl IDropTarget_Impl for FileDropTarget_Impl {
     }
 }
 
-#[allow(clippy::unwrap_used)]
-#[allow(clippy::expect_used)]
-#[allow(clippy::panic)]
+#[expect(clippy::unwrap_used)]
+#[expect(clippy::expect_used)]
+#[expect(clippy::panic)]
 #[cfg(test)]
 mod tests {
     use std::os::windows::ffi::OsStrExt;
@@ -790,7 +794,7 @@ mod tests {
                     }
                 }
                 MichiuAnyEvent::User(_) => panic!("Expected Event"),
-                _ => {}
+                MichiuAnyEvent::Other => {}
             }
         });
     }

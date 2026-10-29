@@ -13,20 +13,23 @@ use windows::{
             },
             WindowsAndMessaging::{
                 AppendMenuW, CREATESTRUCTW, CS_HREDRAW, CS_VREDRAW, CreatePopupMenu,
-                CreateWindowExW, DefWindowProcW, DestroyMenu, GWLP_USERDATA, GetCursorPos,
-                GetWindowLongPtrW, HICON, HWND_TOPMOST, IDC_ARROW, LoadCursorW, MF_STRING,
-                PostMessageW, RegisterClassExW, RegisterWindowMessageW, SW_SHOW, SWP_NOACTIVATE,
-                SWP_NOSIZE, SetForegroundWindow, SetWindowLongPtrW, SetWindowPos, ShowWindow,
-                TPM_LEFTALIGN, TrackPopupMenu, WINDOW_EX_STYLE, WINDOW_STYLE, WM_CLOSE, WM_COMMAND,
-                WM_LBUTTONDBLCLK, WM_NCCREATE, WM_NCDESTROY, WM_NULL, WM_RBUTTONUP, WM_USER,
-                WNDCLASSEXW,
+                CreateWindowExW, DefWindowProcW, DestroyMenu, GWLP_USERDATA, GetCursorPos, HICON,
+                HWND_TOPMOST, IDC_ARROW, LoadCursorW, MF_STRING, PostMessageW, RegisterClassExW,
+                RegisterWindowMessageW, SW_SHOW, SWP_NOACTIVATE, SWP_NOSIZE, SetForegroundWindow,
+                SetWindowLongPtrW, SetWindowPos, ShowWindow, TPM_LEFTALIGN, TrackPopupMenu,
+                WINDOW_EX_STYLE, WINDOW_STYLE, WM_CLOSE, WM_COMMAND, WM_LBUTTONDBLCLK, WM_NCCREATE,
+                WM_NCDESTROY, WM_NULL, WM_RBUTTONUP, WM_USER, WNDCLASSEXW,
             },
         },
     },
     core::{PCWSTR, w},
 };
 
-use crate::{MichiuIcon, PreferredAppMode, set_app_theme};
+use crate::{
+    MichiuIcon, PreferredAppMode, set_app_theme,
+    utils::{get_window_userdata, size_of_u32, take_window_userdata},
+    win32_ext::{LParamExt, WParamExt},
+};
 use crate::{
     WindowHandle,
     error::{MichiuError, Result},
@@ -58,9 +61,8 @@ unsafe impl Sync for TrayInner {}
 
 impl Drop for TrayInner {
     fn drop(&mut self) {
-        #[expect(clippy::cast_possible_truncation)]
         let nid = NOTIFYICONDATAW {
-            cbSize: std::mem::size_of::<NOTIFYICONDATAW>() as u32,
+            cbSize: size_of_u32::<NOTIFYICONDATAW>(),
             hWnd: self.dummy_hwnd,
             uID: self.u_id,
             ..Default::default()
@@ -240,9 +242,9 @@ impl MichiuTray {
         sz_info_title[..title_wide.len()].copy_from_slice(&title_wide);
 
         // すでに登録されている HWND と uID をターゲットにして通知を送信
-        #[expect(clippy::cast_possible_truncation)]
+
         let nid = NOTIFYICONDATAW {
-            cbSize: std::mem::size_of::<NOTIFYICONDATAW>() as u32,
+            cbSize: size_of_u32::<NOTIFYICONDATAW>(),
             hWnd: self.inner.dummy_hwnd,
             uID: self.inner.u_id,
             uFlags: flags,
@@ -253,7 +255,7 @@ impl MichiuTray {
         };
 
         // NIM_MODIFYを送信してトースト通知のみをトリガー
-        let success = unsafe { Shell_NotifyIconW(NIM_MODIFY, &nid) };
+        let success = unsafe { Shell_NotifyIconW(NIM_MODIFY, &raw const nid) };
         if success.as_bool() {
             Ok(())
         } else {
@@ -264,7 +266,7 @@ impl MichiuTray {
     }
 }
 
-#[allow(clippy::too_many_lines)]
+#[expect(clippy::too_many_lines)]
 unsafe extern "system" fn tray_wnd_proc(
     hwnd: HWND,
     msg: u32,
@@ -281,14 +283,10 @@ unsafe extern "system" fn tray_wnd_proc(
         }
     }
 
-    let data_ptr = unsafe { GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut TrayInternalData };
-
-    if !data_ptr.is_null() {
-        let data = unsafe { &*data_ptr };
-
+    if let Some(data) = get_window_userdata::<TrayInternalData>(hwnd) {
         // トレイアイコンでのマウス操作
         if msg == WM_TRAY_CALLBACK {
-            let event = lparam.0 as u32;
+            let event = lparam.to_u32();
             match event {
                 // 左クリックをダブルクリック（またはシングルクリック）
                 WM_LBUTTONDBLCLK => {
@@ -380,7 +378,7 @@ unsafe extern "system" fn tray_wnd_proc(
 
         if msg == WM_COMMAND {
             // wparamの下位16ビットには、クリックされたメニュー項目のIDが含まれている
-            let clicked_id = (wparam.0 & 0xFFFF) as u32;
+            let clicked_id = wparam.to_loword_u32();
 
             // 一致するIDを持つアイテムを検索し、そのコールバックを実行します。
             if let Some(cb) = data
@@ -403,9 +401,8 @@ unsafe extern "system" fn tray_wnd_proc(
         }
     }
 
-    if msg == WM_NCDESTROY && !data_ptr.is_null() {
-        let _ = unsafe { Box::from_raw(data_ptr) };
-        unsafe { SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0) };
+    if msg == WM_NCDESTROY {
+        let _ = unsafe { take_window_userdata::<TrayInternalData>(hwnd) };
     }
 
     unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) }
@@ -438,9 +435,8 @@ fn add_tray_icon(
         sz_tip[..len].copy_from_slice(&tip_wide[..len]);
     }
 
-    #[expect(clippy::cast_possible_truncation)]
     let nid = NOTIFYICONDATAW {
-        cbSize: std::mem::size_of::<NOTIFYICONDATAW>() as u32,
+        cbSize: size_of_u32::<NOTIFYICONDATAW>(),
         hWnd: hwnd,
         uID: u_id,
         uFlags: flags,
@@ -731,9 +727,8 @@ fn register_tray_window_class(
 ) -> Result<()> {
     let hcursor = unsafe { LoadCursorW(None, IDC_ARROW).map_err(MichiuError::UnexpectedOsError)? };
 
-    #[expect(clippy::cast_possible_truncation)]
     let tray_wnd_class = WNDCLASSEXW {
-        cbSize: std::mem::size_of::<WNDCLASSEXW>() as u32,
+        cbSize: size_of_u32::<WNDCLASSEXW>(),
         style: CS_HREDRAW | CS_VREDRAW,
         lpfnWndProc: Some(tray_wnd_proc),
         cbClsExtra: 0,

@@ -6,7 +6,7 @@ pub enum InteractionState {
     Dragged,
 }
 
-/// Interaction definitions that can be resolved by propagating from child elements
+/// Interaction definitions that can be resolved by propagating from child entities
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum InteractionName {
     Hover,
@@ -35,7 +35,7 @@ pub enum ElementState {
     Released,
 }
 
-#[allow(clippy::struct_excessive_bools)]
+#[expect(clippy::struct_excessive_bools)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]
 pub struct Modifiers {
     pub shift: bool,
@@ -47,10 +47,10 @@ pub struct Modifiers {
 /// Transparency Control for Pointer Events
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum PointerEvents {
-    /// Receive pointer events and prevent them from being displayed on the elements below
+    /// Receive pointer events and prevent them from being displayed on the entities below
     #[default]
     Auto,
-    /// Ignore pointer events and make the element transparent to the element below it
+    /// Ignore pointer events and make the entity transparent to the entity below it
     None,
 }
 

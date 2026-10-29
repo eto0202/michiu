@@ -1,22 +1,22 @@
 use crate::{
-    Context, EffectCategory, Element, ElementState, EntityId, EventListeners, ImeState,
-    LayoutPoint, MichiuSoA, Modifiers, MouseButton, Prop, StateFlag, VirtualKey, with_context,
+    Context, EffectCategory, ElementState, Entity, EventListeners, ImeState, LayoutPoint,
+    MichiuSoA, Modifiers, MouseButton, Prop, StateFlag, VirtualKey, with_context,
 };
 use std::path::PathBuf;
 
-impl Element {
+impl Entity {
     /// この要素に対応する `EventListeners` が `SoA` 上に存在しない場合は新規に作成し、
     /// 可変参照を取得して渡されたクロージャを実行。
     #[inline]
     pub(crate) fn get_or_create_listeners<R>(self, f: impl FnOnce(&mut EventListeners) -> R) -> R {
         with_context(|cx| {
             // SparseSecondaryMap にキーが存在しない場合は Default (すべて None) で差し込む
-            if !cx.events.evt_listeners.contains_key(self.id) {
+            if !cx.events.evt_listeners.contains_key(self) {
                 cx.events
                     .evt_listeners
-                    .insert(self.id, EventListeners::default());
+                    .insert(self, EventListeners::default());
             }
-            let listeners = cx.events.evt_listeners.at_mut(self.id);
+            let listeners = cx.events.evt_listeners.at_mut(self);
             f(listeners)
         })
     }
@@ -126,7 +126,7 @@ impl Element {
         self
     }
 
-    /// Register an event that fires when the mouse pointer enters the visible bounds of an element.
+    /// Register an event that fires when the mouse pointer enters the visible bounds of an entity.
     ///
     /// If called multiple times, events are added and executed in the order they were registered.
     #[must_use]
@@ -138,7 +138,7 @@ impl Element {
         self.on_mouse_enter_with(move |_cx| f())
     }
 
-    /// Register an event that fires when the mouse pointer enters the visible bounds of an element.
+    /// Register an event that fires when the mouse pointer enters the visible bounds of an entity.
     ///
     /// If called multiple times, events are added and executed in the order they were registered.
     #[must_use]
@@ -161,7 +161,7 @@ impl Element {
         self
     }
 
-    /// Register an event that fires when the mouse pointer moves outside the visible boundaries of an element.
+    /// Register an event that fires when the mouse pointer moves outside the visible boundaries of an entity.
     ///
     /// If called multiple times, events are added and executed in the order they were registered.
     #[must_use]
@@ -173,7 +173,7 @@ impl Element {
         self.on_mouse_leave_with(move |_cx| f())
     }
 
-    /// Register an event that fires when the mouse pointer moves outside the visible boundaries of an element.
+    /// Register an event that fires when the mouse pointer moves outside the visible boundaries of an entity.
     ///
     /// If called multiple times, events are added and executed in the order they were registered.
     #[must_use]
@@ -196,10 +196,10 @@ impl Element {
         self
     }
 
-    /// Registers an event that fires when the mouse pointer moves within an element.
+    /// Registers an event that fires when the mouse pointer moves within an entity.
     ///
     /// The callback receives a `LayoutPoint`,
-    /// which is a logical coordinate system with the element's top-left corner as the origin (0, 0).
+    /// which is a logical coordinate system with the entity's top-left corner as the origin (0, 0).
     ///
     /// If called multiple times, events are added and executed in the order they were registered.
     #[must_use]
@@ -211,10 +211,10 @@ impl Element {
         self.on_cursor_moved_with(move |_cx, point| f(point))
     }
 
-    /// Registers an event that fires when the mouse pointer moves within an element.
+    /// Registers an event that fires when the mouse pointer moves within an entity.
     ///
     /// The callback receives a `LayoutPoint`,
-    /// which is a logical coordinate system with the element's top-left corner as the origin (0, 0).
+    /// which is a logical coordinate system with the entity's top-left corner as the origin (0, 0).
     ///
     /// If called multiple times, events are added and executed in the order they were registered.
     #[must_use]
@@ -237,7 +237,7 @@ impl Element {
         self
     }
 
-    /// Registers an event that fires when the mouse wheel is scrolled over this element.
+    /// Registers an event that fires when the mouse wheel is scrolled over this entity.
     ///
     /// The callback is passed the values of `scroll_x` and `scroll_y`, converted to logical pixels.
     ///
@@ -251,7 +251,7 @@ impl Element {
         self.on_mouse_wheel_with(move |_cx, sx, sy| f(sx, sy))
     }
 
-    /// Registers an event that fires when the mouse wheel is scrolled over this element.
+    /// Registers an event that fires when the mouse wheel is scrolled over this entity.
     ///
     /// The callback is passed the values of `scroll_x` and `scroll_y`, converted to logical pixels.
     ///
@@ -276,7 +276,7 @@ impl Element {
         self
     }
 
-    /// Registers an event that fires when an element is dragged
+    /// Registers an event that fires when an entity is dragged
     /// (moving the mouse while holding down the left mouse button).
     ///
     /// The callback receives a `LayoutPoint`, which represents the difference in position from the previous frame.
@@ -291,7 +291,7 @@ impl Element {
         self.on_drag_with(move |_cx, delta| f(delta))
     }
 
-    /// Registers an event that fires when an element is dragged
+    /// Registers an event that fires when an entity is dragged
     /// (moving the mouse while holding down the left mouse button).
     ///
     /// The callback receives a `LayoutPoint`, which represents the difference in position from the previous frame.
@@ -317,7 +317,7 @@ impl Element {
         self
     }
 
-    /// Register an event that fires the moment the mouse hovers over an element.
+    /// Register an event that fires the moment the mouse hovers over an entity.
     ///
     /// If called multiple times, events are added and executed in the order they were registered.
     #[must_use]
@@ -329,7 +329,7 @@ impl Element {
         self.on_hover_with(move |_cx| f())
     }
 
-    /// Register an event that fires the moment the mouse hovers over an element.
+    /// Register an event that fires the moment the mouse hovers over an entity.
     ///
     /// If called multiple times, events are added and executed in the order they were registered.
     #[must_use]
@@ -353,7 +353,7 @@ impl Element {
     }
 
     /// Register an event that fires when a physical keyboard key is pressed
-    /// (valid only when the element has focus).
+    /// (valid only when the entity has focus).
     ///
     /// If called multiple times, events are added and executed in the order they were registered.
     #[must_use]
@@ -366,7 +366,7 @@ impl Element {
     }
 
     /// Register an event that fires when a physical keyboard key is pressed
-    /// (valid only when the element has focus).
+    /// (valid only when the entity has focus).
     ///
     /// If called multiple times, events are added and executed in the order they were registered.
     #[must_use]
@@ -459,7 +459,7 @@ impl Element {
         self
     }
 
-    /// Register an event that fires when files or folders are dragged and dropped onto this element.
+    /// Register an event that fires when files or folders are dragged and dropped onto this entity.
     ///
     /// If called multiple times, events are added and executed in the order they were registered.
     #[must_use]
@@ -471,7 +471,7 @@ impl Element {
         self.on_file_dropped_with(move |_cx, paths| f(paths))
     }
 
-    /// Register an event that fires when files are dropped onto this element.
+    /// Register an event that fires when files are dropped onto this entity.
     ///
     /// If called multiple times, events are added and executed in the order they were registered.
     #[must_use]
@@ -494,7 +494,7 @@ impl Element {
         self
     }
 
-    /// Register an event that fires when a file is dragged onto an element.
+    /// Register an event that fires when a file is dragged onto an entity.
     ///
     /// If called multiple times, events are added and executed in the order they were registered.
     #[must_use]
@@ -506,7 +506,7 @@ impl Element {
         self.on_file_drag_enter_with(move |_cx| f())
     }
 
-    /// Register an event that fires when a file is dragged onto an element.
+    /// Register an event that fires when a file is dragged onto an entity.
     ///
     /// If called multiple times, events are added and executed in the order they were registered.
     #[must_use]
@@ -529,7 +529,7 @@ impl Element {
         self
     }
 
-    /// Register an event that fires when a file is dragged off an element.
+    /// Register an event that fires when a file is dragged off an entity.
     ///
     /// If called multiple times, events are added and executed in the order they were registered.
     #[must_use]
@@ -541,7 +541,7 @@ impl Element {
         self.on_file_drag_leave_with(move |_cx| f())
     }
 
-    /// Register an event that fires when a file is dragged off an element.
+    /// Register an event that fires when a file is dragged off an entity.
     ///
     /// If called multiple times, events are added and executed in the order they were registered.
     #[must_use]
@@ -564,7 +564,7 @@ impl Element {
         self
     }
 
-    /// Register an event that fires when an element gains input focus for the first time.
+    /// Register an event that fires when an entity gains input focus for the first time.
     ///
     /// If called multiple times, events are added and executed in the order they were registered.
     #[must_use]
@@ -576,7 +576,7 @@ impl Element {
         self.on_focus_with(move |_cx| f())
     }
 
-    /// Register an event that fires when an element gains input focus for the first time.
+    /// Register an event that fires when an entity gains input focus for the first time.
     ///
     /// If called multiple times, events are added and executed in the order they were registered.
     #[must_use]
@@ -599,7 +599,7 @@ impl Element {
         self
     }
 
-    /// Register an event that fires when the element loses focus—for example, when another element is clicked.
+    /// Register an event that fires when the entity loses focus—for example, when another entity is clicked.
     ///
     /// If called multiple times, events are added and executed in the order they were registered.
     #[must_use]
@@ -611,7 +611,7 @@ impl Element {
         self.on_blur_with(move |_cx| f())
     }
 
-    /// Register an event that fires when the element loses focus—for example, when another element is clicked.
+    /// Register an event that fires when the entity loses focus—for example, when another entity is clicked.
     ///
     /// If called multiple times, events are added and executed in the order they were registered.
     #[must_use]
@@ -634,7 +634,7 @@ impl Element {
         self
     }
 
-    /// Register an event that fires the moment an element is disabled.
+    /// Register an event that fires the moment an entity is disabled.
     ///
     /// If called multiple times, events are added and executed in the order they were registered.
     #[must_use]
@@ -646,7 +646,7 @@ impl Element {
         self.on_disable_with(move |_cx| f())
     }
 
-    /// Register an event that fires the moment an element is disabled.
+    /// Register an event that fires the moment an entity is disabled.
     ///
     /// If called multiple times, events are added and executed in the order they were registered.
     #[must_use]
@@ -669,7 +669,7 @@ impl Element {
         self
     }
 
-    /// Register an event that fires the moment an element is actived.
+    /// Register an event that fires the moment an entity is actived.
     ///
     /// If called multiple times, events are added and executed in the order they were registered.
     #[must_use]
@@ -681,7 +681,7 @@ impl Element {
         self.on_active_with(move |_cx| f())
     }
 
-    /// Register an event that fires the moment an element is actived.
+    /// Register an event that fires the moment an entity is actived.
     ///
     /// If called multiple times, events are added and executed in the order they were registered.
     #[must_use]
@@ -704,7 +704,7 @@ impl Element {
         self
     }
 
-    /// Register an event that fires the moment an element is selected.
+    /// Register an event that fires the moment an entity is selected.
     ///
     /// If called multiple times, events are added and executed in the order they were registered.
     #[must_use]
@@ -716,7 +716,7 @@ impl Element {
         self.on_select_with(move |_cx| f())
     }
 
-    /// Register an event that fires the moment an element is selected.
+    /// Register an event that fires the moment an entity is selected.
     ///
     /// If called multiple times, events are added and executed in the order they were registered.
     #[must_use]
@@ -741,62 +741,62 @@ impl Element {
 
     /// Register an event that is called every frame during a dnd drag operation.
     ///
-    /// Arguments: (Source `Element`, `Element` of the currently overlapping drop destination)
+    /// Arguments: (Source `Entity`, `Entity` of the currently overlapping drop destination)
     ///
     /// If called multiple times, events are added and executed in the order they were registered.
     #[must_use]
     #[inline]
-    pub fn on_dnd_element_drag<F>(self, mut f: F) -> Self
+    pub fn on_dnd_drag_interactive<F>(self, mut f: F) -> Self
     where
-        F: FnMut(Element, Option<Element>) + 'static,
+        F: FnMut(Entity, Option<Entity>) + 'static,
     {
-        self.on_dnd_element_drag_with(move |_cx, src, dst| f(src, dst))
+        self.on_dnd_drag_interactive_with(move |_cx, src, dst| f(src, dst))
     }
 
     /// Register an event that is called every frame during a dnd drag operation.
     ///
-    /// Arguments: (Source `Element`, `Element` of the currently overlapping drop destination)
+    /// Arguments: (Source `Entity`, `Entity` of the currently overlapping drop destination)
     ///
     /// If called multiple times, events are added and executed in the order they were registered.
     #[must_use]
     #[inline]
-    pub fn on_dnd_element_drag_with<F>(self, f: F) -> Self
+    pub fn on_dnd_drag_interactive_with<F>(self, f: F) -> Self
     where
-        F: FnMut(&mut Context, Element, Option<Element>) + 'static,
+        F: FnMut(&mut Context, Entity, Option<Entity>) + 'static,
     {
         self.get_or_create_listeners(|l| {
-            l.on_dnd_entity_drag = Some(Box::new(f));
+            l.on_dnd_drag_interactive = Some(Box::new(f));
         });
         self
     }
 
     /// Register an event that is triggered every frame during a drag-and-drop operation.
     ///
-    /// Arguments: (Source `EntityId`, `EntityId` of the currently overlapping element)
+    /// Arguments: (Source `Entity`, `Entity` of the currently overlapping entity)
     ///
     /// If called multiple times, events are added and executed in the order they were registered.
     #[must_use]
     #[inline]
-    pub fn on_dnd_id_drag<F>(self, mut f: F) -> Self
+    pub fn on_dnd_drag_passive<F>(self, mut f: F) -> Self
     where
-        F: FnMut(EntityId, Option<EntityId>) + 'static,
+        F: FnMut(Entity, Option<Entity>) + 'static,
     {
-        self.on_dnd_id_drag_with(move |_cx, src, dst| f(src, dst))
+        self.on_dnd_drag_passive_with(move |_cx, src, dst| f(src, dst))
     }
 
     /// Register an event that is triggered every frame during a drag-and-drop operation.
     ///
-    /// Arguments: (Source `EntityId`, `EntityId` of the currently overlapping element)
+    /// Arguments: (Source `Entity`, `Entity` of the currently overlapping entity)
     ///
     /// If called multiple times, events are added and executed in the order they were registered.
     #[must_use]
     #[inline]
-    pub fn on_dnd_id_drag_with<F>(self, f: F) -> Self
+    pub fn on_dnd_drag_passive_with<F>(self, f: F) -> Self
     where
-        F: FnMut(&mut Context, EntityId, Option<EntityId>) + 'static,
+        F: FnMut(&mut Context, Entity, Option<Entity>) + 'static,
     {
         self.get_or_create_listeners(|l| {
-            l.on_dnd_id_drag = Some(Box::new(f));
+            l.on_dnd_drag_passive = Some(Box::new(f));
         });
         self
     }
@@ -804,32 +804,32 @@ impl Element {
     /// Register an event that is triggered when a drop is completed
     ///  (whether it succeeds or fails due to being outside the area).
     ///
-    /// Arguments: (Source `Element`, Destination `Element` (None if the operation fails))
+    /// Arguments: (Source `Entity`, Destination `Entity` (None if the operation fails))
     ///
     /// If called multiple times, events are added and executed in the order they were registered.
     #[must_use]
     #[inline]
-    pub fn on_dnd_element_drop<F>(self, mut f: F) -> Self
+    pub fn on_dnd_drop_interactive<F>(self, mut f: F) -> Self
     where
-        F: FnMut(Element, Option<Element>) + 'static,
+        F: FnMut(Entity, Option<Entity>) + 'static,
     {
-        self.on_dnd_element_drop_with(move |_cx, src, dst| f(src, dst))
+        self.on_dnd_drop_interactive_with(move |_cx, src, dst| f(src, dst))
     }
 
     /// Register an event that is triggered when a drop is completed
     ///  (whether it succeeds or fails due to being outside the area).
     ///
-    /// Arguments: (Source `Element`, Destination `Element` (None if the operation fails))
+    /// Arguments: (Source `Entity`, Destination `Entity` (None if the operation fails))
     ///
     /// If called multiple times, events are added and executed in the order they were registered.
     #[must_use]
     #[inline]
-    pub fn on_dnd_element_drop_with<F>(self, f: F) -> Self
+    pub fn on_dnd_drop_interactive_with<F>(self, f: F) -> Self
     where
-        F: FnMut(&mut Context, Element, Option<Element>) + 'static,
+        F: FnMut(&mut Context, Entity, Option<Entity>) + 'static,
     {
         self.get_or_create_listeners(|l| {
-            l.on_dnd_entity_drop = Some(Box::new(f));
+            l.on_dnd_drop_interactive = Some(Box::new(f));
         });
         self
     }
@@ -837,60 +837,60 @@ impl Element {
     /// Register an event that is triggered when a drop is completed
     ///  (whether it succeeds or fails due to being outside the area).
     ///
-    /// Arguments: (Source `EntityId`, Destination `EntityId` (None if the operation fails))
+    /// Arguments: (Source `Entity`, Destination `Entity` (None if the operation fails))
     ///
     /// If called multiple times, events are added and executed in the order they were registered.
     #[must_use]
     #[inline]
-    pub fn on_dnd_id_drop<F>(self, mut f: F) -> Self
+    pub fn on_dnd_drop_passive<F>(self, mut f: F) -> Self
     where
-        F: FnMut(EntityId, Option<EntityId>) + 'static,
+        F: FnMut(Entity, Option<Entity>) + 'static,
     {
-        self.on_dnd_id_drop_with(move |_cx, src, dst| f(src, dst))
+        self.on_dnd_drop_passive_with(move |_cx, src, dst| f(src, dst))
     }
 
     /// Register an event that is triggered when a drop is completed
     ///  (whether it succeeds or fails due to being outside the area).
     ///
-    /// Arguments: (Source `EntityId`, Destination `EntityId` (None if the operation fails))
+    /// Arguments: (Source `Entity`, Destination `Entity` (None if the operation fails))
     ///
     /// If called multiple times, events are added and executed in the order they were registered.
     #[must_use]
     #[inline]
-    pub fn on_dnd_id_drop_with<F>(self, f: F) -> Self
+    pub fn on_dnd_drop_passive_with<F>(self, f: F) -> Self
     where
-        F: FnMut(&mut Context, EntityId, Option<EntityId>) + 'static,
+        F: FnMut(&mut Context, Entity, Option<Entity>) + 'static,
     {
         self.get_or_create_listeners(|l| {
-            l.on_dnd_id_drop = Some(Box::new(f));
+            l.on_dnd_drop_passive = Some(Box::new(f));
         });
         self
     }
 
     /// Registers an event that is called when dragging begins (the moment the placeholder is created).
     ///
-    /// Arguments: (original `Element`, created placeholder `Element`)
+    /// Arguments: (original `Entity`, created placeholder `Entity`)
     ///
     /// If called multiple times, events are added and executed in the order they were registered.
     #[must_use]
     #[inline]
     pub fn on_dnd_drag_start<F>(self, mut f: F) -> Self
     where
-        F: FnMut(Element, Element) + 'static,
+        F: FnMut(Entity, Entity) + 'static,
     {
         self.on_dnd_drag_start_with(move |_cx, src, placeholder| f(src, placeholder))
     }
 
     /// Registers an event that is called when dragging begins (the moment the placeholder is created).
     ///
-    /// Arguments: (original `Element`, created placeholder `Element`)
+    /// Arguments: (original `Entity`, created placeholder `Entity`)
     ///
     /// If called multiple times, events are added and executed in the order they were registered.
     #[must_use]
     #[inline]
     pub fn on_dnd_drag_start_with<F>(self, f: F) -> Self
     where
-        F: FnMut(&mut Context, Element, Element) + 'static,
+        F: FnMut(&mut Context, Entity, Entity) + 'static,
     {
         self.get_or_create_listeners(|l| {
             l.on_dnd_drag_start = Some(Box::new(f));
@@ -898,7 +898,7 @@ impl Element {
         self
     }
 
-    /// Automatically maps an element's `StateFlag::Actived` based on signals and closures.
+    /// Automatically maps an entity's `StateFlag::Actived` based on signals and closures.
     #[inline]
     #[must_use]
     pub fn active(self, active: impl Into<Prop<bool>>) -> Self {
@@ -907,7 +907,7 @@ impl Element {
         })
     }
 
-    /// Automatically maps an element's `StateFlag::Selected` based on signals and closures.
+    /// Automatically maps an entity's `StateFlag::Selected` based on signals and closures.
     #[inline]
     #[must_use]
     pub fn select(self, selected: impl Into<Prop<bool>>) -> Self {
@@ -916,7 +916,7 @@ impl Element {
         })
     }
 
-    /// Automatically maps an element's `StateFlag::Disabled` based on signals and closures.
+    /// Automatically maps an entity's `StateFlag::Disabled` based on signals and closures.
     #[inline]
     #[must_use]
     pub fn disable(self, disabled: impl Into<Prop<bool>>) -> Self {
@@ -925,7 +925,7 @@ impl Element {
         })
     }
 
-    /// Automatically maps an element's `StateFlag::Focused` based on signals and closures.
+    /// Automatically maps an entity's `StateFlag::Focused` based on signals and closures.
     #[inline]
     #[must_use]
     pub fn focus(self, focused: impl Into<Prop<bool>>) -> Self {

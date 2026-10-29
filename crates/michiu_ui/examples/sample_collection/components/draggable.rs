@@ -1,29 +1,27 @@
 use crate::app::theme::Theme;
-pub use michiu_ui::prelude::*;
+use michiu_ui::prelude::*;
 
-pub fn container() -> Element {
+pub fn container() -> Entity {
     // 親コンテナを先に生成して ID を確定
     let container = v_flex(
-        ts().gap(16.0)
+        ii().gap(16.0)
             .size_full()
             .p(16.0)
             .r(4.0)
-            .dnd_droppable(DndDropTarget::Child, DndDragPayload::Element)
-            .dnd_drag_over(ts().bg_color(dynamic(|t: &Theme| t.background_hover))),
+            .dnd_droppable(DndDropTarget::Child, DndDragMode::Interactive)
+            .dnd_drag_over(ii().bg_color(dynamic(|t: &Theme| t.background_hover))),
     )
     .label("Droppable", label_style());
-    let parent_id = container.id();
 
     // 確定した ID を引き渡して子を生成しアタッチ
-    let section = section_draggable(parent_id);
-    let section_id = section.id();
+    let section = section_draggable(container);
 
-    container.child(section.child(item_draggable(section_id)))
+    container.child(section.child(item_draggable(section)))
 }
 
-fn section_draggable(parent_id: EntityId) -> Element {
+fn section_draggable(parent_id: Entity) -> Entity {
     // 静的レイアウトスタイル
-    let layout = ts()
+    let layout = ii()
         .p(16.0)
         .r(4.0)
         .absolute()
@@ -31,28 +29,28 @@ fn section_draggable(parent_id: EntityId) -> Element {
         .left(50.0)
         .size(300.0)
         .border_solid(1.0)
-        .dnd_droppable(DndDropTarget::Child, DndDragPayload::Element)
-        .dnd_draggable_parent(parent_id, DndDragPayload::Element, true)
-        .dnd_draggable_original(ts().hidden())
-        .dnd_draggable_placeholder(ts().p(16.0).border_solid(1.0));
+        .dnd_droppable(DndDropTarget::Child, DndDragMode::Interactive)
+        .dnd_draggable_parent(parent_id, DndDragMode::Interactive, true)
+        .dnd_draggable_original(ii().hidden())
+        .dnd_draggable_placeholder(ii().p(16.0).border_solid(1.0));
 
-    // 動的なカラースタイルのみを style_d で評価
+    // 動的なカラースタイルのみを modify_d で評価
     flex(layout)
-        .style_d(|t: &Theme| {
-            ts().bg_color(t.background)
+        .modify_d(|t: &Theme| {
+            ii().bg_color(t.background)
                 .border_color(t.border)
-                .hovered(ts().bg_color(t.background_hover))
-                .dnd_drag_over(ts().border_color(t.border_hover))
-                .dnd_draggable_placeholder(ts().bg_color(t.border).border_color(t.border))
+                .hovered(ii().bg_color(t.background_hover))
+                .dnd_drag_over(ii().border_color(t.border_hover))
+                .dnd_draggable_placeholder(ii().bg_color(t.border).border_color(t.border))
         })
         .label("Draggable & Droppable", label_style())
 }
 
-fn item_draggable(parent_id: EntityId) -> Element {
+fn item_draggable(parent_id: Entity) -> Entity {
     // ラベルテキストを制御するシグナルを定義
     let (label_text, set_label_text) = create_signal("Draggable".to_string());
 
-    let layout = ts()
+    let layout = ii()
         .p(16.0)
         .r(4.0)
         .absolute()
@@ -60,28 +58,28 @@ fn item_draggable(parent_id: EntityId) -> Element {
         .left(50.0)
         .size(150.0)
         .border_solid(1.0)
-        .dnd_draggable_parent(parent_id, DndDragPayload::Element, true)
-        .dnd_draggable_original(ts().p(16.0).border_dashed(1.0).opacity_50())
-        .dnd_draggable_placeholder(ts().p(16.0).border_solid(1.0));
+        .dnd_draggable_parent(parent_id, DndDragMode::Interactive, true)
+        .dnd_draggable_original(ii().p(16.0).border_dashed(1.0).opacity_50())
+        .dnd_draggable_placeholder(ii().p(16.0).border_solid(1.0));
 
     flex(layout)
-        .style_d(|t: &Theme| {
-            ts().bg_color(t.background)
+        .modify_d(|t: &Theme| {
+            ii().bg_color(t.background)
                 .border_color(t.border)
-                .hovered(ts().bg_color(t.background_hover))
-                .dnd_draggable_original(ts().bg_color(t.background).border_color(t.border))
-                .dnd_draggable_placeholder(ts().bg_color(t.background).border_color(t.border))
+                .hovered(ii().bg_color(t.background_hover))
+                .dnd_draggable_original(ii().bg_color(t.background).border_color(t.border))
+                .dnd_draggable_placeholder(ii().bg_color(t.background).border_color(t.border))
         })
         .label(label_text, label_style())
         .on_dnd_drag_start(move |_, _| {
             set_label_text.set("Dragging...".to_string());
         })
-        .on_dnd_element_drop(move |_, _| {
+        .on_dnd_drop_interactive(move |_, _| {
             set_label_text.set("Draggable".to_string());
         })
 }
 
-fn label_style() -> ThisStyle {
-    ts().text_color(dynamic(|t: &Theme| t.text_muted))
+fn label_style() -> Modifier {
+    ii().text_color(dynamic(|t: &Theme| t.text_muted))
         .font_size(16.0)
 }

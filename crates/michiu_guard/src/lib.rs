@@ -155,12 +155,14 @@ impl<T> Unvalidated<T> {
 
     /// Validates the wrapped value using the provided validator function.
     ///
-    /// Returns a [`Validated<U>`] wrapper if the validator succeeds, or an error of type `E`
-    /// if it fails.
-    ///
     /// This method supports "Parse, don't validate" patterns, allowing you to transform
     /// raw representations (like `String`) into more specialized, safer types (like custom structs or `PathBuf`)
     /// during validation.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err(E)` if the `validator` closure returns an error.
+    /// The error is forwarded directly to the caller as-is.
     ///
     /// # Examples
     ///
@@ -196,6 +198,13 @@ impl<T> Unvalidated<T> {
     ///
     /// This is useful for heavy, expensive-to-clone types where you need to recover
     /// the raw input if validation fails.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err((E, Self))` if the `validator` closure returns an error.
+    /// The error tuple contains:
+    /// - The error value `E` produced by the `validator`.
+    /// - The original, raw value wrapped back into [`Unvalidated<T>`], allowing for data recovery or retry.
     ///
     /// # Examples
     ///
@@ -245,6 +254,13 @@ impl<T> Unvalidated<T> {
     ///
     /// This allows validating a type in-place using its shared reference, without copying the data,
     /// and ensures the raw data is preserved if validation fails.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err((E, Self))` if the reference-based `validator` returns an error.
+    /// The error tuple contains:
+    /// - The error value `E` produced by the `validator`.
+    /// - The original, unmodified [`Unvalidated<T>`] wrapper, preserved without cloning.
     ///
     /// # Examples
     ///
@@ -422,6 +438,10 @@ pub trait Validate: Sized {
 
     /// Validates the type, returning the validated self or an error.
     ///
+    /// # Errors
+    ///
+    /// Returns [`Self::Error`] if the value violates domain-specific validation rules or invariants.
+    ///
     /// # Examples
     ///
     /// ```rust
@@ -442,6 +462,11 @@ pub trait Validate: Sized {
     fn validate(self) -> Result<Self, Self::Error>;
 
     /// Convenience method to validate the value and wrap it in [`Validated`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Self::Error`] if the validation defined in [`Self::validate`] fails.
+    ///
     /// # Examples
     ///
     /// ```rust

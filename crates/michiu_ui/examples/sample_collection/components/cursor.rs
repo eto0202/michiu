@@ -3,10 +3,10 @@ use crate::{
     components::{label_style, section_title},
 };
 use michiu_ui::GlobalCursorIcon;
-pub use michiu_ui::prelude::*;
+use michiu_ui::prelude::*;
 
-pub fn container() -> Element {
-    v_flex(ts().gap(20.0).p(16.0)).children([
+pub fn container() -> Entity {
+    v_flex(ii().gap(20.0).p(16.0)).children([
         cursor_container(),
         resize_container(),
         global_container(),
@@ -14,32 +14,34 @@ pub fn container() -> Element {
     ])
 }
 
-fn section_style() -> ThisStyle {
-    ts().gap(12.0)
+fn section_style() -> Modifier {
+    ii().gap(12.0)
 }
 
-fn wrapper_style() -> ThisStyle {
-    ts().w_full().gap((20.0, 10.0)).p(6.0)
+fn wrapper_style() -> Modifier {
+    ii().w_full().gap((20.0, 10.0)).p(6.0)
 }
 
-fn item(label: &'static str, style: ThisStyle) -> Element {
-    flex(style
-        .p(10.0)
-        .r(4.0)
-        .size((150.0, 60.0))
-        .justify_center()
-        .items_center()
-        .border_dashed(2.0)
-        .border_color(dynamic(|t: &Theme| t.border)))
+fn item(label: &'static str, style: Modifier) -> Entity {
+    flex(
+        style
+            .p(10.0)
+            .r(4.0)
+            .size((150.0, 60.0))
+            .justify_center()
+            .items_center()
+            .border_dashed(2.0)
+            .border_color(dynamic(|t: &Theme| t.border)),
+    )
     .label(label, label_style())
 }
 
-fn cursor_container() -> Element {
-    let default = item("Default", ts().cursor_default());
-    let grab = item("Grab", ts().cursor_grab());
-    let grabbing = item("Grabbing", ts().cursor_grabbing());
-    let not_allowed = item("Not Allowed", ts().cursor_not_allowed());
-    let pointer = item("Pointer", ts().cursor_pointer());
+fn cursor_container() -> Entity {
+    let default = item("Default", ii().cursor_default());
+    let grab = item("Grab", ii().cursor_grab());
+    let grabbing = item("Grabbing", ii().cursor_grabbing());
+    let not_allowed = item("Not Allowed", ii().cursor_not_allowed());
+    let pointer = item("Pointer", ii().cursor_pointer());
 
     v_flex(section_style()).children([
         section_title("Cursor"),
@@ -47,10 +49,10 @@ fn cursor_container() -> Element {
     ])
 }
 
-fn resize_container() -> Element {
+fn resize_container() -> Entity {
     let item = item(
         "Resizable",
-        ts().min_size((150.0, 60.0))
+        ii().min_size((150.0, 60.0))
             .resizable_all(true)
             .resizable_cursor_default(),
     );
@@ -61,12 +63,12 @@ fn resize_container() -> Element {
     ])
 }
 
-fn global_container() -> Element {
-    let item1 = item("Not Style", ts());
-    let item2 = item("Local Text", ts().cursor_text());
+fn global_container() -> Entity {
+    let item1 = item("Not Style", ii());
+    let item2 = item("Local Text", ii().cursor_text());
 
     let wrapper = h_flex(
-        ts().w_full()
+        ii().w_full()
             .gap((20.0, 10.0))
             .p(8.0)
             .r(4.0)
@@ -81,7 +83,7 @@ fn global_container() -> Element {
     ])
 }
 
-fn custom_container() -> Element {
+fn custom_container() -> Entity {
     let grab_path = concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/examples/sample_collection/assets/cursor_grab.png"
@@ -95,7 +97,7 @@ fn custom_container() -> Element {
     let grabbing_icon = CursorIcon::create_from_path(grabbing_path, 16, 16).ok();
 
     let wrapper = h_flex(
-        ts().w_full()
+        ii().w_full()
             .gap((20.0, 10.0))
             .p(8.0)
             .r(4.0)
@@ -104,12 +106,12 @@ fn custom_container() -> Element {
             .cursor_global(GlobalCursorIcon::Grab(grab_icon)),
     );
 
-    let grabbing = item("Grabbing", ts().cursor(CursorIcon::Grabbing(grabbing_icon)));
+    let grabbing = item("Grabbing", ii().cursor(CursorIcon::Grabbing(grabbing_icon)));
 
     v_flex(section_style()).children([
         section_title("Custom Cursor"),
         wrapper.children([
-            flex(ts().p(10.0).r(4.0).justify_center().items_center()).label("Grab", label_style()),
+            flex(ii().p(10.0).r(4.0).justify_center().items_center()).label("Grab", label_style()),
             grabbing,
         ]),
     ])

@@ -1,39 +1,38 @@
 use crate::{
     ActiveEntitiesVec, ActiveMasksSecondary, BaseBasicLayoutsSecondary, BasicLayoutsSecondary,
     CapacityConfig, ChildrenSecondary, ComponentMask, Context, DebugStore, DirtyLayoutEntitiesVec,
-    DirtyRenderEntitiesVec, Element, EntitiesSlot, EntityId, EventStore, FlexLayoutsSecondary,
-    LayoutPoint, LayoutRect, LayoutStore, MichiuError, MichiuSoA, OptionTraceExt, ParentsSecondary,
-    Pipeline, PointerEvents, Position, Rect, RectsSecondary, RenderStore, SessionSpawnedVec,
-    TaffyNodesSecondary, TaffyResultTraceExt, TaffyTreeEntityId, TopologyStore, Val,
-    define_sparse_secondary, handle_on_dnd_drag_start, handle_on_dnd_entity_drag,
-    handle_on_dnd_entity_drop, handle_on_dnd_id_drag, handle_on_dnd_id_drop, handle_on_drag,
+    DirtyRenderEntitiesVec, EntitiesSlot, Entity, EventStore, FlexLayoutsSecondary, LayoutPoint,
+    LayoutRect, LayoutStore, MichiuError, MichiuSoA, OptionTraceExt, ParentsSecondary, Pipeline,
+    PointerEvents, Position, Rect, RectsSecondary, RenderStore, SessionSpawnedVec,
+    TaffyNodesSecondary, TaffyResultTraceExt, TaffyTreeEntity, TopologyStore, Val,
+    define_sparse_secondary, handle_on_dnd_drag_interactive, handle_on_dnd_drag_passive,
+    handle_on_dnd_drag_start, handle_on_dnd_drop_interactive, handle_on_dnd_drop_passive,
+    handle_on_drag,
 };
 use slotmap::SparseSecondaryMap;
 
 /// プレースホルダーを挿入してマウントする親先祖の制御方法
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum DndDragPlaceholderParent {
-    Root,             // 自動的に最上位ルート要素の子としてアタッチ
-    Custom(EntityId), // ユーザーが指定した特定の親コンテナの子としてアタッチ（範囲制限）
+    Root,           // 自動的に最上位ルート要素の子としてアタッチ
+    Custom(Entity), // ユーザーが指定した特定の親コンテナの子としてアタッチ（範囲制限）
 }
 
 /// ドラッグ＆ドロップ動作の論理形式
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum DndDragPayload {
-    /// Element 自体を移動する。
+pub enum DndDragMode {
     /// ドロップ時に UI ツリーが自動的に更新される。
-    Element,
+    Interactive,
 
-    /// Element が持つ `EntityId` のみをドラッグデータとして転送する。
-    /// UI ツリーは変更されず、アプリケーション側で並び替え等を行う。
-    EntityId,
+    /// UI ツリーは変更されず、DnDイベントのみ発火する。
+    Passive,
 }
 
 /// ドラッグ可能な要素が保持するスタイリング・動作設定
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct DndDragProperty {
     pub placeholder_parent: DndDragPlaceholderParent,
-    pub drag_mode: DndDragPayload,
+    pub drag_mode: DndDragMode,
     // ドラッグ終了時に自動的に配置（相対並び替え／絶対座標）を更新するか
     pub update_position: bool,
 }
@@ -49,24 +48,24 @@ pub enum DndDropTarget {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct DndDropProperty {
     pub target: DndDropTarget,
-    pub drag_mode: DndDragPayload,
+    pub drag_mode: DndDragMode,
 }
 
 #[derive(Debug, Clone)]
 pub struct ActiveDragState {
-    pub source_entity: EntityId,               // ドラッグ元の要素
-    pub placeholder_entity: EntityId,          // ルートまたは親に浮かせているプレースホルダー
-    pub current_drop_target: Option<EntityId>, // 現在ホバー侵入中のドロップターゲット要素
-    pub start_mouse_pos: LayoutPoint,          // ドラッグ開始時のマウス座標
-    pub start_rect: LayoutRect,                // ドラッグ元の初期サイズ・座標
-    pub click_offset: LayoutPoint,             // ドラッグ開始時のマウスと要素左上端の相対的なズレ
-    pub original_parent: Option<EntityId>,
+    pub source: Entity,                      // ドラッグ元の要素
+    pub placeholder: Entity,                 // ルートまたは親に浮かせているプレースホルダー
+    pub current_drop_target: Option<Entity>, // 現在ホバー侵入中のドロップターゲット要素
+    pub start_mouse_pos: LayoutPoint,        // ドラッグ開始時のマウス座標
+    pub start_rect: LayoutRect,              // ドラッグ元の初期サイズ・座標
+    pub click_offset: LayoutPoint,           // ドラッグ開始時のマウスと要素左上端の相対的なズレ
+    pub original_parent: Option<Entity>,
 }
 
 /// プレースホルダーをアタッチする際の親要素の情報
 #[derive(Debug, Clone)]
 pub(crate) struct PlaceholderAttachment {
-    pub(crate) parent_id: Option<EntityId>,
+    pub(crate) parent: Option<Entity>,
     pub(crate) rect: LayoutRect,
     pub(crate) border_left: f32,
     pub(crate) border_top: f32,
@@ -120,12 +119,12 @@ impl DndStore {
     }
 
     #[inline]
-    pub(crate) fn despawn(&mut self, id: EntityId) {
+    pub(crate) fn despawn(&mut self, id: Entity) {
         self.dnd_drag_properties.remove(id);
         self.dnd_drop_properties.remove(id);
 
         if let Some(ref state) = self.dnd_active_drag_state
-            && (state.source_entity == id || state.placeholder_entity == id)
+            && (state.source == id || state.placeholder == id)
         {
             self.dnd_active_drag_state = None;
         }
@@ -135,7 +134,7 @@ impl DndStore {
 impl DndStore {
     #[track_caller]
     fn resolve_dnd_placeholder_parent(
-        root: EntityId,
+        root: Entity,
         drag_prop: &DndDragProperty,
         lay_basic: &BasicLayoutsSecondary,
         out_rects: &RectsSecondary,
@@ -143,7 +142,7 @@ impl DndStore {
     ) -> PlaceholderAttachment {
         match drag_prop.placeholder_parent {
             DndDragPlaceholderParent::Root => PlaceholderAttachment {
-                parent_id: Some(root),
+                parent: Some(root),
                 rect: out_rects.find_or_default(root, debug),
                 border_left: 0.0,
                 border_top: 0.0,
@@ -156,7 +155,7 @@ impl DndStore {
                     .unwrap_or_default();
 
                 PlaceholderAttachment {
-                    parent_id: Some(p_id),
+                    parent: Some(p_id),
                     rect,
                     border_left,
                     border_top,
@@ -166,7 +165,7 @@ impl DndStore {
     }
 
     fn spawn_dnd_placeholder(
-        root: EntityId,
+        root: Entity,
         drag_prop: &DndDragProperty,
         topo_entities: &mut EntitiesSlot,
         topo_active_entities: &mut ActiveEntitiesVec,
@@ -177,18 +176,18 @@ impl DndStore {
         topo_is_structure_dirty: &mut bool,
         topo_is_sort_dirty: &mut bool,
         lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
-        lay_taffy_tree: &mut TaffyTreeEntityId,
+        lay_taffy_tree: &mut TaffyTreeEntity,
         lay_taffy_nodes: &mut TaffyNodesSecondary,
         lay_basic: &BasicLayoutsSecondary,
         rnd_dirty_entities: &mut DirtyRenderEntitiesVec,
         out_rects: &RectsSecondary,
         debug: &mut DebugStore,
-    ) -> EntityId {
+    ) -> Entity {
         let placeholder =
             DndStore::resolve_dnd_placeholder_parent(root, drag_prop, lay_basic, out_rects, debug);
 
         let placeholder_id = TopologyStore::spawn(
-            placeholder.parent_id,
+            placeholder.parent,
             topo_entities,
             topo_active_entities,
             topo_active_masks,
@@ -203,7 +202,7 @@ impl DndStore {
             debug,
         );
 
-        if let Some(p_id) = placeholder.parent_id {
+        if let Some(p_id) = placeholder.parent {
             TopologyStore::add_child(
                 p_id,
                 placeholder_id,
@@ -225,8 +224,8 @@ impl DndStore {
     #[track_caller]
     fn setup_placeholder_properties(
         cx: &mut Context,
-        pressed_id: EntityId,
-        placeholder_id: EntityId,
+        pressed_id: Entity,
+        placeholder_id: Entity,
         start_rect: LayoutRect,
     ) {
         // 元要素のレイアウトおよびビジュアル情報をコピー
@@ -271,13 +270,13 @@ impl DndStore {
 
     #[track_caller]
     fn transfer_children_to_placeholder(
-        pressed_id: EntityId,
-        placeholder_id: EntityId,
+        pressed_id: Entity,
+        placeholder_id: Entity,
         topo_active_masks: &mut ActiveMasksSecondary,
         topo_parents: &mut ParentsSecondary,
         topo_children: &mut ChildrenSecondary,
         lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
-        lay_taffy_tree: &mut TaffyTreeEntityId,
+        lay_taffy_tree: &mut TaffyTreeEntity,
         lay_taffy_nodes: &TaffyNodesSecondary,
         debug: &mut DebugStore,
     ) {
@@ -319,7 +318,7 @@ impl DndStore {
     }
 
     #[track_caller]
-    fn start_dnd_drag_session(cx: &mut Context, pressed_id: EntityId, logical_pos: LayoutPoint) {
+    fn start_dnd_drag_session(cx: &mut Context, pressed_id: Entity, logical_pos: LayoutPoint) {
         let drag_prop = *cx.states.dnd.dnd_drag_properties.at(pressed_id);
         let start_rect = cx
             .outputs
@@ -331,7 +330,7 @@ impl DndStore {
             LayoutPoint::new(logical_pos.x - start_rect.x, logical_pos.y - start_rect.y);
 
         // ウィンドウのルート要素を自己解決
-        let root = TopologyStore::find_root_entity(
+        let root = TopologyStore::find_root(
             &cx.topology.topo_entities,
             &cx.topology.topo_parents,
             &cx.topology.topo_flat_dfs_sequence,
@@ -380,8 +379,8 @@ impl DndStore {
 
         // セッション開始
         cx.states.dnd.dnd_active_drag_state = Some(ActiveDragState {
-            source_entity: pressed_id,
-            placeholder_entity: placeholder_id,
+            source: pressed_id,
+            placeholder: placeholder_id,
             current_drop_target: None,
             start_mouse_pos: logical_pos,
             start_rect,
@@ -390,12 +389,7 @@ impl DndStore {
         });
 
         // ドラッグ開始コールバック
-        handle_on_dnd_drag_start(
-            cx,
-            pressed_id,
-            Element::from(pressed_id),
-            Element::from(placeholder_id),
-        );
+        handle_on_dnd_drag_start(cx, pressed_id, pressed_id, placeholder_id);
     }
 
     #[track_caller]
@@ -434,7 +428,7 @@ impl DndStore {
     }
 
     fn calculate_dnd_relative_local(
-        root: EntityId,
+        root: Entity,
         drag_prop: &DndDragProperty,
         lay_basic: &BasicLayoutsSecondary,
         out_rects: &RectsSecondary,
@@ -446,15 +440,15 @@ impl DndStore {
     }
 
     pub(crate) fn update_inset_based_relative_local(
-        root: EntityId,
-        placeholder: EntityId,
+        root: Entity,
+        placeholder: Entity,
         logical_pos: LayoutPoint,
         drag_prop: &DndDragProperty,
         drag_state: &ActiveDragState,
         topo_active_masks: &mut ActiveMasksSecondary,
         topo_parents: &ParentsSecondary,
         lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
-        lay_taffy_tree: &mut TaffyTreeEntityId,
+        lay_taffy_tree: &mut TaffyTreeEntity,
         lay_basic: &mut BasicLayoutsSecondary,
         lay_base_basic: &mut BaseBasicLayoutsSecondary,
         lay_taffy_nodes: &TaffyNodesSecondary,
@@ -495,12 +489,12 @@ impl DndStore {
     }
 
     pub(crate) fn detect_drop_target_during_intrusion(
-        src_id: EntityId,
-        hit_id: Option<EntityId>,
-        placeholder: EntityId,
+        src_id: Entity,
+        hit_id: Option<Entity>,
+        placeholder: Entity,
         topo_active_masks: &ActiveMasksSecondary,
         topo_parents: &ParentsSecondary,
-    ) -> Option<EntityId> {
+    ) -> Option<Entity> {
         let hit_id = hit_id?;
         // ヒットした要素がドラッグ元自身、またはその子孫である場合は、
         // 自身のサブツリーをすべてスキップするためにドラッグ元の親から探索を開始
@@ -525,7 +519,7 @@ impl DndStore {
         None
     }
 
-    pub(crate) fn sync_state_drag_in(cx: &mut Context, found_drop_target: Option<EntityId>) {
+    pub(crate) fn sync_state_drag_in(cx: &mut Context, found_drop_target: Option<Entity>) {
         let Some(mut drag_state) = cx.states.dnd.dnd_active_drag_state.take() else {
             return;
         };
@@ -548,34 +542,29 @@ impl DndStore {
 
     pub(crate) fn callback_drag_prop(
         cx: &mut Context,
-        src_id: EntityId,
-        found_drop_target: Option<EntityId>,
+        src_id: Entity,
+        found_drop_target: Option<Entity>,
         drag_prop: &DndDragProperty,
     ) {
         match drag_prop.drag_mode {
-            DndDragPayload::Element => {
-                handle_on_dnd_entity_drag(
-                    cx,
-                    src_id,
-                    Element::from(src_id),
-                    found_drop_target.map(Element::from),
-                );
+            DndDragMode::Interactive => {
+                handle_on_dnd_drag_interactive(cx, src_id, src_id, found_drop_target);
             }
-            DndDragPayload::EntityId => {
-                handle_on_dnd_id_drag(cx, src_id, src_id, found_drop_target);
+            DndDragMode::Passive => {
+                handle_on_dnd_drag_passive(cx, src_id, src_id, found_drop_target);
             }
         }
     }
 
     #[inline]
     fn remove_dragged_elemet(
-        src_id: EntityId,
+        src_id: Entity,
         drag_state: &ActiveDragState,
         topo_active_masks: &mut ActiveMasksSecondary,
         topo_children: &mut ChildrenSecondary,
         topo_parents: &ParentsSecondary,
         lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
-        lay_taffy_tree: &mut TaffyTreeEntityId,
+        lay_taffy_tree: &mut TaffyTreeEntity,
         lay_taffy_nodes: &TaffyNodesSecondary,
         debug: &mut DebugStore,
     ) {
@@ -606,9 +595,9 @@ impl DndStore {
 
     #[track_caller]
     fn dnd_rewrite_tree_topology(
-        src_id: EntityId,
-        target_id: EntityId,
-        holder: EntityId,
+        src_id: Entity,
+        target_id: Entity,
+        holder: Entity,
         drag_prop: &DndDragProperty,
         evt_current_pointer_position: Option<LayoutPoint>,
         topo_active_masks: &mut ActiveMasksSecondary,
@@ -617,7 +606,7 @@ impl DndStore {
         topo_is_structure_dirty: &mut bool,
         topo_is_sort_dirty: &mut bool,
         lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
-        lay_taffy_tree: &mut TaffyTreeEntityId,
+        lay_taffy_tree: &mut TaffyTreeEntity,
         lay_taffy_nodes: &mut TaffyNodesSecondary,
         lay_basic: &mut BasicLayoutsSecondary,
         lay_base_basic: &mut BaseBasicLayoutsSecondary,
@@ -722,8 +711,8 @@ impl DndStore {
 
     /// ドラッグ＆ドロップの終了・ドロップ確定処理
     pub(crate) fn handle_dnd_drop(cx: &mut Context, drag_state: &ActiveDragState) {
-        let src_id = drag_state.source_entity;
-        let holder = drag_state.placeholder_entity;
+        let src_id = drag_state.source;
+        let holder = drag_state.placeholder;
 
         let Some(drag_prop) = cx.states.dnd.dnd_drag_properties.find(src_id).copied() else {
             return;
@@ -742,7 +731,7 @@ impl DndStore {
 
         // トポロジー書き換え（要素移動時のみ）
         if let Some(target_id) = drop_success
-            && drag_prop.drag_mode == DndDragPayload::Element
+            && drag_prop.drag_mode == DndDragMode::Interactive
             && cx.states.dnd.dnd_drop_properties.contains(target_id)
         {
             DndStore::remove_dragged_elemet(
@@ -805,16 +794,11 @@ impl DndStore {
         }
 
         match drag_prop.drag_mode {
-            DndDragPayload::Element => {
-                handle_on_dnd_entity_drop(
-                    cx,
-                    src_id,
-                    Element::from(src_id),
-                    drop_success.map(Element::from),
-                );
+            DndDragMode::Interactive => {
+                handle_on_dnd_drop_interactive(cx, src_id, src_id, drop_success);
             }
-            DndDragPayload::EntityId => {
-                handle_on_dnd_id_drop(cx, src_id, src_id, drop_success);
+            DndDragMode::Passive => {
+                handle_on_dnd_drop_passive(cx, src_id, src_id, drop_success);
             }
         }
 

@@ -1,4 +1,9 @@
 use crate::error::{MichiuError, Result};
+use crate::utils::{
+    get_window_ex_style, get_window_style, get_window_userdata_mut, round_to_i32,
+    set_window_ex_style, set_window_style, size_of_u32, take_window_userdata,
+};
+use crate::win32_ext::LParamExt;
 use crate::{
     CursorIcon, FileDropTarget, ImeRelayServer, LogicalSize, MichiuTray, MichiuWindowBuilder,
     PhysicalPoint, PhysicalSize, PreferredAppMode, WindowHandle, ZOrder, translate_and_dispatch,
@@ -56,17 +61,16 @@ use windows::{
             Shell::SetWindowSubclass,
             WindowsAndMessaging::{
                 CREATESTRUCTW, CS_HREDRAW, CS_VREDRAW, CW_USEDEFAULT, ClipCursor, CreateWindowExW,
-                DefWindowProcW, DestroyWindow, GWL_EXSTYLE, GWL_STYLE, GWLP_USERDATA,
-                GetClientRect, GetWindowLongPtrW, GetWindowRect, GetWindowThreadProcessId, HICON,
-                HWND_TOP, IDC_ARROW, IsWindow, LoadCursorW, MINMAXINFO, RegisterClassExW, SW_HIDE,
-                SW_SHOW, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER,
-                SendMessageW, SetWindowLongPtrW, SetWindowPos, SetWindowTextW, ShowWindow,
-                WINDOW_EX_STYLE, WINDOW_STYLE, WM_GETMINMAXINFO, WM_NCCREATE, WM_NCDESTROY,
-                WM_SETICON, WNDCLASSEXW, WS_BORDER, WS_CAPTION, WS_CHILD, WS_DLGFRAME,
-                WS_EX_APPWINDOW, WS_EX_CLIENTEDGE, WS_EX_DLGMODALFRAME, WS_EX_LAYERED,
-                WS_EX_NOREDIRECTIONBITMAP, WS_EX_STATICEDGE, WS_EX_TRANSPARENT, WS_MAXIMIZE,
-                WS_MAXIMIZEBOX, WS_MINIMIZEBOX, WS_OVERLAPPEDWINDOW, WS_POPUP, WS_THICKFRAME,
-                WS_VISIBLE,
+                DefWindowProcW, DestroyWindow, GWLP_USERDATA, GetClientRect, GetWindowLongPtrW,
+                GetWindowRect, GetWindowThreadProcessId, HICON, HWND_TOP, IDC_ARROW, IsWindow,
+                LoadCursorW, MINMAXINFO, RegisterClassExW, SW_HIDE, SW_SHOW, SWP_FRAMECHANGED,
+                SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SendMessageW,
+                SetWindowLongPtrW, SetWindowPos, SetWindowTextW, ShowWindow, WINDOW_EX_STYLE,
+                WINDOW_STYLE, WM_GETMINMAXINFO, WM_NCCREATE, WM_NCDESTROY, WM_SETICON, WNDCLASSEXW,
+                WS_BORDER, WS_CAPTION, WS_CHILD, WS_DLGFRAME, WS_EX_APPWINDOW, WS_EX_CLIENTEDGE,
+                WS_EX_DLGMODALFRAME, WS_EX_LAYERED, WS_EX_NOREDIRECTIONBITMAP, WS_EX_STATICEDGE,
+                WS_EX_TRANSPARENT, WS_MAXIMIZE, WS_MAXIMIZEBOX, WS_MINIMIZEBOX,
+                WS_OVERLAPPEDWINDOW, WS_POPUP, WS_THICKFRAME, WS_VISIBLE,
             },
         },
     },
@@ -89,11 +93,11 @@ pub struct MichiuWindow {
     hwnd: HWND,
     hinstance: HINSTANCE,
     thread_id: u32,
-    #[allow(dead_code)]
+    #[expect(dead_code)]
     tray: Option<MichiuTray>,
     #[allow(dead_code)]
     drop_target: Option<IDropTarget>,
-    #[allow(dead_code)]
+    #[expect(dead_code)]
     ime_relay: Option<Arc<ImeRelayServer>>,
     _marker: PhantomData<*const ()>, // !Send and !Sync
 }
@@ -135,7 +139,7 @@ impl MichiuWindow {
     /// # Ok(())
     /// # }
     /// ```
-    #[allow(clippy::too_many_lines)]
+    #[expect(clippy::too_many_lines)]
     pub fn build(builder: Validated<MichiuWindowBuilder<'_>>) -> Result<Self> {
         let hmodule = unsafe { GetModuleHandleW(None).map_err(MichiuError::UnexpectedOsError)? };
         let hinstance = HINSTANCE(hmodule.0);
@@ -151,7 +155,7 @@ impl MichiuWindow {
         let ex_style = build_raw_ex_style(&builder);
 
         let dpi = unsafe { GetDpiForSystem() };
-        let scale_factor = dpi as f64 / 96.0;
+        let scale_factor = f64::from(dpi) / 96.0;
 
         let (x, y) = match builder.position {
             Some(pos) => {
@@ -180,12 +184,11 @@ impl MichiuWindow {
             is_cursor_inside: false,
             min_inner_size: builder.min_inner_size,
             max_inner_size: builder.max_inner_size,
-            saved_style: None,
-            saved_ex_style: None,
-            saved_rect: None,
+            saved_window: None,
             current_cursor: CursorIcon::Default,
             ime_relay: ime_relay.clone(),
             default_composition_window: builder.default_ime_window,
+            manual_paint_validation: builder.manual_paint_validation,
         });
         let state_raw_ptr: *mut WindowState = Box::into_raw(window_state);
 
@@ -317,7 +320,7 @@ impl MichiuWindow {
     #[must_use]
     #[inline]
     pub fn scale_factor(&self) -> f64 {
-        self.dpi() as f64 / 96.0
+        f64::from(self.dpi()) / 96.0
     }
 
     /// Safely registers a high-level subclassing callback closure for this window.
@@ -328,6 +331,13 @@ impl MichiuWindow {
     ///
     /// Upon receiving `WM_NCDESTROY`, the heap-allocated closure is automatically and safely freed,
     /// preventing any memory leaks.
+    ///
+    /// # Errors
+    ///
+    /// Return [`MichiuError::SubclassSetupFailed`]:
+    /// - The `hwnd` is invalid or points to an already destroyed window.
+    /// - Attempting to subclass a window created on a different thread (cross-thread subclassing is not supported by Win32).
+    /// - An internal memory allocation fails in `comctl32`.
     ///
     /// # Examples
     ///
@@ -432,6 +442,13 @@ impl MichiuWindow {
     ///
     /// Failing to forward messages, or dereferencing invalid raw pointers passed in `ref_data`,
     /// can cause memory leaks, visual hangs, or fatal crashes in the OS message loop.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MichiuError::SubclassSetupFailed`] if the operating system fails to register
+    /// the subclass procedure via `SetWindowSubclass`. Typical causes include:
+    /// - The window handle (`self.hwnd`) is invalid or has already been destroyed.
+    /// - The system ran out of memory while allocating internal subclass tracking structures.
     ///
     /// # Examples
     ///
@@ -769,6 +786,18 @@ impl MichiuWindow {
         unsafe { UpdateWindow(self.hwnd).into() }
     }
 
+    /// # Errors
+    ///
+    /// Returns [`MichiuError::UnexpectedOsError`] if `DwmFlush` fails.
+    ///
+    /// This typically happens when the Desktop Window Manager (DWM) is temporarily unavailable (e.g., screen lock, UAC prompt, RDP session)
+    /// or when the GPU driver restarts.
+    ///
+    /// # Note
+    ///
+    /// If this function is used solely for frame synchronization/VSync pacing,
+    /// it is usually safe to **ignore this error** (or log a warning) and continue the render loop.
+    /// The error is often transient, resulting only in a single dropped or skipped frame rather than a permanent failure.
     #[inline]
     pub fn dwm_flush(&self) -> Result<()> {
         unsafe { DwmFlush().map_err(MichiuError::UnexpectedOsError) }
@@ -785,10 +814,10 @@ impl MichiuWindow {
     /// # Examples
     ///
     /// ```no_run
-    /// use michiu_window::init_dpi_awareness;
+    /// use michiu_window::prelude::*;
     ///
     /// fn main() {
-    ///     if init_dpi_awareness() {
+    ///     if MichiuWindow::init_dpi_awareness() {
     ///         println!("High-DPI Per-Monitor v2 initialized successfully.");
     ///     }
     /// }
@@ -811,7 +840,7 @@ pub struct PaintContext<'a> {
     _marker: std::marker::PhantomData<&'a ()>,
 }
 
-impl<'a> Drop for PaintContext<'a> {
+impl Drop for PaintContext<'_> {
     fn drop(&mut self) {
         unsafe {
             let _ = EndPaint(self.hwnd, &raw const self.ps);
@@ -926,18 +955,25 @@ impl std::fmt::Debug for MessageFilter {
 }
 
 /// Runtime state management structure maintained for each window
+#[expect(clippy::struct_excessive_bools)]
 pub(crate) struct WindowState {
     pub(crate) message_filter: Option<MessageFilter>,
     pub(crate) auto_dpi_scaling: bool,
     pub(crate) is_cursor_inside: bool,
     pub(crate) min_inner_size: Option<LogicalSize>,
     pub(crate) max_inner_size: Option<LogicalSize>,
-    pub(crate) saved_style: Option<WINDOW_STYLE>,
-    pub(crate) saved_ex_style: Option<WINDOW_EX_STYLE>,
-    pub(crate) saved_rect: Option<RECT>,
+    pub(crate) saved_window: Option<SavedWindowState>,
     pub(crate) current_cursor: CursorIcon,
     pub(crate) ime_relay: Option<Arc<ImeRelayServer>>,
     pub(crate) default_composition_window: bool,
+    pub(crate) manual_paint_validation: bool,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct SavedWindowState {
+    pub style: WINDOW_STYLE,
+    pub ex_style: WINDOW_EX_STYLE,
+    pub rect: RECT,
 }
 
 struct CreationContext {
@@ -952,88 +988,70 @@ unsafe extern "system" fn global_wnd_proc(
     lparam: LPARAM,
 ) -> LRESULT {
     if msg == WM_NCCREATE {
-        let create_struct = lparam.0 as *const CREATESTRUCTW;
-        if !create_struct.is_null() {
-            let context_ptr = unsafe { (*create_struct).lpCreateParams.cast::<CreationContext>() };
-            if !context_ptr.is_null() {
-                let context = unsafe { &mut *context_ptr };
-                unsafe {
-                    SetWindowLongPtrW(hwnd, GWLP_USERDATA, context.state as isize);
-                }
-                context.was_taken = true; // 所有権がWndProc側に移ったことをマーク
+        // lpCreateParams は生ポインタなので as_mut で安全に取り出せる
+        if let Some(cs) = unsafe { lparam.to_ref::<CREATESTRUCTW>() }
+            && let Some(context) = unsafe { cs.lpCreateParams.cast::<CreationContext>().as_mut() }
+        {
+            #[expect(clippy::as_conversions)]
+            let state_isize = context.state as isize;
+            unsafe {
+                SetWindowLongPtrW(hwnd, GWLP_USERDATA, state_isize);
+            }
+            context.was_taken = true; // 所有権がWndProc側に移ったことをマーク
+        }
+
+        // 非クライアント領域（タイトルバーや境界線、スクロールバー等）の自動DPIスケーリングを有効化
+        let _ = unsafe { EnableNonClientDpiScaling(hwnd) };
+    }
+
+    // 登録された WindowState を取得（null チェックも内包）
+    let state = get_window_userdata_mut::<WindowState>(hwnd);
+
+    // カスタムメッセージフィルターの実行
+    if let Some(state) = state {
+        if let Some(ref filter) = state.message_filter
+            && let Some(result) = (filter.0)(hwnd, msg, wparam, lparam)
+        {
+            // WM_NCDESTROY だけは絶対にここでバイパスしてはならない
+            // バイパスすると WindowState のメモリ解放がスキップされ DefWindowProcW も呼ばれなくなる
+            if msg != WM_NCDESTROY {
+                return result;
             }
         }
 
-        // 非クライアント領域（タイトルバーや境界線、スクロールバー等）の自動DPIスケーリングを有効化（Windows 10 1607以降）
-        unsafe {
-            let _ = EnableNonClientDpiScaling(hwnd);
-        }
-    }
-
-    // 登録された WindowState を取得
-    let state_ptr = unsafe { GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut WindowState };
-
-    // カスタムメッセージフィルターの実行
-    let mut custom_result = None;
-    if !state_ptr.is_null() {
-        let state = unsafe { &*state_ptr };
-        if let Some(ref filter) = state.message_filter {
-            custom_result = (filter.0)(hwnd, msg, wparam, lparam);
-        }
-    }
-
-    // フィルターが値を返した場合、処理をバイパスしてリターンする
-    if let Some(result) = custom_result {
-        // WM_NCDESTROY だけは絶対にここでバイパスしてはならない
-        // バイパスすると WindowState のメモリ解放がスキップされ DefWindowProcW も呼ばれなくなる
-        if msg != WM_NCDESTROY {
-            return result;
-        }
-    }
-
-    if !state_ptr.is_null() {
-        let state = unsafe { &mut *state_ptr };
-
+        // 通常のメッセージディスパッチ
         if let Some(result) = translate_and_dispatch(hwnd, msg, wparam, lparam, state)
             && msg != WM_NCDESTROY
         {
             return result;
         }
-    }
 
-    if msg == WM_GETMINMAXINFO {
-        let mmi = lparam.0 as *mut MINMAXINFO;
+        if msg == WM_GETMINMAXINFO {
+            if let Some(mmi) = unsafe { lparam.to_mut::<MINMAXINFO>() } {
+                // 現在このウィンドウが存在しているモニターのDPIをリアルタイムに取得
+                let dpi = unsafe { GetDpiForWindow(hwnd) };
+                let scale_factor = f64::from(dpi) / 96.0;
 
-        if !mmi.is_null() && !state_ptr.is_null() {
-            let state = unsafe { &*state_ptr };
-            let mmi = unsafe { &mut *mmi };
+                // 最小サイズ制限の動的スケーリング適用
+                if let Some(logical_min) = state.min_inner_size {
+                    let physical_min = logical_min.to_physical(scale_factor);
+                    mmi.ptMinTrackSize.x = physical_min.width;
+                    mmi.ptMinTrackSize.y = physical_min.height;
+                }
 
-            // 現在このウィンドウが存在しているモニターのDPIをリアルタイムに取得
-            let dpi = unsafe { GetDpiForWindow(hwnd) };
-            let scale_factor = dpi as f64 / 96.0;
-
-            // 最小サイズ制限の動的スケーリング適用
-            if let Some(logical_min) = state.min_inner_size {
-                let physical_min = logical_min.to_physical(scale_factor);
-                mmi.ptMinTrackSize.x = physical_min.width;
-                mmi.ptMinTrackSize.y = physical_min.height;
+                // 最大サイズ制限の動的スケーリング適用
+                if let Some(logical_max) = state.max_inner_size {
+                    let physical_max = logical_max.to_physical(scale_factor);
+                    mmi.ptMaxTrackSize.x = physical_max.width;
+                    mmi.ptMaxTrackSize.y = physical_max.height;
+                }
             }
-
-            // 最大サイズ制限の動的スケーリング適用
-            if let Some(logical_max) = state.max_inner_size {
-                let physical_max = logical_max.to_physical(scale_factor);
-                mmi.ptMaxTrackSize.x = physical_max.width;
-                mmi.ptMaxTrackSize.y = physical_max.height;
-            }
+            return LRESULT(0); // OSのデフォルト処理をスキップ
         }
-        return LRESULT(0); // OSのデフォルト処理をスキップ
     }
 
     if msg == WM_NCDESTROY {
-        let old_ptr = unsafe { SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0) as *mut WindowState };
-        if !old_ptr.is_null() {
-            let _boxed_filter = unsafe { Box::from_raw(old_ptr) };
-        }
+        let _ = unsafe { take_window_userdata::<WindowState>(hwnd) };
     }
 
     unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) }
@@ -1048,7 +1066,7 @@ fn register_window_class(
     let hcursor = unsafe { LoadCursorW(None, IDC_ARROW).map_err(MichiuError::UnexpectedOsError)? };
 
     let wnd_class = WNDCLASSEXW {
-        cbSize: std::mem::size_of::<WNDCLASSEXW>() as u32,
+        cbSize: size_of_u32::<WNDCLASSEXW>(),
         style: CS_HREDRAW | CS_VREDRAW | CS_DBLCLKS,
         lpfnWndProc: Some(global_wnd_proc),
         cbClsExtra: 0,
@@ -1099,38 +1117,45 @@ fn calc_window_rect(
     dpi: u32,
     scale_factor: f64,
 ) -> Result<(i32, i32)> {
-    match builder.inner_size {
-        None => Ok((CW_USEDEFAULT, CW_USEDEFAULT)),
-        Some(logical_size) => {
-            let (physical_width, physical_height) = if builder.auto_dpi_scaling {
-                let physical_size = logical_size.to_physical(scale_factor);
-                (physical_size.width, physical_size.height)
-            } else {
-                (logical_size.width as i32, logical_size.height as i32)
-            };
-            let mut rect = RECT {
-                left: 0,
-                top: 0,
-                right: physical_width,
-                bottom: physical_height,
-            };
-            unsafe {
-                AdjustWindowRectExForDpi(&raw mut rect, style, false, ex_style, dpi).map_err(
-                    |err| MichiuError::GeometryUpdateFailed {
-                        x: 0,
-                        y: 0,
-                        width: logical_size.width as u32,
-                        height: logical_size.height as u32,
-                        dpi,
-                        source: err,
-                    },
-                )?;
+    let Some(logical_size) = builder.inner_size else {
+        return Ok((CW_USEDEFAULT, CW_USEDEFAULT));
+    };
+
+    let (physical_width, physical_height) = if builder.auto_dpi_scaling {
+        let physical_size = logical_size.to_physical(scale_factor);
+        (physical_size.width, physical_size.height)
+    } else {
+        // スケーリングOFFでも小数が指定された場合に備えて round を通す
+        (
+            round_to_i32(logical_size.width),
+            round_to_i32(logical_size.height),
+        )
+    };
+
+    let mut rect = RECT {
+        left: 0,
+        top: 0,
+        right: physical_width,
+        bottom: physical_height,
+    };
+
+    unsafe {
+        AdjustWindowRectExForDpi(&raw mut rect, style, false, ex_style, dpi).map_err(|err| {
+            MichiuError::GeometryUpdateFailed {
+                x: 0,
+                y: 0,
+                width: u32::try_from(physical_width.max(0)).unwrap_or(0),
+                height: u32::try_from(physical_height.max(0)).unwrap_or(0),
+                dpi,
+                source: err,
             }
-            let outer_width = rect.right - rect.left;
-            let outer_height = rect.bottom - rect.top;
-            Ok((outer_width, outer_height))
-        }
+        })?;
     }
+
+    let outer_width = rect.right - rect.left;
+    let outer_height = rect.bottom - rect.top;
+
+    Ok((outer_width, outer_height))
 }
 
 fn build_raw_style(builder: &MichiuWindowBuilder<'_>) -> WINDOW_STYLE {
@@ -1212,7 +1237,7 @@ pub(crate) unsafe fn enable_dark_mode_titlebar(hwnd: HWND, enable: bool) {
             hwnd,
             DWMWA_USE_IMMERSIVE_DARK_MODE,
             (&raw const value).cast(),
-            std::mem::size_of::<i32>() as u32,
+            size_of_u32::<i32>(),
         )
     };
 }
@@ -1279,7 +1304,7 @@ pub(crate) fn is_system_dark_mode() -> bool {
 
             let mut value_type = REG_DWORD;
             let mut data = 0u32;
-            let mut data_size = std::mem::size_of::<u32>() as u32;
+            let mut data_size = size_of_u32::<u32>();
 
             let res = RegQueryValueExW(
                 hkey,
@@ -1327,7 +1352,7 @@ pub(crate) fn set_clipboard_text_impl(hwnd: HWND, text: &str) -> Result<()> {
         std::ptr::copy_nonoverlapping(wide.as_ptr(), ptr.cast::<u16>(), wide.len());
         let _ = GlobalUnlock(HGLOBAL(h_mem.0));
 
-        if SetClipboardData(CF_UNICODETEXT.0 as u32, Some(HANDLE(h_mem.0.cast()))).is_err() {
+        if SetClipboardData(u32::from(CF_UNICODETEXT.0), Some(HANDLE(h_mem.0.cast()))).is_err() {
             let _ = GlobalFree(Some(h_mem)); // メモリの解放漏れを防止
             let _ = CloseClipboard();
             return Err(MichiuError::UnexpectedOsError(
@@ -1346,7 +1371,7 @@ pub(crate) fn get_clipboard_text_impl(hwnd: HWND) -> Result<String> {
                 windows::core::Error::from_thread(),
             ));
         }
-        let h_mem = GetClipboardData(CF_UNICODETEXT.0 as u32).map_err(|err| {
+        let h_mem = GetClipboardData(u32::from(CF_UNICODETEXT.0)).map_err(|err| {
             let _ = CloseClipboard();
             MichiuError::UnexpectedOsError(err)
         })?;
@@ -1428,7 +1453,7 @@ pub(crate) fn get_monitor_rect(hwnd: HWND) -> RECT {
     unsafe {
         let monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
         let mut info = MONITORINFO {
-            cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+            cbSize: size_of_u32::<MONITORINFO>(),
             ..Default::default()
         };
         let _ = GetMonitorInfoW(monitor, &raw mut info);
@@ -1464,24 +1489,24 @@ pub(crate) fn center_on_screen_impl(hwnd: HWND) {
 }
 
 pub(crate) fn set_fullscreen_impl(hwnd: HWND, fullscreen: bool) {
-    let state_ptr = unsafe { GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut WindowState };
-    if state_ptr.is_null() {
+    let Some(state) = get_window_userdata_mut::<WindowState>(hwnd) else {
         return;
-    }
-    let state = unsafe { &mut *state_ptr };
+    };
 
     if fullscreen {
-        if state.saved_rect.is_none() {
+        if state.saved_window.is_none() {
             unsafe {
                 // 元のウインドウスタイルと位置を退避
-                let style = WINDOW_STYLE(GetWindowLongPtrW(hwnd, GWL_STYLE) as _);
-                let ex_style = WINDOW_EX_STYLE(GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as _);
+                let style = get_window_style(hwnd);
+                let ex_style = get_window_ex_style(hwnd);
                 let mut rect = RECT::default();
                 let _ = GetWindowRect(hwnd, &raw mut rect);
 
-                state.saved_style = Some(style);
-                state.saved_ex_style = Some(ex_style);
-                state.saved_rect = Some(rect);
+                state.saved_window = Some(SavedWindowState {
+                    style,
+                    ex_style,
+                    rect,
+                });
 
                 // 境界線やタイトルバーのスタイルを除去
                 let new_style =
@@ -1489,8 +1514,8 @@ pub(crate) fn set_fullscreen_impl(hwnd: HWND, fullscreen: bool) {
                 let new_ex_style =
                     ex_style & !(WS_EX_DLGMODALFRAME | WS_EX_CLIENTEDGE | WS_EX_STATICEDGE);
 
-                let _ = SetWindowLongPtrW(hwnd, GWL_STYLE, new_style.0 as _);
-                let _ = SetWindowLongPtrW(hwnd, GWL_EXSTYLE, new_ex_style.0 as _);
+                set_window_style(hwnd, new_style);
+                set_window_ex_style(hwnd, new_ex_style);
 
                 let monitor_rect = get_monitor_rect(hwnd);
                 // モニター全体を覆うようにサイズ変更
@@ -1505,15 +1530,13 @@ pub(crate) fn set_fullscreen_impl(hwnd: HWND, fullscreen: bool) {
                 );
             }
         }
-    } else if let Some(rect) = state.saved_rect {
-        let style = state.saved_style.unwrap();
-        let ex_style = state.saved_ex_style.unwrap();
-
+    } else if let Some(saved) = state.saved_window.take() {
         unsafe {
             // 元のスタイルに復元
-            let _ = SetWindowLongPtrW(hwnd, GWL_STYLE, style.0 as _);
-            let _ = SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex_style.0 as _);
+            set_window_style(hwnd, saved.style);
+            set_window_ex_style(hwnd, saved.ex_style);
 
+            let rect = saved.rect;
             let _ = SetWindowPos(
                 hwnd,
                 None,
@@ -1521,17 +1544,13 @@ pub(crate) fn set_fullscreen_impl(hwnd: HWND, fullscreen: bool) {
                 rect.top,
                 rect.right - rect.left,
                 rect.bottom - rect.top,
-                windows::Win32::UI::WindowsAndMessaging::SWP_FRAMECHANGED | SWP_NOACTIVATE,
+                SWP_FRAMECHANGED | SWP_NOACTIVATE,
             );
-
-            state.saved_style = None;
-            state.saved_ex_style = None;
-            state.saved_rect = None;
         }
     }
 }
 
-#[allow(unused)]
+#[expect(unused)]
 pub(crate) fn apply_cursor_icon_impl(hwnd: HWND, cursor: crate::CursorIcon) -> LRESULT {
     let hcursor = if let CursorIcon::Other(h) = cursor {
         h

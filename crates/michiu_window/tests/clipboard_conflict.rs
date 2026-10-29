@@ -1,6 +1,6 @@
-#![allow(clippy::unwrap_used)]
-#![allow(clippy::expect_used)]
-#![allow(clippy::panic)]
+#![expect(clippy::unwrap_used)]
+#![expect(clippy::expect_used)]
+#![expect(clippy::panic)]
 
 use michiu_window::{
     LogicalSize, MichiuComContext, MichiuError, MichiuWindow, MichiuWindowBuilder,
@@ -17,7 +17,7 @@ where
     handle.join().expect("Test thread panicked");
 }
 
-#[allow(clippy::print_stdout)]
+#[expect(clippy::print_stdout)]
 #[test]
 fn test_integration_clipboard_lock_conflict_and_recovery() {
     let _ = MichiuWindow::init_dpi_awareness();

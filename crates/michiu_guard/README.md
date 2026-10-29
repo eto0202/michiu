@@ -1,6 +1,6 @@
 # michiu_guard
 
-This crate is for `michiu_window`.
+This crate is for `michiu`.
 
 ## Crates.io
 

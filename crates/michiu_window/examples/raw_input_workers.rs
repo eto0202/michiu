@@ -1,7 +1,6 @@
-#![allow(clippy::print_stdout)]
-#![allow(clippy::print_stderr)]
-#![allow(clippy::unwrap_used)]
-#![allow(clippy::expect_used)]
+#![expect(clippy::print_stdout)]
+#![expect(clippy::unwrap_used)]
+#![expect(clippy::expect_used)]
 
 use michiu_guard::Validated;
 use michiu_window::{
@@ -122,7 +121,7 @@ fn spawn_worker_thread(
 }
 
 // Helper function for registering RawInput with the Windows OS
-#[allow(clippy::cast_possible_truncation)]
+#[expect(clippy::cast_possible_truncation)]
 fn register_rawinput_devices(hwnd: HWND) {
     let rid = RAWINPUTDEVICE {
         usUsagePage: 1, // Generic Desktop Page

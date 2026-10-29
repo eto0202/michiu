@@ -25,7 +25,7 @@
 //!        ▼
 //! ┌────────────────────────────────────────────────────────────────────────┐
 //! │ Front Layer (wgpu / DirectX 12)                                        │
-//! │  - UI element rendering                                                │
+//! │  - UI entity rendering                                                │
 //! │  - Punching out ExternalVisual regions                                 │
 //! │  - Foreground background-color composition via attenuation blending    │
 //! └─────────────────────────┬──────────────────────────────────────────────┘
@@ -122,7 +122,7 @@
 //! Updates the dynamic texture atlas and text layout cache through `RendererView`, generating batches segregated into foreground and background passes.
 //!
 //! #### Step 2: Building the Instance Buffer
-//! `michiu_ui` avoids per-element vertex buffer allocations.
+//! `michiu_ui` avoids per-entity vertex buffer allocations.
 //! All UI primitives (rectangles, rounded panels, borders, text quads) are transformed into [`QuadInstance`] data mapped over a single 1x1 quad mesh. Properties such as bounds, corners, SDF parameters, and colors are packed into `instance_staging`.
 //!
 //! #### Step 3: VRAM Upload
@@ -132,7 +132,7 @@
 //! Instantiates a command encoder, binds the shared quad buffers and viewport uniforms (`config_bind_group`), and iterates through render batches:
 //!
 //! * **Dynamic Pipeline Switching**:
-//!   * `BatchType::Normal`: Standard UI elements using Pre-Multiplied Alpha (PMA) compositing.
+//!   * `BatchType::Normal`: Standard UI entities using Pre-Multiplied Alpha (PMA) compositing.
 //!   * `BatchType::Punchout`: Transparent cutouts for `ExternalVisual`s using `Zero` + `OneMinusSrcAlpha` blending.
 //!   * *Note: Pipeline bindings are cached and only re-bound on batch type transitions to minimize driver state changes.*
 //! * **Dynamic Texture Binding**:
@@ -164,7 +164,7 @@
 //! ---
 //!
 //! ↑ That concludes the front-end renderer
-//! 
+//!
 //! ↓ Proceeding to the composite orchestrator
 //!
 //! ---
@@ -206,7 +206,7 @@
 //!    Inspects each `ExternalVisual` to determine stability (e.g., active resizing, transition cooldowns, or animation state). The evaluated flag governs freeze-capture eligibility.
 //!
 //! 4. **External Visual State Hook ([`ExternalVisual::update`](crate::ExternalVisual::update))**:
-//!    Supplies stability flags and device handles via [`VisualUpdateContext`](crate::VisualUpdateContext) to invoke element update callbacks:
+//!    Supplies stability flags and device handles via [`VisualUpdateContext`](crate::VisualUpdateContext) to invoke entity update callbacks:
 //!
 //!    ```rust,ignore
 //!    pub struct VisualUpdateContext<'a> {
@@ -314,7 +314,7 @@ pub use composed_renderer::*;
 pub use text::*;
 pub use wgpu_renderer::*;
 
-use crate::{Color, CornerRadius, EdgeInsets, EntityId, LayoutRect};
+use crate::{Color, CornerRadius, EdgeInsets, Entity, LayoutRect, LinearGradientInner};
 use bytemuck::{Pod, Zeroable};
 use rustc_hash::FxHashMap;
 
@@ -334,11 +334,9 @@ pub struct QuadInstance {
     pub uv_min: [f32; 2], // 8B
     pub uv_max: [f32; 2], // 8B
 
-    pub gradient_end_color: Color, // 16B
-
-    pub gradient_angle: f32,        // 4B
-    pub transform_origin: [f32; 2], // 8B
-    pub _padding: f32,              // 4B.
+    pub gradient: LinearGradientInner,   // 96B
+    pub transform_origin: [f32; 2],      // 8B
+    pub _transform_origin_pad: [f32; 2], // 8B (次が16B境界になるよう揃える)
 
     pub shadow_color: Color,     // 16B.
     pub shadow_params: [f32; 4], // 16B.
@@ -365,9 +363,8 @@ impl Default for QuadInstance {
             opacity_mode_sizing: [1.0, 0.0, 0.0, 0.0],
             uv_min: [0.0; 2],
             uv_max: [0.0; 2],
-            gradient_end_color: Color::TRANSPARENT,
-            gradient_angle: 0.0,
-            _padding: 0.0,
+            gradient: LinearGradientInner::default(),
+            _transform_origin_pad: [0.0; 2],
             shadow_color: Color::TRANSPARENT,
             shadow_params: [0.0; 4],
             border_lengths: EdgeInsets::ZERO,
@@ -409,7 +406,7 @@ pub struct RenderData {
     pub batches: Vec<DrawBatch>,
     // 1フレーム分の全インスタンス
     pub instances: Vec<QuadInstance>,
-    pub entity_ids: Vec<EntityId>,
+    pub entity_ids: Vec<Entity>,
 }
 
 impl RenderData {
@@ -429,7 +426,7 @@ impl RenderData {
         self.entity_ids.clear();
     }
     #[inline]
-    pub fn push(&mut self, id: EntityId, instance: QuadInstance) {
+    pub fn push(&mut self, id: Entity, instance: QuadInstance) {
         self.instances.push(instance);
         self.entity_ids.push(id);
     }
@@ -449,7 +446,7 @@ pub(crate) struct Vertex {
 }
 
 // 1x1 の矩形 (Unit Quad)
-#[allow(unused)]
+#[expect(unused)]
 pub(crate) const VERTICES: &[Vertex] = &[
     Vertex {
         position: [0.0, 0.0],
@@ -465,5 +462,5 @@ pub(crate) const VERTICES: &[Vertex] = &[
     }, // 左下
 ];
 
-#[allow(unused)]
+#[expect(unused)]
 pub(crate) const INDICES: &[u16] = &[0, 1, 2, 2, 3, 0];

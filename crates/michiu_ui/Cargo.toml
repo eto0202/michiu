@@ -39,6 +39,7 @@ bytecount = "0.6.9"
 thiserror = "2.0.20"
 image = "0.25.10"
 derive_more = { version = "2.1.1", features = ["std", "debug", "deref", "deref_mut", "into_iterator"] }
+parking_lot = "0.12.5"
 
 [dependencies.windows]
 version = "0.62.2"

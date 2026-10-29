@@ -1,13 +1,12 @@
-#![allow(clippy::unwrap_used)]
-#![allow(clippy::expect_used)]
-#![allow(clippy::panic)]
-#![allow(clippy::ref_as_ptr)]
-#![allow(clippy::inline_always)]
+#![expect(clippy::unwrap_used)]
+#![expect(clippy::expect_used)]
+#![expect(clippy::ref_as_ptr)]
+#![expect(clippy::inline_always)]
 
 use michiu_guard::Validated;
 use michiu_window::{
-    CURRENT_HANDLER, MichiuEvent, FileDropTarget, HandlerGuard, HandlerPtr, ImeContext, LogicalSize,
-    MichiuAnyEvent, MichiuComContext, MichiuEventPump, MichiuRawEvent, MichiuWindow,
+    CURRENT_HANDLER, FileDropTarget, HandlerGuard, HandlerPtr, ImeContext, LogicalSize,
+    MichiuAnyEvent, MichiuComContext, MichiuEvent, MichiuEventPump, MichiuRawEvent, MichiuWindow,
     MichiuWindowBuilder, WindowId,
 };
 use std::{
@@ -46,7 +45,7 @@ where
     handle.join().expect("Test thread panicked");
 }
 
-#[allow(clippy::too_many_lines)]
+#[expect(clippy::too_many_lines)]
 #[test]
 fn test_integration_com_sta_and_ime_relay_lifecycle() {
     let _ = MichiuWindow::init_dpi_awareness();
@@ -230,7 +229,7 @@ fn test_integration_com_sta_and_ime_relay_lifecycle() {
     });
 }
 
-#[allow(clippy::too_many_lines)]
+#[expect(clippy::too_many_lines)]
 #[test]
 fn test_integration_ime_relay_multi_client_robustness() {
     let _ = MichiuWindow::init_dpi_awareness();

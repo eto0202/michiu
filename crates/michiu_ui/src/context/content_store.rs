@@ -1,5 +1,5 @@
 use crate::{
-    ActiveMasksSecondary, CapacityConfig, EntityId, ExternalTexture, ExternalVisual, InputContents,
+    ActiveMasksSecondary, CapacityConfig, Entity, ExternalTexture, ExternalVisual, InputContents,
     LayoutRect, MichiuString, TextLayoutSize, TextSpan, VisualPropertiesSecondary,
     define_sparse_secondary, soa::MichiuSoA,
 };
@@ -15,7 +15,7 @@ impl InputContentsSparse {
     /// F の第一引数は `auto_wrap`, 第二引数は Option<`max_width`> 。
     pub(crate) fn measure_content<F>(
         &mut self,
-        id: EntityId,
+        id: Entity,
         known_dimensions: taffy::Size<Option<f32>>,
         available_space: taffy::Size<taffy::AvailableSpace>,
         topo_active_masks: &ActiveMasksSecondary,
@@ -107,23 +107,23 @@ impl InputContentsSparse {
 }
 
 impl TextSpansSparse {
-    pub(crate) fn span(&self, id: EntityId) -> &[TextSpan] {
-        self.find(id).map_or(&[][..], Vec::as_slice)
+    pub(crate) fn span(&self, e: Entity) -> &[TextSpan] {
+        self.find(e).map_or(&[][..], Vec::as_slice)
     }
 }
 
 #[derive(Default, Clone, derive_more::Deref, derive_more::DerefMut, derive_more::IntoIterator)]
 #[into_iterator(owned, ref, ref_mut)]
-pub struct ExternalTextureSparse(pub SparseSecondaryMap<EntityId, Arc<dyn ExternalTexture>>);
+pub struct ExternalTextureSparse(pub SparseSecondaryMap<Entity, Arc<dyn ExternalTexture>>);
 
 impl MichiuSoA for ExternalTextureSparse {
     type Item = Arc<dyn ExternalTexture>;
     #[inline]
-    fn find(&self, id: EntityId) -> Option<&Self::Item> {
-        self.0.get(id)
+    fn find(&self, e: Entity) -> Option<&Self::Item> {
+        self.0.get(e)
     }
     #[inline]
-    fn find_mut(&mut self, id: EntityId) -> Option<&mut Self::Item> {
+    fn find_mut(&mut self, id: Entity) -> Option<&mut Self::Item> {
         self.0.get_mut(id)
     }
 }
@@ -146,16 +146,16 @@ impl std::fmt::Debug for ExternalTextureSparse {
 
 #[derive(Default, Clone, derive_more::Deref, derive_more::DerefMut, derive_more::IntoIterator)]
 #[into_iterator(owned, ref, ref_mut)]
-pub struct ExternalVisualSparse(pub SparseSecondaryMap<EntityId, Arc<dyn ExternalVisual>>);
+pub struct ExternalVisualSparse(pub SparseSecondaryMap<Entity, Arc<dyn ExternalVisual>>);
 
 impl MichiuSoA for ExternalVisualSparse {
     type Item = Arc<dyn ExternalVisual>;
     #[inline]
-    fn find(&self, id: EntityId) -> Option<&Self::Item> {
+    fn find(&self, id: Entity) -> Option<&Self::Item> {
         self.0.get(id)
     }
     #[inline]
-    fn find_mut(&mut self, id: EntityId) -> Option<&mut Self::Item> {
+    fn find_mut(&mut self, id: Entity) -> Option<&mut Self::Item> {
         self.0.get_mut(id)
     }
 }
@@ -237,7 +237,7 @@ impl ContentStore {
     }
 
     #[inline]
-    pub(crate) fn despawn(&mut self, id: EntityId) {
+    pub(crate) fn despawn(&mut self, id: Entity) {
         self.cont_text_contents.remove(id);
         self.cont_text_spans.remove(id);
         self.cont_input_contents.remove(id);

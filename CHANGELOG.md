@@ -1,3 +1,71 @@
+## [0.0.5] - 2026-10-29
+
+### Breaking Changes
+
+- Replace `LinearGradient` builder/factory methods:
+  - `LinearGradient::two_stops`
+  - `LinearGradient::new`
+  - `LinearGradient::four_corners`
+  - `LinearGradient::to_corner`
+  - Remove legacy fields (gradient_start_color, gradient_end_color, etc.)
+- Rename `find_root_entity` -> `find_root`
+- Rename `parent_entity` -> `parent`
+- `EntityId` and `Element` are unified as `Entity`
+- Rename `DndDragPayload` -> `DndDragMode`
+  - Rename `Element` -> `Interactive`
+  - Rename `EntityId` -> `Passive`
+  - Rename `on_dnd_element_drag` -> `on_dnd_drag_interactive`
+  - Rename `on_dnd_id_drag` -> `on_dnd_drag_passive`
+  - Rename `on_dnd_element_drop` -> `on_dnd_drop_interactive`
+  - Rename `on_dnd_id_drop` -> `on_dnd_drop_passive`
+- Rename `ThisStyle` -> `Modifier`
+  - Rename `StyleInner` -> `ModInner`
+  - Rename `StyleValue` -> `ModValue`
+  - Rename `IntoStyle_` -> `IntoMod_`
+  - Rename `ts()` -> `ii()`, `m!()`
+  - Rename `StyleTarget` -> `ModTarget`
+- Rename element.rs -> entity.rs
+- Rename style.rs -> modifier.rs
+
+### 🚀 Features
+
+- Add extension traits for `LPARAM` and `WPARAM`
+- Add Oklab/Oklch support and color manipulation builders
+- [**breaking**] Implement 4-stop and four-corner gradients
+- Add a sample of `LinearGradient::new` to `sample_collection`
+
+### 📚 Documentation
+
+- Added `# Errors` docs to the public API
+
+### 🚜 Refactor
+
+- Introduce conversion traits to reduce type mapping boilerplate
+- [**breaking**] Rename style-related types and functions to modifier
+- [**breaking**] Unify Element and EntityId into Entity
+- [**breaking**] Remove redundant _entity suffix from method names
+- Address clippy cast warnings and error handling
+- Reorder ComponentMask flags and add unit tests
+- Fix the rendering order of `collect_render_data`
+- Fix `sample_collection`
+
+### 🧪 Testing
+
+- Add unit tests for `FlexDirection` and `LinearGradient`
+- Add unit tests for Transform
+- Add unit tests for ByteIndex, CharIndex, and RangeExt
+- Add unit tests for MichiuString
+- Add unit tests for `debug_store.rs`
+- Add unit tests for `soa.rs`
+- Add unit tests for `TopologyStore`
+- Add unit tests for `entity.rs`
+- Add unit tests for `signal.rs`
+- Add unit tests for `ReactiveStore`
+- Add unit tests for `LayoutStore`
+
+### ⚙️ Miscellaneous Tasks
+
+- *(michiu_ui)* Modify `README.md`
 ## [0.0.4] - 2026-10-17
 
 ### Breaking Changes
@@ -7,7 +75,7 @@
 
 ### 🚀 Features
 
-- Add `a11y_label` to `Element`
+- Add `a11y_label` to `Entity`
 - Add ‘context_menu’ sample
 - Add a custom title bar to the `examples/sample_collection`
 - Fix the custom title bar in `examples/sample_collection`
@@ -147,7 +215,8 @@
 
 - Initial release
 
-[unreleased]: https://github.com/eto0202/michiu/compare/v0.0.4...HEAD
+[unreleased]: https://github.com/eto0202/michiu/compare/v0.0.5...HEAD
+[0.0.5]: https://github.com/eto0202/michiu/compare/v0.0.4...v0.0.5
 [0.0.4]: https://github.com/eto0202/michiu/compare/v0.0.3...v0.0.4
 [0.0.3]: https://github.com/eto0202/michiu/compare/v0.0.2...v0.0.3
 [0.0.2]: https://github.com/eto0202/michiu/compare/v0.0.1...v0.0.2

@@ -1,9 +1,1 @@
-#![allow(clippy::unwrap_used)]
-#![allow(clippy::expect_used)]
-#![allow(clippy::panic)]
-#![expect(
-    clippy::cast_sign_loss,
-    clippy::cast_possible_wrap,
-    clippy::too_many_lines,
-    clippy::float_cmp
-)]
+

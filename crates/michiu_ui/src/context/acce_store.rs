@@ -1,7 +1,7 @@
 use crate::{
     ActiveMasksSecondary, CapacityConfig, ChildrenSecondary, ComponentMask, DEFAULT_BASIC,
-    DebugStore, Display, EntityId, EventListenersSparse, InputContentsSparse, MichiuSoA, Overflow,
-    RectsSecondary, ResolvedBasicSecondary, MichiuTaskSender, TextContentsSparse,
+    DebugStore, Display, Entity, EventListenersSparse, InputContentsSparse, MichiuSoA,
+    MichiuTaskSender, Overflow, RectsSecondary, ResolvedBasicSecondary, TextContentsSparse,
     define_sparse_secondary,
 };
 use accesskit::{
@@ -148,7 +148,7 @@ impl AccessibilityStore {
     }
 
     #[inline]
-    pub(crate) fn despawn(&mut self, id: EntityId) {
+    pub(crate) fn despawn(&mut self, id: Entity) {
         self.acce_accessibility.remove(id);
     }
 
@@ -379,11 +379,10 @@ impl AccessibilityStore {
     }
 
     /// `TreeUpdate` 用のデータ収集
-    #[allow(unused_assignments)]
     #[inline]
     pub(crate) fn build_accessibility_snapshot(
         buffer: &mut Vec<NodeSnapshot>,
-        id: EntityId,
+        e: Entity,
         user_node: Option<Node>,
         topo_children: &ChildrenSecondary,
         topo_active_masks: &ActiveMasksSecondary,
@@ -395,20 +394,20 @@ impl AccessibilityStore {
         debug: &mut DebugStore,
         acce_accessibility: &AccessibilitySparse,
     ) {
-        let rect = out_rects.find_or_default(id, debug);
-        let basic = lay_resolved_basic.find_or(id, &DEFAULT_BASIC, debug);
+        let rect = out_rects.find_or_default(e, debug);
+        let basic = lay_resolved_basic.find_or(e, &DEFAULT_BASIC, debug);
 
         let children = topo_children
-            .find(id)
+            .find(e)
             .map_or_else(Vec::new, |c| c.iter().copied().map(Into::into).collect());
 
         let el_node = acce_accessibility
-            .find(id)
+            .find(e)
             .map(|f| f.clone().unwrap_or(Node::new(Role::Unknown)));
 
-        let mask = topo_active_masks.find_or_default(id, debug);
+        let mask = topo_active_masks.find_or_default(e, debug);
 
-        let listeners = evt_listeners.find(id);
+        let listeners = evt_listeners.find(e);
 
         let pressed = if listeners.is_some_and(|l| l.on_click.is_some()) {
             Some(mask.has(ComponentMask::STATE_PRESSED))
@@ -471,8 +470,8 @@ impl AccessibilityStore {
         let label = if let Some(node) = &el_node {
             node.label().map(|f| Arc::new(f.to_owned().into()))
         } else if mask.has_text_content() {
-            cont_text_contents.find(id).map(|t| Arc::new(t.0.clone()))
-        } else if let Some(children) = topo_children.find(id) {
+            cont_text_contents.find(e).map(|t| Arc::new(t.0.clone()))
+        } else if let Some(children) = topo_children.find(e) {
             children.iter().find_map(|c| {
                 cont_text_contents
                     .find(*c)
@@ -491,7 +490,7 @@ impl AccessibilityStore {
         let value = if has_input {
             // 入力要素はデフォルトでフォーカス可能
             focused = Some(true);
-            if let Some(contents) = cont_input_contents.find(id) {
+            if let Some(contents) = cont_input_contents.find(e) {
                 if contents.numeric_only {
                     is_numeric = true;
                 } else if contents.mask_text.is_some() {
@@ -504,7 +503,7 @@ impl AccessibilityStore {
             } else {
                 None
             }
-        } else if let Some(children) = topo_children.find(id) {
+        } else if let Some(children) = topo_children.find(e) {
             children.iter().find_map(|c| {
                 if let Some(contents) = cont_input_contents.find(*c) {
                     if contents.numeric_only {
@@ -532,7 +531,7 @@ impl AccessibilityStore {
         }
 
         buffer.push(NodeSnapshot {
-            id: id.into(),
+            id: e.into(),
             children,
             user_node,
             bounds: rect.into(),

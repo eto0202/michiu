@@ -1,6 +1,6 @@
 #[cfg(feature = "trace-entity")]
-use crate::{ActiveAnimation, ActiveTransition, BasicLayout, StyleInner, VisualProperty};
-#[allow(unused)]
+use crate::{ActiveAnimation, ActiveTransition, BasicLayout, ModInner, VisualProperty};
+#[expect(unused)]
 use crate::{
     ActiveAnimationsSparse, ActiveDragState, ActiveEntitiesVec, ActiveExternalVisualHashSet,
     ActiveInteractionStates, ActiveMasksSecondary, ActiveResizeHoverOption,
@@ -8,21 +8,20 @@ use crate::{
     BaseVisualPropertiesSecondary, BasicLayoutsSecondary, BatchType, CapacityConfig,
     ChildrenSecondary, ClipRectsSecondary, ComponentMask, Context, DespawnedQueueVec,
     DirtyLayoutEntitiesVec, DirtyRenderEntitiesVec, DndDragPropertiesSparse,
-    DndDropPropertiesSparse, EffectId, EffectToElementSecondary, EffectiveZindicesSecondary,
-    ElementEffectsSecondary, ElementState, EntitiesSlot, EntityId, ExternalTextureSparse,
-    FlatDfsSequenceVec, FlexLayoutsSecondary, GridLayoutsSparse, InputContentsSparse,
-    InteractionPropertiesSecondary, LayoutPoint, LayoutRect, LayoutSize, MichiuRenderer,
-    MichiuString, MichiuTagRegistry, Modifiers, MouseButton, ParentsSecondary, PendingDcompRelease,
-    PendingElementEffectsVec, PrevClipRectsSecondary, PrevRectsSecondary, ProvidersSparseSecondary,
-    QuadInstance, RectsSecondary, RenderData, ResizingState, ResolvedBasicSecondary,
-    ResolvedFlexSecondary, ResolvedGridSparse, ScrollOffsetsSecondary, ScrollSizesSecondary,
-    ScrollbarStylesSparse, SelectedRectsSparse, SelectionStartIndexSparse, SessionRootsVec,
-    SessionSpawnedVec, SignalId, SortCacheVec, SortedEntitiesVec, SubscribersSecondary,
-    TaffyNodesSecondary, TextCacheKey, TextCacheValue, TextContentsSparse, TextSelectionsSparse,
-    TextSpansSparse, TextureAtlas, UiaPropertiesSparse, VirtualKey, VisualPropertiesSecondary,
-    WebviewEntitiesVec,
+    DndDropPropertiesSparse, EffectId, EffectToEntitySecondary, EffectiveZindicesSecondary,
+    ElementState, EntitiesSlot, Entity, EntityEffectsSecondary, ExternalTextureSparse,
+    ExternalVisualSparse, FlatDfsSequenceVec, FlexLayoutsSecondary, GridLayoutsSparse,
+    InputContentsSparse, InteractionPropertiesSecondary, LayoutPoint, LayoutRect, LayoutSize,
+    MichiuRenderer, MichiuString, MichiuTagRegistry, Modifiers, MouseButton, ParentsSecondary,
+    PendingActions, PendingDcompRelease, PendingEntityEffectsVec, PrevClipRectsSecondary,
+    PrevRectsSecondary, ProvidersSparseSecondary, QuadInstance, RectsSecondary, RenderData,
+    ResizingState, ResolvedBasicSecondary, ResolvedFlexSecondary, ResolvedGridSparse,
+    ScrollOffsetsSecondary, ScrollSizesSecondary, ScrollbarStylesSparse, SelectedRectsSparse,
+    SelectionStartIndexSparse, SessionRootsVec, SessionSpawnedVec, SignalId, SortCacheVec,
+    SortedEntitiesVec, SubscribersSecondary, TaffyNodesSecondary, TextCacheKey, TextCacheValue,
+    TextContentsSparse, TextSelectionsSparse, TextSpansSparse, TextureAtlas, VirtualKey,
+    VisualPropertiesSecondary, WebviewEntitiesVec,
 };
-use crate::{ExternalVisualSparse, PendingActions};
 use cosmic_text::Buffer;
 use rustc_hash::FxHashMap;
 use slotmap::{SecondaryMap, SparseSecondaryMap};
@@ -32,7 +31,7 @@ use std::{
     panic::Location,
     path::PathBuf,
     sync::{
-        Arc, Mutex, RwLock,
+        Arc,
         mpsc::{Receiver, SyncSender},
     },
     time::{Duration, Instant},
@@ -47,7 +46,7 @@ use windows_core::Interface;
 #[cfg(feature = "trace-error")]
 #[derive(Clone, Default, derive_more::Deref, derive_more::DerefMut, derive_more::IntoIterator)]
 #[into_iterator(owned, ref, ref_mut)]
-pub(crate) struct InspecterSecondary(SecondaryMap<EntityId, MichiuTraceRecord>);
+pub(crate) struct InspecterSecondary(SecondaryMap<Entity, MichiuTraceRecord>);
 
 #[cfg(feature = "trace-error")]
 #[derive(Clone, Default, derive_more::Deref, derive_more::DerefMut, derive_more::IntoIterator)]
@@ -59,11 +58,11 @@ pub struct MichiuTraceVec(Vec<MichiuTraceRecord>);
 
 #[cfg(feature = "trace-error")]
 pub struct DebugStore {
-    /// Context が起動した時間を0秒とする
+    // Context が起動した時間を0秒とする
     pub(crate) boot_time: Instant,
     pub(crate) frame: u64,
     // グローバルなエラー用にルート要素のIDを持っておく。
-    pub(crate) dbg_root: Option<EntityId>,
+    pub(crate) dbg_root: Option<Entity>,
     pub(crate) dbg_tx: Option<InspectorSender>,
     // メインスレッドでループ中に溜めておく一時キュー
     pub(crate) dbg_trace_queue: MichiuTraceVec,
@@ -71,7 +70,7 @@ pub struct DebugStore {
 
 #[cfg(not(feature = "trace-error"))]
 pub(crate) struct DebugStore {
-    pub(crate) dbg_root: Option<EntityId>,
+    pub(crate) dbg_root: Option<Entity>,
 }
 #[cfg(not(feature = "trace-error"))]
 impl DebugStore {
@@ -146,7 +145,7 @@ impl DebugStore {
     }
 
     #[inline]
-    pub fn dbg_root_mut(&mut self) -> &mut Option<EntityId> {
+    pub fn dbg_root_mut(&mut self) -> &mut Option<Entity> {
         &mut self.dbg_root
     }
 
@@ -202,11 +201,23 @@ pub struct TraceSubscription {
 #[cfg(feature = "trace-error")]
 impl TraceSubscription {
     /// Wait for the next batch (blocking)
+    ///
+    /// # Errors
+    ///
+    /// Returns [`std::sync::mpsc::RecvError`] if all senders have been dropped,
+    /// indicating that no more batches will be received.
     pub fn recv(&self) -> std::result::Result<TraceBatch, std::sync::mpsc::RecvError> {
         self.rx.recv()
     }
 
-    /// Attempt to retrieve the data in a non-blocking manner
+    /// Attempt to retrieve the data in a non-blocking manner.
+    ///
+    /// # Errors
+    ///
+    /// - [`std::sync::mpsc::TryRecvError::Empty`]:
+    ///   Returns if the channel is currently empty.
+    /// - [`std::sync::mpsc::TryRecvError::Disconnected`]:
+    ///   Returns if all senders have been dropped.
     pub fn try_recv(&self) -> std::result::Result<TraceBatch, std::sync::mpsc::TryRecvError> {
         self.rx.try_recv()
     }
@@ -220,9 +231,9 @@ impl TraceSubscription {
 pub struct MichiuInspector {
     sender: InspectorSender,
     // ワーカースレッドが更新し、ユーザーが読み取るための共有ストレージ
-    storage: Arc<RwLock<InspecterSecondary>>,
+    storage: Arc<parking_lot::RwLock<InspecterSecondary>>,
     // サブスクライバの送信口を束ねて管理
-    subscribers: Arc<Mutex<Vec<SyncSender<TraceBatch>>>>,
+    subscribers: Arc<parking_lot::Mutex<Vec<SyncSender<TraceBatch>>>>,
 }
 
 #[cfg(feature = "trace-error")]
@@ -234,10 +245,12 @@ impl Default for MichiuInspector {
 
 #[cfg(feature = "trace-error")]
 impl MichiuInspector {
-    #[allow(unused)]
+    #[expect(unused)]
     #[inline]
     #[must_use]
     pub fn new() -> Self {
+        use parking_lot::{Mutex, RwLock};
+
         let (tx, rx) = std::sync::mpsc::sync_channel(256);
         let storage = Arc::new(RwLock::new(InspecterSecondary(SecondaryMap::new())));
         let subscribers: Arc<Mutex<Vec<SyncSender<TraceBatch>>>> = Arc::new(Mutex::new(Vec::new()));
@@ -253,29 +266,27 @@ impl MichiuInspector {
                 let shared_batch = Arc::new(batch);
 
                 // 購読者全員へ一斉配信（詰まっている、切断されたものは破棄）
-                if let Ok(mut subs) = subs_clone.lock() {
-                    subs.retain(|sub_tx| {
-                        // try_send で送れない場合は捨てるか、
-                        // 接続が切れていればリストから除去する
-                        match sub_tx.try_send(Arc::clone(&shared_batch)) {
-                            Ok(()) | Err(std::sync::mpsc::TrySendError::Full(_)) => {
-                                // サブスクライバ側が遅延して溢れた場合（接続は維持）
-                                true
-                            }
-                            Err(std::sync::mpsc::TrySendError::Disconnected(_)) => {
-                                // サブスクライバがdropされたので登録解除
-                                false
-                            }
+                let mut subs = subs_clone.lock();
+                subs.retain(|sub_tx| {
+                    // try_send で送れない場合は捨てるか、
+                    // 接続が切れていればリストから除去する
+                    match sub_tx.try_send(Arc::clone(&shared_batch)) {
+                        Ok(()) | Err(std::sync::mpsc::TrySendError::Full(_)) => {
+                            // サブスクライバ側が遅延して溢れた場合（接続は維持）
+                            true
                         }
-                    });
-                }
+                        Err(std::sync::mpsc::TrySendError::Disconnected(_)) => {
+                            // サブスクライバがdropされたので登録解除
+                            false
+                        }
+                    }
+                });
 
-                if let Ok(mut storage) = storage_clone.write() {
-                    for trace in shared_batch.iter() {
-                        if let Some(id) = trace.id {
-                            // trace 自体も clone せず Arc<MichiuTraceRecord> にする？
-                            storage.insert(id, trace.clone());
-                        }
+                let mut storage = storage_clone.write();
+                for trace in shared_batch.iter() {
+                    if let Some(id) = trace.id {
+                        // trace 自体も clone せず Arc<MichiuTraceRecord> にする？
+                        storage.insert(id, trace.clone());
                     }
                 }
             }
@@ -297,7 +308,7 @@ impl MichiuInspector {
     pub fn subscribe(&self, buffer_size: Option<usize>) -> TraceSubscription {
         let bs = buffer_size.unwrap_or(128);
         let (tx, rx) = std::sync::mpsc::sync_channel(bs);
-        self.subscribers.lock().unwrap().push(tx);
+        self.subscribers.lock().push(tx);
         TraceSubscription { rx }
     }
 
@@ -311,8 +322,8 @@ impl MichiuInspector {
     #[track_caller]
     #[inline]
     #[must_use]
-    pub fn get(&self, id: EntityId) -> Option<MichiuTraceRecord> {
-        self.storage.read().unwrap().get(id).cloned()
+    pub fn get(&self, id: Entity) -> Option<MichiuTraceRecord> {
+        self.storage.read().get(id).cloned()
     }
 }
 
@@ -341,12 +352,12 @@ pub enum MichiuTrace {
         add: Option<&'static str>,
     },
 
-    /// Creating a root element and recording a raw pointer to `Context`
+    /// Creating a root entity and recording a raw pointer to `Context`
     #[cfg(feature = "trace-lifecycle")]
-    BuildElement {
+    BuildEntity {
         old: Option<usize>,
         current: usize,
-        root: EntityId,
+        root: Entity,
         add: Option<&'static str>,
     },
 
@@ -358,20 +369,20 @@ pub enum MichiuTrace {
         add: Option<&'static str>,
     },
 
-    /// Record Element Spawns
+    /// Record Entity Spawns
     #[cfg(feature = "trace-entity")]
     EntitySpawn {
-        parent: Option<EntityId>,
+        parent: Option<Entity>,
         node_id: taffy::NodeId,
         add: Option<&'static str>,
     },
 
-    /// Record element style resolution
+    /// Record entity modifier resolution
     #[cfg(feature = "trace-entity")]
-    EntityStyle {
-        stage: StyleStage,
+    EntityModifier {
+        stage: ModifierStage,
         mask: ComponentMask,
-        style: Option<Arc<StyleInner>>,
+        style: Option<Arc<ModInner>>,
         resolved_visual: Option<Arc<VisualProperty>>,
         resolved_layout: Option<Arc<BasicLayout>>,
         add: Option<&'static str>,
@@ -380,13 +391,13 @@ pub enum MichiuTrace {
     /// Record hit tests
     #[cfg(feature = "trace-lifecycle")]
     HitTest {
-        found: Option<EntityId>,
+        found: Option<Entity>,
         hit_x: f32,
         hit_y: f32,
         add: Option<&'static str>,
     },
 
-    /// Recording Element Reactivity
+    /// Recording Entity Reactivity
     #[cfg(feature = "trace-entity")]
     EntityReactive {
         signal: Option<SignalId>,
@@ -395,14 +406,14 @@ pub enum MichiuTrace {
         add: Option<&'static str>,
     },
 
-    /// Record the occurrence of element events
+    /// Record the occurrence of entity events
     #[cfg(feature = "trace-lifecycle")]
     Event {
         kinds: Arc<TraceEventList>,
         add: Option<&'static str>,
     },
 
-    /// Track changes to an element's pseudo-classes
+    /// Track changes to an entities pseudo-classes
     #[cfg(feature = "trace-entity")]
     EntityStateUpdate {
         flag: ComponentMask,
@@ -411,7 +422,7 @@ pub enum MichiuTrace {
         add: Option<&'static str>,
     },
 
-    /// Record the animations associated with an element
+    /// Record the animations associated with an entity
     #[cfg(feature = "trace-entity")]
     EntityAnimation {
         kinds: FrameKinds,
@@ -420,14 +431,14 @@ pub enum MichiuTrace {
         add: Option<&'static str>,
     },
 
-    /// Record the moment a dirty flag is set on an element
+    /// Record the moment a dirty flag is set on an entity
     #[cfg(feature = "trace-entity")]
     EntityDirtyQueue(Arc<DirtyQueueTrace>),
 
     /// Recording the Construction of a DFS-Ordered Array
     #[cfg(feature = "trace-lifecycle")]
     Dfs {
-        after: Arc<[EntityId]>,
+        after: Arc<[Entity]>,
         add: Option<&'static str>,
     },
 
@@ -438,13 +449,13 @@ pub enum MichiuTrace {
         add: Option<&'static str>,
     },
 
-    /// Updating the ExternalVisual Element
+    /// Updating the ExternalVisual Entity
     #[cfg(feature = "trace-entity")]
     EntityExternalVisual {
         add: Option<&'static str>,
     },
 
-    /// Record the text layout calculations for an element
+    /// Record the text layout calculations for an entity
     #[cfg(feature = "trace-entity")]
     EntityText {
         add: Option<&'static str>,
@@ -460,7 +471,7 @@ pub enum MichiuTrace {
     /// Logging the creation of a sorted array based on visibility and z-index
     #[cfg(feature = "trace-lifecycle")]
     Sorted {
-        after: Arc<[EntityId]>,
+        after: Arc<[Entity]>,
         add: Option<&'static str>,
     },
 
@@ -491,7 +502,7 @@ pub enum MichiuTrace {
         add: Option<&'static str>,
     },
 
-    /// Recording the total number of elements and the number of elements with the “dirty” flag
+    /// Recording the total number of entities and the number of entities with the “dirty” flag
     #[cfg(feature = "trace-lifecycle")]
     ClearDirtyEntities {
         total_entities: usize,
@@ -501,7 +512,7 @@ pub enum MichiuTrace {
         add: Option<&'static str>,
     },
 
-    /// Record the EntityId of the despawned entity
+    /// Record the Entity of the despawned entity
     #[cfg(feature = "trace-entity")]
     EntityDespawn {
         add: Option<&'static str>,
@@ -549,7 +560,7 @@ pub enum StyleState {
 // ================================================================
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum StyleStage {
+pub enum ModifierStage {
     Build,
     ResolvedVisual,
     ResolvedLayout,
@@ -561,8 +572,8 @@ pub enum StyleStage {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct SpawnTrace {
-    pub id: EntityId,
-    pub parent: Option<EntityId>,
+    pub id: Entity,
+    pub parent: Option<Entity>,
     pub node_id: taffy::NodeId,
     pub add: Option<&'static str>,
 }
@@ -573,7 +584,7 @@ pub struct SpawnTrace {
 #[derive(Debug, Clone, PartialEq)]
 pub struct DirtyQueueTrace {
     pub kinds: QueueDirtyKinds,
-    pub dirty_entities: Option<Vec<EntityId>>,
+    pub dirty_entities: Option<Vec<Entity>>,
     pub sort: Option<bool>,
     pub structure: Option<bool>,
     pub add: Option<&'static str>,
@@ -597,9 +608,9 @@ pub enum ReactiveKinds {
     None,
     /// Creating a Signal
     CreateSignal,
-    /// Provides a signal context for the specified element or the root element
+    /// Provides a signal context for the specified entity or the root entity
     Provide,
-    /// Searching for Root Elements
+    /// Searching for Root Entity
     FindRoot,
     /// Traverse the tree backward toward the parent and resolve `ReadSignal`
     FindReadSignal,
@@ -617,7 +628,7 @@ pub enum ReactiveKinds {
     ResolveEffect,
     /// Link Effects by Category
     RegisterEffect,
-    /// Register dynamic effects on elements and perform an initial evaluation
+    /// Register dynamic effects on entities and perform an initial evaluation
     CreateEffect,
     /// Complete the evaluation of all pending effects
     PendingEffect,
@@ -681,9 +692,9 @@ pub enum RenderStage {
     None,
     /// Rendering Phase Begins
     Start,
-    /// Calculating the Effective `z_index`, Visibility, and Sorting Elements Based on These Factors
+    /// Calculating the Effective `z_index`, Visibility, and Sorting Entities Based on These Factors
     SortedEntities,
-    /// Cache all characters contained in the specified element in the atlas
+    /// Cache all characters contained in the specified entity in the atlas
     FirstGlyphsCache,
     /// If the Atlas is cleared, rebuild the Atlas and recache it.
     FullGlyphsCache,
@@ -710,7 +721,7 @@ pub struct RendererViewTrace {
 pub struct InstanceKinds {
     pub has_external_visual_ready: bool,
     pub has_external_texture: bool,
-    pub has_normal_element: bool,
+    pub has_normal_entity: bool,
     pub has_selection_highlight: bool,
     pub has_background: bool,
     pub has_text: bool,
@@ -833,7 +844,7 @@ pub enum MichiuInfo {
 #[cfg(feature = "trace-error")]
 #[derive(Clone)]
 pub struct MichiuTraceRecord {
-    pub id: Option<EntityId>,
+    pub id: Option<Entity>,
     pub frame: u64,
     pub time: TimeStamp,
     pub func: &'static str,
@@ -906,7 +917,7 @@ macro_rules! _make_record {
 #[macro_export]
 macro_rules! trace_error {
     (None, $debug:expr, $trace_fn:expr) => {
-        let id: Option<$crate::EntityId> = None;
+        let id: Option<$crate::Entity> = None;
         $crate::trace_error!(id, $debug, $trace_fn);
     };
 
@@ -937,7 +948,7 @@ macro_rules! trace_error {
 #[macro_export]
 macro_rules! trace_lifecycle {
     (None, $debug:expr, $trace_fn:expr) => {
-        let id: Option<$crate::EntityId> = None;
+        let id: Option<$crate::Entity> = None;
         $crate::trace_lifecycle!(id, $debug, $trace_fn);
     };
 
@@ -968,7 +979,7 @@ macro_rules! trace_lifecycle {
 #[macro_export]
 macro_rules! trace_entity {
     (None, $debug:expr, $trace_fn:expr) => {
-        let id: Option<$crate::EntityId> = None;
+        let id: Option<$crate::Entity> = None;
         $crate::trace!(id, $debug, $trace_fn);
     };
 
@@ -1077,15 +1088,15 @@ pub struct WindowStoreSnapshot {
 
 #[derive(Clone)]
 pub struct SystemStoreSnapshot {
-    pub sys_text_buffers: SparseSecondaryMap<EntityId, Buffer>,
+    pub sys_text_buffers: SparseSecondaryMap<Entity, Buffer>,
 }
 
 #[derive(Clone)]
 pub struct ReactiveStoreSnapshot {
     pub react_subscribers: SubscribersSecondary,
-    pub react_element_effects: ElementEffectsSecondary,
-    pub react_effect_to_element: EffectToElementSecondary,
-    pub react_pending_element_effects: PendingElementEffectsVec,
+    pub react_entity_effects: EntityEffectsSecondary,
+    pub react_effect_to_entity: EffectToEntitySecondary,
+    pub react_pending_entity_effects: PendingEntityEffectsVec,
     pub react_providers: ProvidersSparseSecondary,
 }
 
@@ -1164,7 +1175,7 @@ pub struct TextEditStoreSnapshot {
 pub struct LayoutStoreSnapshot {
     pub scrollbar: ScrollbarStoreSnapshot,
     pub lay_dirty_entities: DirtyLayoutEntitiesVec,
-    pub lay_taffy_tree: SendTaffyTree<EntityId>,
+    pub lay_taffy_tree: SendTaffyTree<Entity>,
     pub lay_taffy_nodes: TaffyNodesSecondary,
     pub lay_basic: BasicLayoutsSecondary,
     pub lay_flex: FlexLayoutsSecondary,
@@ -1238,11 +1249,11 @@ pub struct WgpuRendererSnapshot {
     pub config_bind_group: wgpu::BindGroup,
     pub config_bind_group_layout: wgpu::BindGroupLayout,
     pub atlas: TextureAtlas,
-    pub temp_uv_map: SecondaryMap<EntityId, [f32; 4]>,
+    pub temp_uv_map: SecondaryMap<Entity, [f32; 4]>,
     pub text_cache: FxHashMap<TextCacheKey, TextCacheValue>,
-    pub webview_static_caches: FxHashMap<EntityId, wgpu::TextureView>,
+    pub webview_static_caches: FxHashMap<Entity, wgpu::TextureView>,
     pub render_data: RenderData,
-    pub external_bind_groups: FxHashMap<EntityId, (wgpu::TextureView, wgpu::BindGroup)>,
+    pub external_bind_groups: FxHashMap<Entity, (wgpu::TextureView, wgpu::BindGroup)>,
 }
 
 #[derive(Clone)]
@@ -1257,7 +1268,7 @@ pub struct ComposedRendererSnapshot {
     pub wgpu_visual: usize,
     pub webview_env: Option<usize>,
     pub promoted_visuals: Vec<PromotedVisualSnapshot>,
-    pub pending_removals: Vec<(EntityId, Option<wgpu::Texture>, Option<MichiuError>)>,
+    pub pending_removals: Vec<(Entity, Option<wgpu::Texture>, Option<MichiuError>)>,
     pub pending_dcomp_releases: Vec<PendingDcompRelease>,
     pub current_backdrop: Backdrop,
     pub resize_cooldown_frames: u32,
@@ -1265,7 +1276,7 @@ pub struct ComposedRendererSnapshot {
 
 #[derive(Debug, Clone)]
 pub struct PromotedVisualSnapshot {
-    pub entity_id: EntityId,
+    pub entity_id: Entity,
     pub visual: usize,
     pub transform: Option<usize>,
     pub webview_controller: Option<usize>,
@@ -1299,9 +1310,9 @@ impl ContextSnapshot {
             },
             reactive: ReactiveStoreSnapshot {
                 react_subscribers: cx.reactive.react_subscribers.clone(),
-                react_element_effects: cx.reactive.react_element_effects.clone(),
-                react_effect_to_element: cx.reactive.react_effect_to_element.clone(),
-                react_pending_element_effects: cx.reactive.react_pending_element_effects.clone(),
+                react_entity_effects: cx.reactive.react_entity_effects.clone(),
+                react_effect_to_entity: cx.reactive.react_effect_to_entity.clone(),
+                react_pending_entity_effects: cx.reactive.react_pending_entity_effects.clone(),
                 react_providers: cx.reactive.react_providers.clone(),
             },
             events: EventStoreSnapshot {
@@ -1468,9 +1479,9 @@ pub enum MichiuError {
         "Entity {id:?} not found.\n\
             Possible causes:\n\
             - The entity was already despawned/destroyed (dangling ID).\n\
-            - An uninitialized or dummy EntityId was used."
+            - An uninitialized or dummy Entity was used."
     )]
-    EntityNotFound { id: EntityId },
+    EntityNotFound { id: Entity },
 
     #[error(
         "Roor entity not found.\n\
@@ -1499,7 +1510,7 @@ pub enum MichiuError {
         "Tag {type_name:?} not found.\n\
             Possible causes:\n\
             - The tag is not set, or the name is incorrect.\n\
-            - The TypeId/EntityId was already despawned/destroyed (dangling ID)."
+            - The TypeId/Entity was already despawned/destroyed (dangling ID)."
     )]
     TagNotFound { type_name: &'static str },
 
@@ -1510,10 +1521,7 @@ pub enum MichiuError {
             - The component was removed/detached from the entity.\n\
             - The entity does not possess this property."
     )]
-    ComponentNotFound {
-        id: EntityId,
-        component: &'static str,
-    },
+    ComponentNotFound { id: Entity, component: &'static str },
 
     #[error(
         "Signal {0:?} not found.\n\
@@ -1528,11 +1536,11 @@ pub enum MichiuError {
     EffectDisposed(EffectId),
 
     #[error(
-        "No active UI element found in the current thread.\n\
+        "No active UI entity found in the current thread.\n\
             Possible causes:\n\
-            - Called a function that requires an element context outside of element build/update lifecycle."
+            - Called a function that requires an entity context outside of entity build/update lifecycle."
     )]
-    NoActiveElement,
+    NoActiveEntity,
 
     #[error(
         "No active effect found in the current thread.\n\
@@ -1546,7 +1554,7 @@ pub enum MichiuError {
     )]
     ScopeViolation { caller: &'static str },
 
-    #[error("'{caller}' Not supported dynamic nested elements inside")]
+    #[error("'{caller}' Not supported dynamic nested entities inside")]
     UnsupportedDynamicNesting { caller: &'static str },
 
     #[error("Downcast failed: Expected type `{expected}`, but the actual type did not match.")]
@@ -1671,48 +1679,46 @@ pub enum MichiuError {
         #[source]
         source: Arc<notify::Error>,
     },
+
+    #[error("failed to send task: the main thread has been terminated (receiver disconnected)")]
+    SendError,
 }
 
 // ================================================================
 // ================================================================
 
 pub trait OptionTraceExt<T> {
-    /// 値があれば返し、None ならトレースを記録して即座にフラッシュしたあとパニックする
+    /// If a value exists, return it; if it is None, log a trace, immediately flush, and then raise a panic.
     #[track_caller]
-    fn unwrap_or_trace<F>(self, id: Option<EntityId>, debug: &mut DebugStore, err: F) -> T
+    fn unwrap_or_trace<F>(self, id: Option<Entity>, debug: &mut DebugStore, err: F) -> T
     where
         F: FnOnce() -> MichiuError;
 
-    /// 値があれば返し、None ならトレースを記録して Default 値を返す
+    /// If a value exists, return it; if it is None, log a trace and return the default value.
     #[track_caller]
-    fn unwrap_or_default_trace(self, id: Option<EntityId>, debug: &mut DebugStore) -> T
+    fn unwrap_or_default_trace(self, id: Option<Entity>, debug: &mut DebugStore) -> T
     where
         T: Default + Debug + Send + Sync + 'static;
 
-    /// 値があれば返し、None ならトレースを記録して指定のフォールバック値を返す
+    /// If a value exists, return it; otherwise, log a trace and return the specified fallback value.
     #[track_caller]
-    fn unwrap_or_fallback_trace(
-        self,
-        id: Option<EntityId>,
-        fallback: T,
-        debug: &mut DebugStore,
-    ) -> T
+    fn unwrap_or_fallback_trace(self, id: Option<Entity>, fallback: T, debug: &mut DebugStore) -> T
     where
         T: Clone + Debug + Send + Sync + 'static;
 
-    /// 値があれば返し、None ならトレースを記録してクロージャでフォールバック値を生成する
+    /// If a value exists, return it; if it is None, log a trace and generate a fallback value using a closure.
     #[track_caller]
-    fn unwrap_or_else_trace<F>(self, id: Option<EntityId>, debug: &mut DebugStore, f: F) -> T
+    fn unwrap_or_else_trace<F>(self, id: Option<Entity>, debug: &mut DebugStore, f: F) -> T
     where
         T: Default + Clone + Debug + Send + Sync + 'static,
         F: FnOnce() -> T;
 }
 
 impl<T> OptionTraceExt<T> for Option<T> {
-    #[allow(clippy::panic)]
+    #[expect(clippy::panic)]
     #[track_caller]
     #[inline]
-    fn unwrap_or_trace<F>(self, id: Option<EntityId>, debug: &mut DebugStore, err: F) -> T
+    fn unwrap_or_trace<F>(self, id: Option<Entity>, debug: &mut DebugStore, err: F) -> T
     where
         F: FnOnce() -> MichiuError,
     {
@@ -1740,7 +1746,7 @@ impl<T> OptionTraceExt<T> for Option<T> {
 
     #[track_caller]
     #[inline]
-    fn unwrap_or_default_trace(self, id: Option<EntityId>, debug: &mut DebugStore) -> T
+    fn unwrap_or_default_trace(self, id: Option<Entity>, debug: &mut DebugStore) -> T
     where
         T: Default + Debug + Send + Sync + 'static,
     {
@@ -1766,12 +1772,7 @@ impl<T> OptionTraceExt<T> for Option<T> {
 
     #[track_caller]
     #[inline]
-    fn unwrap_or_fallback_trace(
-        self,
-        id: Option<EntityId>,
-        fallback: T,
-        debug: &mut DebugStore,
-    ) -> T
+    fn unwrap_or_fallback_trace(self, id: Option<Entity>, fallback: T, debug: &mut DebugStore) -> T
     where
         T: Clone + Debug + Send + Sync + 'static,
     {
@@ -1797,7 +1798,7 @@ impl<T> OptionTraceExt<T> for Option<T> {
 
     #[track_caller]
     #[inline]
-    fn unwrap_or_else_trace<F>(self, id: Option<EntityId>, debug: &mut DebugStore, f: F) -> T
+    fn unwrap_or_else_trace<F>(self, id: Option<Entity>, debug: &mut DebugStore, f: F) -> T
     where
         T: Default + Clone + Debug + Send + Sync + 'static,
         F: FnOnce() -> T,
@@ -1825,16 +1826,16 @@ impl<T> OptionTraceExt<T> for Option<T> {
 }
 
 pub trait ResultTraceExt<T> {
-    /// 値があれば返し、Err ならトレースを記録して即座にフラッシュしたあとパニックする
+    /// If a value exists, return it; if it is `Err`, log a trace, immediately flush, and then panic.
     #[track_caller]
-    fn unwrap_or_trace(self, id: Option<EntityId>, debug: &mut DebugStore) -> T;
+    fn unwrap_or_trace(self, id: Option<Entity>, debug: &mut DebugStore) -> T;
 }
 
 impl<T> ResultTraceExt<T> for Result<T> {
-    #[allow(clippy::panic)]
+    #[expect(clippy::panic)]
     #[track_caller]
     #[inline]
-    fn unwrap_or_trace(self, id: Option<EntityId>, debug: &mut DebugStore) -> T {
+    fn unwrap_or_trace(self, id: Option<Entity>, debug: &mut DebugStore) -> T {
         match self {
             Ok(val) => val,
             Err(e) => {
@@ -1858,16 +1859,16 @@ impl<T> ResultTraceExt<T> for Result<T> {
 }
 
 pub trait TaffyResultTraceExt<T> {
-    /// 値があれば返し、Err ならトレースを記録して即座にフラッシュしたあとパニックする
+    /// If a value exists, return it; if it is `Err`, log a trace, immediately flush, and then panic.
     #[track_caller]
-    fn unwrap_or_trace(self, id: Option<EntityId>, debug: &mut DebugStore) -> T;
+    fn unwrap_or_trace(self, id: Option<Entity>, debug: &mut DebugStore) -> T;
 }
 
 impl<T> TaffyResultTraceExt<T> for taffy::TaffyResult<T> {
-    #[allow(clippy::panic)]
+    #[expect(clippy::panic)]
     #[track_caller]
     #[inline]
-    fn unwrap_or_trace(self, id: Option<EntityId>, debug: &mut DebugStore) -> T {
+    fn unwrap_or_trace(self, id: Option<Entity>, debug: &mut DebugStore) -> T {
         match self {
             Ok(val) => val,
             Err(e) => {
@@ -1891,16 +1892,16 @@ impl<T> TaffyResultTraceExt<T> for taffy::TaffyResult<T> {
 }
 
 pub trait WindowsResultTraceExt<T> {
-    /// 値があれば返し、Err ならトレースを記録して即座にフラッシュしたあとパニックする
+    /// If a value exists, return it; if it's `Err`, log a trace, immediately flush, and then panic.
     #[track_caller]
-    fn unwrap_or_trace(self, id: Option<EntityId>, debug: &mut DebugStore) -> T;
+    fn unwrap_or_trace(self, id: Option<Entity>, debug: &mut DebugStore) -> T;
 }
 
 impl<T> WindowsResultTraceExt<T> for windows_core::Result<T> {
-    #[allow(clippy::panic)]
+    #[expect(clippy::panic)]
     #[track_caller]
     #[inline]
-    fn unwrap_or_trace(self, id: Option<EntityId>, debug: &mut DebugStore) -> T {
+    fn unwrap_or_trace(self, id: Option<Entity>, debug: &mut DebugStore) -> T {
         match self {
             Ok(val) => val,
             Err(e) => {
@@ -1920,5 +1921,551 @@ impl<T> WindowsResultTraceExt<T> for windows_core::Result<T> {
                 panic!("unwrap_or_trace: {e}");
             }
         }
+    }
+}
+
+#[cfg(test)]
+#[expect(clippy::panic, clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+
+    #[cfg(feature = "trace-error")]
+    fn create_dummy_record(debug: &DebugStore) -> MichiuTraceRecord {
+        MichiuTraceRecord {
+            id: None,
+            frame: debug.frame,
+            time: debug.since_boot(),
+            func: "test_fn",
+            loc: caller_location(),
+            trace: MichiuTrace::None,
+            #[cfg(feature = "snapshot")]
+            cx: None,
+            #[cfg(feature = "snapshot")]
+            renderer: None,
+        }
+    }
+
+    // 1. 初期状態の検証
+    // `test_debug_store_new_and_default`
+    //  - `DebugStore::new()` および `DebugStore::default()` で初期化。
+    //  - `frame` が 0、`dbg_root` が `None`、`dbg_tx` が `None`、`dbg_trace_queue` が空であることを確認。
+    //
+    // 2. インスペクター連携
+    // `test_debug_store_with_inspector`
+    //  - `MichiuInspector::new()` を生成し、`DebugStore::with_inspector(&inspector)` で構築。
+    //  - `dbg_tx` が `Some` に設定されることを確認。
+    //
+    // `test_debug_store_set_inspector`
+    //  - デフォルトの `DebugStore` に対し `DebugStore::set_inspector(&mut store, &inspector)` を呼び出す。
+    //  - `dbg_tx` が `None` から `Some` に更新されることを確認。
+    //
+    // 3. トレースキューの取り出し（`take_trace_queue`）
+    // `test_take_trace_queue_when_empty`
+    //  - キューが空の状態で `take_trace_queue()` を呼び出した場合、`None` が返ることを確認。
+    //
+    // `test_take_trace_queue_with_elements`
+    //  - キューにダミーのレコードを追加した状態で `take_trace_queue()` を呼び出す。
+    //  - `Some(batch)` が返り、元の `dbg_trace_queue` が空になることを確認。
+    //
+    // `test_take_trace_queue_capacity_retention`
+    //  - キューをクリアした後の `dbg_trace_queue` の capacity が、直前の容量と 512 の大きい方にリセットされる仕様（`max(512)`）の検証。
+    //    - レコード数 1 の場合：取り出し後の capacity >= 512
+    //    - レコード数 1000 の場合：取り出し後の capacity >= 1000
+    //
+    // 4. 起動経過時間（`since_boot`）
+    // `test_debug_store_since_boot`
+    //  - `store.since_boot()` の戻り値が `TimeStamp::SinceBoot(duration)` であることを確認。
+    //  - 微小なスリープを挟んで取得した値が単調増加していることを確認。
+    //
+    // 5. 可変アクセサ（`_mut`）経由での更新
+    // `test_debug_store_mut_accessors`
+    //  - `frame_mut()`: 値のインクリメントおよび更新確認。
+    //  - `dbg_root_mut()`: `Entity` のセット・リセット確認。
+    //  - `trace_queue_mut()`: 外部からの直接 push / clear 操作の反映確認。
+    //  - `boot_time_mut()`: `Instant` の書き換え確認。
+    //  - `tx_mut()`: 送信チャンネルの直接クリア・設定確認。
+
+    #[test]
+    #[cfg(feature = "trace-error")]
+    fn test_debug_store_new_and_default() {
+        let store1 = DebugStore::new();
+        assert_eq!(store1.frame, 0);
+        assert!(store1.dbg_root.is_none());
+        assert!(store1.dbg_tx.is_none());
+        assert!(store1.dbg_trace_queue.is_empty());
+
+        let store2 = DebugStore::default();
+        assert_eq!(store2.frame, 0);
+        assert!(store2.dbg_root.is_none());
+        assert!(store2.dbg_tx.is_none());
+        assert!(store2.dbg_trace_queue.is_empty());
+    }
+
+    #[test]
+    #[cfg(feature = "trace-error")]
+    fn test_debug_store_with_inspector() {
+        let inspector = MichiuInspector::new();
+        let store = DebugStore::with_inspector(&inspector);
+        assert!(store.dbg_tx.is_some());
+        assert_eq!(store.frame, 0);
+        assert!(store.dbg_trace_queue.is_empty());
+    }
+
+    #[test]
+    #[cfg(feature = "trace-error")]
+    fn test_debug_store_set_inspector() {
+        let inspector = MichiuInspector::new();
+        let mut store = DebugStore::new();
+        assert!(store.dbg_tx.is_none());
+
+        DebugStore::set_inspector(&mut store, &inspector);
+        assert!(store.dbg_tx.is_some());
+    }
+
+    #[test]
+    #[cfg(feature = "trace-error")]
+    fn test_take_trace_queue_when_empty() {
+        let mut store = DebugStore::new();
+        assert!(store.take_trace_queue().is_none());
+    }
+
+    #[test]
+    #[cfg(feature = "trace-error")]
+    fn test_take_trace_queue_with_elements() {
+        let mut store = DebugStore::new();
+        let record = create_dummy_record(&store);
+        store.dbg_trace_queue.push(record);
+
+        let batch = store.take_trace_queue();
+        assert!(batch.is_some());
+        let batch = batch.unwrap();
+        assert_eq!(batch.len(), 1);
+        assert!(store.dbg_trace_queue.is_empty());
+    }
+
+    #[test]
+    #[cfg(feature = "trace-error")]
+    fn test_take_trace_queue_capacity_retention() {
+        let mut store = DebugStore::new();
+
+        // 1件追加時：取り出し後の新規バッファは最低512のcapacityを確保する
+        let record = create_dummy_record(&store);
+        store.dbg_trace_queue.push(record);
+        let _ = store.take_trace_queue();
+        assert!(store.dbg_trace_queue.capacity() >= 512);
+
+        // 1000件確保時：直前の容量(1000以上)が引き継がれる
+        store.dbg_trace_queue.reserve(1000);
+        let cap_before = store.dbg_trace_queue.capacity();
+        assert!(cap_before >= 1000);
+
+        let record = create_dummy_record(&store);
+        store.dbg_trace_queue.push(record);
+        let _ = store.take_trace_queue();
+        assert!(store.dbg_trace_queue.capacity() >= cap_before);
+    }
+
+    #[test]
+    #[cfg(feature = "trace-error")]
+    fn test_debug_store_since_boot() {
+        let store = DebugStore::new();
+        let time1 = store.since_boot();
+
+        std::thread::sleep(Duration::from_millis(5));
+        let time2 = store.since_boot();
+
+        match (time1, time2) {
+            (TimeStamp::SinceBoot(d1), TimeStamp::SinceBoot(d2)) => {
+                assert!(d2 > d1);
+            }
+            _ => panic!("Expected TimeStamp::SinceBoot"),
+        }
+    }
+
+    #[test]
+    #[cfg(feature = "trace-error")]
+    fn test_debug_store_mut_accessors() {
+        let mut store = DebugStore::new();
+
+        // frame_mut
+        *store.frame_mut() = 42;
+        assert_eq!(store.frame, 42);
+
+        // trace_queue_mut
+        let record = create_dummy_record(&store);
+        store.trace_queue_mut().push(record);
+        assert_eq!(store.dbg_trace_queue.len(), 1);
+
+        // tx_mut
+        let inspector = MichiuInspector::new();
+        *store.tx_mut() = Some(inspector.sender());
+        assert!(store.dbg_tx.is_some());
+        *store.tx_mut() = None;
+        assert!(store.dbg_tx.is_none());
+
+        // boot_time_mut
+        let past = Instant::now().checked_sub(Duration::from_secs(10)).unwrap();
+        *store.boot_time_mut() = past;
+        match store.since_boot() {
+            TimeStamp::SinceBoot(d) => assert!(d >= Duration::from_secs(10)),
+            _ => panic!("Expected TimeStamp::SinceBoot"),
+        }
+    }
+
+    // 1. `MichiuInspector` の検証
+    //
+    // `test_inspector_subscription_and_delivery`
+    //  - `MichiuInspector::new()` を生成し、`subscribe()` で受信ハンドルを取得。
+    //  - `inspector.sender().send_batch(...)` でバッチを送信。
+    //  - サブスクライバの `recv()` で送られたバッチが取得できること。
+    //
+    // `test_inspector_storage_and_get`
+    //  - `id: Some(entity)` を持つレコードを含むバッチを送信。
+    //  - ワーカースレッドによる処理後、`inspector.get(entity)` で該当レコードが取得できること。
+    //  - `id: None` のレコードは storage に影響を与えないこと。
+    //
+    // `test_inspector_subscriber_disconnect`
+    //  - サブスクライバを drop した後、再度バッチを送信。
+    //  - ワーカースレッドがパニックせず、内部の送信先リストから切断された購読者が除外されること。
+    //
+    // `test_inspector_sender_buffer_full`
+    //  - 受信しないサブスクライバ（小バッファ `buffer_size: Some(1)`）に対して容量を超えるバッチを送信。
+    //  - メイン側がブロックされずに `send_batch` を完了できること（非同期/ノンブロッキング検証）。
+
+    #[test]
+    #[cfg(feature = "trace-error")]
+    fn test_inspector_subscription_and_delivery() {
+        let inspector = MichiuInspector::new();
+        let sub = inspector.subscribe(Some(16));
+
+        let store = DebugStore::new();
+        let mut batch = MichiuTraceVec(Vec::new());
+        batch.push(create_dummy_record(&store));
+
+        inspector.sender().send_batch(batch);
+
+        let received = sub.recv().expect("Failed to receive batch");
+        assert_eq!(received.len(), 1);
+    }
+
+    #[test]
+    #[cfg(feature = "trace-error")]
+    fn test_inspector_subscriber_disconnect() {
+        let inspector = MichiuInspector::new();
+        {
+            let _sub = inspector.subscribe(Some(16));
+            // スコープ終了で sub がドロップされる
+        }
+
+        let store = DebugStore::new();
+        let mut batch = MichiuTraceVec(Vec::new());
+        batch.push(create_dummy_record(&store));
+
+        // ドロップ済みでもメイン側がパニックせず送信を完了できる
+        inspector.sender().send_batch(batch);
+    }
+
+    // 2. トレースマクロ群の検証
+    //
+    // `test_current_fn_macro`
+    //  - `current_fn!()` の戻り値が空でなく、実行中のテスト関数名を含む文字列であること。
+    //
+    // `test_trace_error_macro_with_and_without_tx`
+    //  - `dbg_tx: None` の場合：マクロを実行しても `dbg_trace_queue` が増加しないこと。
+    //  - `dbg_tx: Some` の場合：マクロ実行によりキューにレコードが 1 件追加されること。
+    //  - レコードの `func`, `loc`, `frame`, `id` が意図した値であること。
+    //
+    // `test_trace_lifecycle_and_trace_entity_macros`
+    //  - 有効化された feature の下で、同様に `dbg_tx` の有無に応じてキューへ追加されること。
+    //
+    // 3. `OptionTraceExt` の検証
+    //
+    // `test_option_unwrap_or_trace_some`
+    //  - `Some(v).unwrap_or_trace(...)` が `v` を返し、パニックしないこと。
+    //
+    // `test_option_unwrap_or_trace_none_panics`
+    //  - `None.unwrap_or_trace(...)` が指定エラーメッセージでパニックすること。
+    //  - `dbg_tx: Some` の場合、パニック直前にトレースキューがフラッシュされること。
+    //
+    // `test_option_unwrap_or_default_trace`
+    //  - `Some(v)` の場合は `v` を返す。
+    //  - `None` の場合は `T::default()` を返す（`trace-entity` 有効時はトレースが記録されること）。
+    //
+    // `test_option_unwrap_or_fallback_trace`
+    //  - `Some(v)` の場合は `v` を返し、`None` の場合は指定したフォールバック値を返すこと。
+    //
+    // `test_option_unwrap_or_else_trace`
+    //  - `Some(v)` の場合は `v` を返し、クロージャが実行されないこと。
+    //  - `None` の場合はクロージャを実行した値を返すこと。
+
+    #[test]
+    fn test_current_fn_macro() {
+        let name = current_fn!();
+        #[cfg(feature = "trace-error")]
+        assert!(name.contains("test_current_fn_macro"));
+        #[cfg(not(feature = "trace-error"))]
+        assert_eq!(name, "");
+    }
+
+    #[test]
+    #[cfg(feature = "trace-error")]
+    fn test_trace_error_macro() {
+        let mut store = DebugStore::new();
+
+        // dbg_tx が None の場合はキューイングされない
+        trace_error!(None, &mut store, || MichiuTrace::Error {
+            detail: MichiuError::RootEntityNotFound,
+            add: None,
+        });
+        assert!(store.dbg_trace_queue.is_empty());
+
+        // dbg_tx を設定した場合はキューイングされる
+        let inspector = MichiuInspector::new();
+        DebugStore::set_inspector(&mut store, &inspector);
+
+        trace_error!(None, &mut store, || MichiuTrace::Error {
+            detail: MichiuError::RootEntityNotFound,
+            add: None,
+        });
+        assert_eq!(store.dbg_trace_queue.len(), 1);
+        assert!(matches!(
+            store.dbg_trace_queue[0].trace,
+            MichiuTrace::Error {
+                detail: MichiuError::RootEntityNotFound,
+                add: None,
+            }
+        ));
+    }
+
+    #[test]
+    fn test_option_unwrap_or_trace_ok() {
+        let mut store = DebugStore::new();
+        let opt = Some(100);
+        let val = opt.unwrap_or_trace(None, &mut store, || MichiuError::RootEntityNotFound);
+        assert_eq!(val, 100);
+    }
+
+    #[test]
+    #[cfg(feature = "trace-error")]
+    fn test_option_unwrap_or_trace_panic_and_record() {
+        let inspector = MichiuInspector::new();
+        let sub = inspector.subscribe(Some(16));
+        let mut store = DebugStore::with_inspector(&inspector);
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let opt: Option<i32> = None;
+            opt.unwrap_or_trace(None, &mut store, || MichiuError::RootEntityNotFound);
+        }));
+
+        assert!(result.is_err());
+        let received = sub.recv().expect("Failed to receive flushed error batch");
+        assert_eq!(received.len(), 1);
+        assert!(matches!(
+            received[0].trace,
+            MichiuTrace::Error {
+                detail: MichiuError::RootEntityNotFound,
+                add: None,
+            }
+        ));
+    }
+
+    #[test]
+    fn test_option_unwrap_or_default_trace() {
+        let mut store = DebugStore::new();
+        let opt_some = Some(42);
+        assert_eq!(opt_some.unwrap_or_default_trace(None, &mut store), 42);
+
+        let opt_none: Option<i32> = None;
+        assert_eq!(opt_none.unwrap_or_default_trace(None, &mut store), 0);
+    }
+
+    #[test]
+    fn test_option_unwrap_or_fallback_trace() {
+        let mut store = DebugStore::new();
+        let opt_some = Some("exists");
+        assert_eq!(
+            opt_some.unwrap_or_fallback_trace(None, "fallback", &mut store),
+            "exists"
+        );
+
+        let opt_none: Option<&str> = None;
+        assert_eq!(
+            opt_none.unwrap_or_fallback_trace(None, "fallback", &mut store),
+            "fallback"
+        );
+    }
+
+    #[test]
+    fn test_option_unwrap_or_else_trace() {
+        let mut store = DebugStore::new();
+        let mut fallback_called = false;
+
+        let opt_some = Some(10);
+        let val1 = opt_some.unwrap_or_else_trace(None, &mut store, || {
+            fallback_called = true;
+            99
+        });
+        assert_eq!(val1, 10);
+        assert!(!fallback_called);
+
+        let opt_none: Option<i32> = None;
+        let val2 = opt_none.unwrap_or_else_trace(None, &mut store, || {
+            fallback_called = true;
+            99
+        });
+        assert_eq!(val2, 99);
+        assert!(fallback_called);
+    }
+
+    // 4. `Result` 系拡張トレイトの検証
+    //
+    // `test_result_unwrap_or_trace` (`michiu_ui::Result`)
+    //  - `Ok(val)`: `val` をそのまま返すこと。
+    //  - `Err(MichiuError)`: パニックし、`dbg_tx` が設定されている場合はエラーレコードが送信されること。
+    //
+    // `test_taffy_result_unwrap_or_trace`
+    //  - `Ok(val)`: `val` をそのまま返すこと。
+    //  - `Err(taffy::TaffyError)`: パニックすること。
+    //
+    // `test_windows_result_unwrap_or_trace`
+    //  - `Ok(val)`: `val` をそのまま返すこと。
+    //  - `Err(windows_core::Error)`: パニックすること。
+
+    #[test]
+    fn test_result_unwrap_or_trace() {
+        let mut store = DebugStore::new();
+
+        let ok_res: Result<i32> = Ok(123);
+        assert_eq!(ok_res.unwrap_or_trace(None, &mut store), 123);
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let err_res: Result<i32> = Err(MichiuError::RootEntityNotFound);
+            err_res.unwrap_or_trace(None, &mut store);
+        }));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_taffy_result_unwrap_or_trace() {
+        let mut store = DebugStore::new();
+
+        let ok_res: taffy::TaffyResult<i32> = Ok(10);
+        assert_eq!(ok_res.unwrap_or_trace(None, &mut store), 10);
+
+        let mut tree = taffy::TaffyTree::<()>::new();
+        let leaf = tree.new_leaf(taffy::Style::default()).unwrap();
+        // 子を持たないノードから0番目の子を取得しようとして TaffyError を発生させる
+        let err_res = tree.child_at_index(leaf, 0);
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            err_res.unwrap_or_trace(None, &mut store);
+        }));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_windows_result_unwrap_or_trace() {
+        let mut store = DebugStore::new();
+
+        let ok_res: windows_core::Result<i32> = Ok(20);
+        assert_eq!(ok_res.unwrap_or_trace(None, &mut store), 20);
+
+        let err_res: windows_core::Result<i32> =
+            Err(windows_core::Error::from_hresult(windows_core::HRESULT(-1)));
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            err_res.unwrap_or_trace(None, &mut store);
+        }));
+        assert!(result.is_err());
+    }
+
+    // 5. `MichiuError` の検証
+    // 1. `From` トレイトによる自動型変換（`?` 演算子の連携）
+    // `#[from]` 属性が付与されている外部ライブラリのエラーが、`Into` / `From` で正しく `MichiuError` に変換されるか。
+    //  * `windows_core::Error` $\to$ `MichiuError::WindowsApiError`
+    //  * `taffy::TaffyError` $\to$ `MichiuError::TaffyError`
+    //  * `wgpu::CreateSurfaceError` $\to$ `MichiuError::CreateSurfaceError`
+    //  * `wgpu::RequestAdapterError` $\to$ `MichiuError::RequestAdapterError`
+    //  * `wgpu::RequestDeviceError` $\to$ `MichiuError::RequestDeviceError`
+    //
+    // 2. エラーチェーン（`std::error::Error::source`）の検証
+    // `#[source]` 属性が指定されているバリアントにおいて、`.source()` から元の根本原因エラーを取り出せるか。
+    //  * `source()` が `Some` を返すこと。
+    //  * `Arc` でラップされた `ImageLoadFailed` や `CanonicalizeFailed` などで内部ソースが保持されていること。
+    //
+    // 3. 表示メッセージ（`Display` / `to_string()`）の書式検証
+    // バリアントごとに埋め込んだパラメータ（`Entity`, `SignalId`, `caller` 名など）が、意図通りエラー文字列に反映されているか。
+    //  * 代表的なバリアント（`EntityNotFound`, `ComponentNotFound`, `ScopeViolation`, `GlyphAllocationFailed` など）で文字列書式を確認。
+    //
+    // 4. トレイト境界の保証（`Send` / `Sync` / `Clone`）
+    // UIスレッドやワーカースレッド間を行き来するため、型がスレッドセーフ（`Send + Sync`）かつクローン可能であることを静的に保証する。
+    //  * コンパイル時型アサーション（関数定義による制約チェック）。
+
+    #[test]
+    fn test_michiu_error_traits_boundary() {
+        // Send + Sync + Clone + 'static を満たしていることを静的に検証
+        fn assert_traits<T: Send + Sync + Clone + std::error::Error + 'static>() {}
+        assert_traits::<MichiuError>();
+    }
+
+    #[test]
+    fn test_michiu_error_from_conversions() {
+        // windows_core::Error -> MichiuError
+        let win_err = windows_core::Error::from_hresult(windows_core::HRESULT(-1));
+        let err: MichiuError = win_err.into();
+        assert!(matches!(err, MichiuError::WindowsApiError { .. }));
+
+        // taffy::TaffyError -> MichiuError
+        let mut tree = taffy::TaffyTree::<()>::new();
+        let leaf = tree.new_leaf(taffy::Style::default()).unwrap();
+        let taffy_err = tree.child_at_index(leaf, 0).unwrap_err();
+        let err: MichiuError = taffy_err.into();
+        assert!(matches!(err, MichiuError::TaffyError { .. }));
+    }
+
+    #[test]
+    fn test_michiu_error_source_chain() {
+        use std::error::Error;
+
+        // #[source] を持つバリアントで source() が取得できるか
+        let io_err = Arc::new(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "file not found",
+        ));
+        let err = MichiuError::CanonicalizeFailed {
+            path: PathBuf::from("test/path"),
+            source: Arc::clone(&io_err),
+        };
+        assert!(err.source().is_some());
+
+        // sourceを持たないバリアントでは None が返るか
+        let err_no_source = MichiuError::RootEntityNotFound;
+        assert!(err_no_source.source().is_none());
+    }
+
+    #[test]
+    fn test_michiu_error_display_formatting() {
+        let err = MichiuError::ComponentNotFound {
+            id: slotmap::Key::null(),
+            component: "Transform",
+        };
+        let msg = err.to_string();
+        assert!(msg.contains("Component 'Transform' not found"));
+
+        let err = MichiuError::ScopeViolation {
+            caller: "use_signal",
+        };
+        let msg = err.to_string();
+        assert!(msg.contains("'use_signal' must be called inside"));
+
+        let err = MichiuError::GlyphAllocationFailed {
+            width: 64,
+            height: 64,
+            atlas_w: 1024,
+            atlas_h: 1024,
+        };
+        let msg = err.to_string();
+        assert!(msg.contains("64x64"));
+        assert!(msg.contains("1024x1024"));
     }
 }

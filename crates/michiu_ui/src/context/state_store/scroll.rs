@@ -1,9 +1,9 @@
 use crate::{
     ActiveMasksSecondary, CapacityConfig, ChildrenSecondary, ClipRectsSecondary, DEFAULT_FLEX,
-    DebugStore, DirtyLayoutEntitiesVec, DirtyRenderEntitiesVec, EntityId, InputContentsSparse,
+    DebugStore, DirtyLayoutEntitiesVec, DirtyRenderEntitiesVec, Entity, InputContentsSparse,
     LayoutPoint, LayoutSize, LayoutStore, MichiuSoA, OutputStore, ParentsSecondary, Position,
     RectsSecondary, RenderStore, ResolvedBasicSecondary, ResolvedFlexSecondary, ResolvedGeometry,
-    ScrollbarStylesSparse, SystemStore, TaffyNodesSecondary, TaffyTreeEntityId, TextBufferSparse,
+    ScrollbarStylesSparse, SystemStore, TaffyNodesSecondary, TaffyTreeEntity, TextBufferSparse,
     TextContentsSparse, TextEngine, TextSpansSparse, UserSelect, Val, VisualPropertiesSecondary,
     WindowStore, define_secondary,
 };
@@ -50,7 +50,7 @@ impl ScrollStore {
     }
 
     #[inline]
-    pub(crate) fn despawn(&mut self, id: EntityId) {
+    pub(crate) fn despawn(&mut self, id: Entity) {
         self.sc_offsets.remove(id);
         self.sc_sizes.remove(id);
     }
@@ -61,14 +61,14 @@ impl ScrollStore {
     /// オフセットに変化が生じた場合は true を返し、レイアウトのDirtyマークを打つ。
     #[track_caller]
     pub(crate) fn scroll_to(
-        id: EntityId,
+        id: Entity,
         mut x: f32,
         mut y: f32,
         win_last_size: Option<LayoutSize>,
         topo_active_masks: &mut ActiveMasksSecondary,
         topo_parents: &ParentsSecondary,
         lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
-        lay_taffy_tree: &mut TaffyTreeEntityId,
+        lay_taffy_tree: &mut TaffyTreeEntity,
         bar_styles: &mut ScrollbarStylesSparse,
         lay_taffy_nodes: &TaffyNodesSecondary,
         lay_resolved_basic: &ResolvedBasicSecondary,
@@ -134,7 +134,7 @@ impl ScrollStore {
         topo_active_masks: &mut ActiveMasksSecondary,
         topo_parents: &ParentsSecondary,
         lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
-        lay_taffy_tree: &mut TaffyTreeEntityId,
+        lay_taffy_tree: &mut TaffyTreeEntity,
         bar_styles: &mut ScrollbarStylesSparse,
         lay_taffy_nodes: &TaffyNodesSecondary,
         lay_resolved_basic: &ResolvedBasicSecondary,
@@ -283,14 +283,14 @@ impl ScrollStore {
     }
 
     pub(crate) fn scroll_by(
-        id: EntityId,
+        id: Entity,
         dx: f32,
         dy: f32,
         win_last_size: Option<LayoutSize>,
         topo_active_masks: &mut ActiveMasksSecondary,
         topo_parents: &ParentsSecondary,
         lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
-        lay_taffy_tree: &mut TaffyTreeEntityId,
+        lay_taffy_tree: &mut TaffyTreeEntity,
         bar_styles: &mut ScrollbarStylesSparse,
         lay_taffy_nodes: &TaffyNodesSecondary,
         lay_resolved_basic: &ResolvedBasicSecondary,
@@ -321,13 +321,13 @@ impl ScrollStore {
 
     #[track_caller]
     pub(crate) fn autoscroll_occurred(
-        id: EntityId,
+        id: Entity,
         win_last_size: Option<LayoutSize>,
         evt_current_pointer_position: Option<LayoutPoint>,
         topo_active_masks: &mut ActiveMasksSecondary,
         topo_parents: &ParentsSecondary,
         lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
-        lay_taffy_tree: &mut TaffyTreeEntityId,
+        lay_taffy_tree: &mut TaffyTreeEntity,
         bar_styles: &mut ScrollbarStylesSparse,
         lay_taffy_nodes: &TaffyNodesSecondary,
         lay_resolved_basic: &ResolvedBasicSecondary,
@@ -389,7 +389,7 @@ impl ScrollStore {
     /// 指定された要素の子要素全体のスクロール領域を親ローカル座標系で算出します。
     #[track_caller]
     pub(crate) fn get_scroll_size(
-        id: EntityId,
+        id: Entity,
         sys_text_engine: &mut TextEngine,
         sys_text_buffers: &TextBufferSparse,
         cont_text_contents: &TextContentsSparse,

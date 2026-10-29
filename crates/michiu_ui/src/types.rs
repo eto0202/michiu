@@ -6,6 +6,7 @@ pub mod cursor;
 pub mod font;
 pub mod from_into;
 pub mod geometry;
+pub mod gradient;
 pub mod index;
 pub mod input;
 pub mod interaction;
@@ -22,6 +23,7 @@ pub use cursor::*;
 pub use font::*;
 pub use from_into::*;
 pub use geometry::*;
+pub use gradient::*;
 pub use index::*;
 pub use input::*;
 pub use interaction::*;
@@ -212,37 +214,6 @@ pub struct GridLine<T> {
     pub end: T,
 }
 
-#[repr(C)]
-#[derive(Debug, Clone, Copy, PartialEq, Default, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct LinearGradient {
-    pub start_color: Color,
-    pub end_color: Color,
-    pub angle: f32,                // ラジアン単位の角度
-    pub(crate) _padding: [f32; 3], // アライメント
-}
-
-impl LinearGradient {
-    #[inline]
-    #[must_use]
-    pub fn new(start_color: Color, end_color: Color, angle_degrees: f32) -> Self {
-        Self {
-            start_color,
-            end_color,
-            angle: angle_degrees.to_radians(),
-            _padding: [0.0; 3],
-        }
-    }
-}
-
-/// Not Implemented
-#[derive(Debug, Clone, PartialEq)]
-pub enum UiaValue {
-    String(String),
-    Bool(bool),
-    Int(i32),
-    Double(f64),
-}
-
 /// Windows 11's Native System Background Blur Effect
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[repr(i32)]
@@ -274,4 +245,40 @@ pub enum BorderAlignment {
 }
 
 #[cfg(test)]
-mod tests;
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_is_row() {
+        assert!(FlexDirection::Row.is_row());
+        assert!(FlexDirection::RowReverse.is_row());
+        assert!(!FlexDirection::Column.is_row());
+        assert!(!FlexDirection::ColumnReverse.is_row());
+    }
+
+    #[test]
+    fn test_is_col() {
+        assert!(FlexDirection::Column.is_col());
+        assert!(FlexDirection::ColumnReverse.is_col());
+        assert!(!FlexDirection::Row.is_col());
+        assert!(!FlexDirection::RowReverse.is_col());
+    }
+
+    #[test]
+    fn test_row_and_col_are_mutually_exclusive() {
+        let directions = [
+            FlexDirection::Row,
+            FlexDirection::RowReverse,
+            FlexDirection::Column,
+            FlexDirection::ColumnReverse,
+        ];
+
+        for dir in directions {
+            assert_ne!(
+                dir.is_row(),
+                dir.is_col(),
+                "{dir:?} should not be both or neither"
+            );
+        }
+    }
+}

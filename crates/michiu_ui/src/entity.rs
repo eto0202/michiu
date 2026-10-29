@@ -1,46 +1,43 @@
-//! # `element`
+//! # `entity`
 //!
-//! This module is responsible for generating the [`Element`] that make up the UI tree, assembling the tree hierarchy, handling events,
-//! and providing declarative styling via [`ThisStyle`].
+//! This module is responsible for generating the [`Entity`] that make up the UI tree, assembling the tree hierarchy, handling events,
+//! and providing declarative styling via [`Modifier`].
 //!
 //! ---
 //!
 //! ## Architecture
 //!
 //! `michiu_ui` does not have fixed widget structures such as `Button` or `TextInput`.
-//! All nodes are simply [`Element`]s (whose actual values are lightweight, copyable [`EntityId`]s),
-//! and the capabilities and behaviors of each element are determined entirely by which internal SoA holds its slot.
+//! All nodes are simply [`Entity`]s (whose actual values are lightweight, copyable [`Entity`]s),
+//! and the capabilities and behaviors of each entity are determined entirely by which internal SoA holds its slot.
 //!
-//! ```rust
-//! #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-//! pub struct Element {
-//!     pub(crate) id: EntityId,
-//! }
+//! ```no_run,ignore
+//! pub struct Entity(KeyData)
 //! ```
 //!
 //! ### The Concept of Attaching Capabilities (Attachment, Membership, and Registration)
-//! Method chaining is not merely configuring properties; it is an operation that **registers the element (ID) into a specific internal SoA table**.
+//! Method chaining is not merely configuring properties; it is an operation that **registers the entity (ID) into a specific internal SoA table**.
 //!
-//! * **`.text(...)`**: Registers the ID into the Text Content SoA, causing the element itself to behave as shaped text.
-//! * **`.input(...)`**: Registers the ID into the Input Content SoA, transforming the element itself into a directly editable text field.
-//! * **`.on_click(...)`**: Registers a listener into the Event SoA, granting the element clickable interactivity.
-//! * **`.draggable(...)`**: Registers the ID into the DnD SoA, granting the element drag-and-drop capability.
+//! * **`.text(...)`**: Registers the ID into the Text Content SoA, causing the entity itself to behave as shaped text.
+//! * **`.input(...)`**: Registers the ID into the Input Content SoA, transforming the entity itself into a directly editable text field.
+//! * **`.on_click(...)`**: Registers a listener into the Event SoA, granting the entity clickable interactivity.
+//! * **`.draggable(...)`**: Registers the ID into the DnD SoA, granting the entity drag-and-drop capability.
 //!
-//! ### Why is Style (`ThisStyle`) Separated?
-//! Rather than exposing styling methods like `.bg_color(...)` directly on `Element`, passing an independent [`ThisStyle`] ([`ts()`](crate::ts)) as an argument serves two primary purposes:
+//! ### Why is Style (`Modifier`) Separated?
+//! Rather than exposing styling methods like `.bg_color(...)` directly on `Entity`, passing an independent [`Modifier`] ([`ii()`](crate::ts)) as an argument serves two primary purposes:
 //!
 //! 1. **Architectural Consistency via DOD**:
-//!    `Element` does not own color or layout fields; it merely holds a key into the internal style SoA tables. Passing styles externally aligns with the unified mental model of injecting definitions from the outside.
+//!    `Entity` does not own color or layout fields; it merely holds a key into the internal style SoA tables. Passing styles externally aligns with the unified mental model of injecting definitions from the outside.
 //! 2. **Style Reusability and Readability (Zero-Cost Sharing via CoW)**:
-//!    Styles can be centralized into reusable variables similar to CSS classes and applied across multiple elements.
-//!    Because `ThisStyle` is internally wrapped in an [`Arc`], cloning incurs no heap reallocations. Branching occurs only when properties are mutated or overridden, handled safely and at minimal cost via **CoW (`Arc::make_mut`)**.
+//!    Styles can be centralized into reusable variables similar to CSS classes and applied across multiple entities.
+//!    Because `Modifier` is internally wrapped in an [`Arc`], cloning incurs no heap reallocations. Branching occurs only when properties are mutated or overridden, handled safely and at minimal cost via **CoW (`Arc::make_mut`)**.
 //!
 //! ---
 //!
 //! ## Standardized Suffixes (Naming Conventions)
 //!
 //! * **`_d` suffix**:
-//!   Accepts a dynamic closure that implicitly retrieves types (e.g., `Theme`) provided by ancestor elements via `.provide()` (automatically resolves `use_provided` internally).
+//!   Accepts a dynamic closure that implicitly retrieves types (e.g., `Theme`) provided by ancestor entities via `.provide()` (automatically resolves `use_provided` internally).
 //! * **`_with` suffix**:
 //!   Supplies the context (`cx: &mut Context`) as the first argument to the event handler callback.
 //!
@@ -49,33 +46,33 @@
 //! ## Basic Steps for Building a UI
 //!
 //! 1. Initialize `Context`.
-//! 2. Declare the UI tree using [`build_ui`] (must return a root [`Element`]).
-//! 3. Initialize base elements using layout primitives (`div`, `h_flex`, etc.).
-//! 4. Apply styles using `.style()` or `.style_d()` (or via factory arguments).
-//! 5. Attach child elements, text, inputs, and event handlers.
+//! 2. Declare the UI tree using [`build_ui`] (must return a root [`Entity`]).
+//! 3. Initialize base entities using layout primitives (`div`, `h_flex`, etc.).
+//! 4. Apply styles using `.modify()` or `.style_d()` (or via factory arguments).
+//! 5. Attach child entities, text, inputs, and event handlers.
 //!
 //! ```rust,ignore
 //! use michiu_ui::prelude::*;
 //!
 //! let root = build_ui(&mut context, || {
-//!     h_flex(ts().p(12.0).size(500.0).bg_color(Color::WHITE))
+//!     h_flex(ii().p(12.0).size(500.0).bg_color(Color::WHITE))
 //!         .child(
-//!             div(ts().size((40.0, 40.0)).bg_color(Color::BLUE))
-//!                 .hovered(ts().bg_color(Color::RED))
+//!             div(ii().size((40.0, 40.0)).bg_color(Color::BLUE))
+//!                 .hovered(ii().bg_color(Color::RED))
 //!                 .on_click(|| println!("Clicked!"))
 //!         )
-//!         .label("Button Text", ts().text_color(Color::BLACK))
+//!         .label("Button Text", ii().text_color(Color::BLACK))
 //! });
 //! ```
 //!
 //! ---
 //!
-//! ## Element Factory Primitives (Built-in Functions)
+//! ## Entity Factory Primitives (Built-in Functions)
 //!
 //! | Function | Initial `Display` / Layout Attribute | Primary Use Case |
 //! | :--- | :--- | :--- |
-//! | **`div(style)` / `div_d`** | `Display::Block` | Standard block element |
-//! | **`div_n()`** | `NO_STYLE: Option<ThisStyle> = None` | lightweight container completely bypassing style processing |
+//! | **`div(style)` / `div_d`** | `Display::Block` | Standard block entity |
+//! | **`div_n()`** | `NO_STYLE: Option<Modifier> = None` | lightweight container completely bypassing style processing |
 //! | **`flex(style)` / `flex_d`** | `Display::Flex` | General-purpose Flexbox container |
 //! | **`h_flex(style)` / `h_flex_d`** | `Display::Flex` + `FlexDirection::Row` | **Horizontal (row)** layout container |
 //! | **`v_flex(style)` / `v_flex_d`** | `Display::Flex` + `FlexDirection::Column` | **Vertical (column)** layout container |
@@ -83,49 +80,49 @@
 //!
 //! ---
 //!
-//! ## Styling Specifications (`ThisStyle` / `ts()`)
+//! ## Styling Specifications (`Modifier` / `ii()`)
 //!
-//! Styles are applied via `.style()` or `.style_d()`. Both static `ThisStyle` instances and dynamic closures are supported and can be mixed.
+//! Styles are applied via `.modify()` or `.style_d()`. Both static `Modifier` instances and dynamic closures are supported and can be mixed.
 //! If the same property is chained multiple times, **subsequent declarations override earlier ones (last write wins)**.
 //!
 //! ### 1. Pseudo-Classes (Interaction Styles)
-//! Styles that adapt to user interaction can be defined by nesting `ThisStyle` one level deep (pseudo-classes nested deeper than one level are ignored).
+//! Styles that adapt to user interaction can be defined by nesting `Modifier` one level deep (pseudo-classes nested deeper than one level are ignored).
 //!
 //! * **Core Pseudo-Classes**:
 //!   `.hovered(...)`, `.focused(...)`, `.focused_visible(...)` (active only during keyboard navigation), `.pressed(...)`, `.disabled(...)`, `.actived(...)`, `.selected(...)`, `.dragged(...)`
 //! * **`_within` (Child-Triggered)**:
-//!   Applies styles to the element (parent) when an interaction occurs on any of its descendants (e.g., `.hovered_within(...)`).
+//!   Applies styles to the entity (parent) when an interaction occurs on any of its descendants (e.g., `.hovered_within(...)`).
 //! * **`_parent` (Parent-Triggered)**:
-//!   Applies styles to the element (child) when an interaction occurs on its parent (e.g., `.pressed_parent(...)` to alter text color when the enclosing button is pressed).
+//!   Applies styles to the entity (child) when an interaction occurs on its parent (e.g., `.pressed_parent(...)` to alter text color when the enclosing button is pressed).
 //!
 //! ### 2. Focus Control Attributes (`focusable`)
-//! By default, only input elements accept focus. Regular elements must explicitly declare focus attributes.
+//! By default, only input entities accept focus. Regular entities must explicitly declare focus attributes.
 //!
 //! * **Device Suffixes**:
 //!   `_mouse` (mouse focus only), `_keyboard` (keyboard navigation only), `_both` (both inputs)
 //! * **Application Target Suffixes**:
-//!   * `_self`: Applies `.focused(...)` or `.focused_visible(...)` configured directly on the element.
-//!   * `_inherit`: **Inherits and applies the parent element's focus styles**. Ideal for unifying focus styling across composite child elements.
+//!   * `_self`: Applies `.focused(...)` or `.focused_visible(...)` configured directly on the entity.
+//!   * `_inherit`: **Inherits and applies the parent entities focus styles**. Ideal for unifying focus styling across composite child entities.
 //!   * `_none`: Explicitly unfocusable.
 //! * **Focus Steal Prevention**:
-//!   * `.prevent_focus_steal(true)`: Prevents stealing focus from currently active elements.
-//!   * `.prevent_focus_steal_within(true)`: Prevents child elements from taking focus away.
+//!   * `.prevent_focus_steal(true)`: Prevents stealing focus from currently active entities.
+//!   * `.prevent_focus_steal_within(true)`: Prevents child entities from taking focus away.
 //!
 //! ### 3. Drag-and-Drop Attributes (`draggable` / `droppable`)
-//! * **Behavior by `DndDragPayload`**:
-//!   * `Element`: On drop confirmation, the library **automatically updates tree topology (SoA)** to reparent and move the element.
-//!   * `EntityId`: Tree topology is unaltered; only dispatch events (ID telemetry) are fired.
+//! * **Behavior by `DndDragMode`**:
+//!   * `Interactive`: On drop confirmation, the library **automatically updates tree topology (SoA)** to reparent and move the entity.
+//!   * `Passive`: Tree topology is unaltered; only dispatch events (ID telemetry) are fired.
 //! * **Placeholder Positioning**:
 //!   * `.dnd_draggable_root(...)`: Spawns the drag placeholder directly beneath the root, tracking the cursor via absolute coordinates.
 //!   * `.dnd_draggable_parent(...)`: Spawns the placeholder under an arbitrary ancestor, tracking via absolute positioning.
 //! * **DnD Dedicated Pseudo-Classes**:
-//!   * `.dnd_draggable_original(...)`: Style of the source element being dragged.
+//!   * `.dnd_draggable_original(...)`: Style of the source entity being dragged.
 //!   * `.dnd_draggable_placeholder(...)`: Style of the floating placeholder tracking the pointer.
 //!   * `.dnd_drag_over(...)`: Style of the receiving drop target when hovered over by a payload.
 //!
 //! ### 4. Additional Style Attributes
 //! * **Resizing (`resizable`)**: Enables edge dragging along specific borders. `.resizable_cursor(...)` overrides the mouse pointer (highest precedence).
-//! * **Cursor Precedence**: `resizable_cursor` (highest) > `cursor(...)` (element-specific) > `cursor_global(...)` (ancestor baseline)
+//! * **Cursor Precedence**: `resizable_cursor` (highest) > `cursor(...)` (entity-specific) > `cursor_global(...)` (ancestor baseline)
 //! * **Backdrop Materials (`backdrop`)**: Applies OS materials like Mica or Acrylic (the window background must remain transparent).
 //! * **Diagnostics (`debug...`)**: Shorthands rendering predefined colored borders or outlines to visualize layout bounds.
 //! * **Style Merging**: Combine external styles via `.merge(other_style)`.
@@ -137,17 +134,17 @@
 //! ### 1. Precise Distinction: Text vs. Labels
 //! While visually comparable, they differ fundamentally in SoA placement and hierarchy:
 //!
-//! * **`el.text(content)` / `text_d` (Element IS the text)**:
-//!   **The ID of `el` itself** is registered directly into the Text Content SoA. The element becomes the direct subject of text measurement (`measure_content`) and consumes pointer events directly. Dynamic changes mutate the text property on the element itself.
+//! * **`entity.text(content)` / `text_d` (Entity IS the text)**:
+//!   **The `entity` itself** is registered directly into the Text Content SoA. The entity becomes the direct subject of text measurement (`measure_content`) and consumes pointer events directly. Dynamic changes mutate the text property on the entity itself.
 //!   *The shorthand `text(content)` is equivalent to `div_n().text(content)`.*
-//! * **`el.label(content, style)` / `label_d` (Spawns a child text element)**:
-//!   **A newly generated child ID** is registered into the Text Content SoA and appended as a child of `el`.
-//!   Because this child automatically receives **`PointerEvents::None`**, it never intercepts pointer hits intended for the parent container. This is optimal for centering text inside button frames. Dynamic updates replace the child element.
+//! * **`entity.label(content, style)` / `label_d` (Spawns a child text entity)**:
+//!   **A newly generated child** is registered into the Text Content SoA and appended as a child of `entity`.
+//!   Because this child automatically receives **`PointerEvents::None`**, it never intercepts pointer hits intended for the parent container. This is optimal for centering text inside button frames. Dynamic updates replace the child entity.
 //!
 //! ### 2. Adding and Replacing Children
-//! * **Appending**: `.child(el)`, `.children([el1, el2])` (Dynamic variants: `.child_d`, `.children_d`)
+//! * **Appending**: `.child(entity)`, `.children([el1, el2])` (Dynamic variants: `.child_d`, `.children_d`)
 //! * **Dynamic Content Swapping (`set_contents`)**:
-//!   Atomically replaces child hierarchies without rebuilding the parent element. Any reactive effects associated with discarded children are safely disposed of.
+//!   Atomically replaces child hierarchies without rebuilding the parent entity. Any reactive effects associated with discarded children are safely disposed of.
 //!
 //! ### 3. Attaching Input and External Surfaces
 //! * **Input Editing**: `.input(contents)` / `input_d` (Shorthand `input(...)` is equivalent to `div_n().input(...)`)
@@ -163,9 +160,9 @@
 //! ### 5. Tag Queries
 //! * **Registration**: `.tag::<MyTag>()`, `.tag_a11y::<CustomInferenceTag>()` (for custom `A11yInferenceTag` types).
 //! * **Descendant Traversal**:
-//!   * `el.query_descendant::<T>()` / `el.try_query_descendant::<T>()`
-//!   * `el.query_descendants::<T>()` (collects all matches into a `Vec`)
-//!   * `el.for_each_descendants::<T>(|child| ...)` (lazy iteration over matches)
+//!   * `entity.query_descendant::<T>()` / `entity.try_query_descendant::<T>()`
+//!   * `entity.query_descendants::<T>()` (collects all matches into a `Vec`)
+//!   * `entity.for_each_descendants::<T>(|child| ...)` (lazy iteration over matches)
 //!   * To query starting globally or from arbitrary roots, use `Context` methods such as `cx.query_first::<T>()`.
 //!
 //! ### 6. Event Handler Registry
@@ -173,12 +170,12 @@
 //!
 //! | Category | Method | Dispatch Condition / Notes |
 //! | :--- | :--- | :--- |
-//! | **Pointer & Mouse** | `on_click`, `on_click_with` | Released over the same element where pressed |
+//! | **Pointer & Mouse** | `on_click`, `on_click_with` | Released over the same entity where pressed |
 //! | | `on_right_click`, `on_right_click_with` | Secondary click confirmed |
 //! | | `on_mouse_input`, `on_mouse_input_with` | Raw button press/release transitions |
 //! | | `on_mouse_enter`, `on_mouse_enter_with` | Pointer boundary entry |
 //! | | `on_mouse_leave`, `on_mouse_leave_with` | Pointer boundary exit |
-//! | | `on_cursor_moved`, `on_cursor_moved_with` | Pointer motion within element bounds |
+//! | | `on_cursor_moved`, `on_cursor_moved_with` | Pointer motion within entity bounds |
 //! | | `on_mouse_wheel`, `on_mouse_wheel_with` | Scroll wheel rotation (halts bubbling if consumed) |
 //! | | `on_drag`, `on_drag_with` | Pointer motion while holding down button |
 //! | | `on_hover`, `on_hover_with` | Sustained hover state |
@@ -194,19 +191,19 @@
 //! | | `on_active`, `on_active_with` | Active state applied (coupled with `active(true)`) |
 //! | | `on_select`, `on_select_with` | Selection state altered (coupled with `select(true)`) |
 //! | **In-App DnD** | `on_dnd_drag_start`, `on_dnd_drag_start_with` | Movement exceeded drag threshold |
-//! | | `on_dnd_element_drag(_with)`, `on_dnd_id_drag(_with)` | Active dragging (branches based on payload) |
-//! | | `on_dnd_element_drop(_with)`, `on_dnd_id_drop(_with)` | Drop confirmed |
+//! | | `on_dnd_drag_interactive(_with)`, `on_dnd_drag_passive(_with)` | Active dragging (branches based on payload) |
+//! | | `on_dnd_drop_interactive(_with)`, `on_dnd_drop_passive(_with)` | Drop confirmed |
 //!
 //! ---
 //!
 //! ## Thread Safety and Execution Context
 //!
-//! * **[`Element`] Methods**: Must execute exclusively on the **main thread (UI thread)** to interact with underlying SoA storage directly.
-//! * **[`ThisStyle`]**: Wrapped in a thread-safe [`Arc`]. Being a pure data representation, it can be transferred safely across threads. Mutations execute strictly through `Arc::make_mut` only when an exclusive borrow can be formed, eliminating data races entirely.
-//!    ```rust
+//! * **[`Entity`] Methods**: Must execute exclusively on the **main thread (UI thread)** to interact with underlying SoA storage directly.
+//! * **[`Modifier`]**: Wrapped in a thread-safe [`Arc`]. Being a pure data representation, it can be transferred safely across threads. Mutations execute strictly through `Arc::make_mut` only when an exclusive borrow can be formed, eliminating data races entirely.
+//!    ```no_run,ignore
 //!    #[derive(Debug, Clone, Default)]
-//!    pub struct ThisStyle {
-//!        pub(crate) inner: Arc<StyleInner>,
+//!    pub struct Modifier {
+//!        pub(crate) inner: Arc<ModInner>,
 //!    }
 //!    ```
 
@@ -214,14 +211,15 @@ pub mod handler;
 pub mod input_func;
 
 use crate::{
-    BasicLayout, ComponentMask, Context, DebugStore, EffectCategory, EntityId, ExternalTexture,
-    ExternalVisual, IntoOptionProp, MichiuError, MichiuSoA, MichiuTrace, ReadSignal,
-    ScrollBarState, ScrollbarDisplay, ScrollbarStyle, StyleTarget, SystemStore, ThisStyle, Val,
+    BasicLayout, ComponentMask, Context, DebugStore, EffectCategory, ExternalTexture,
+    ExternalVisual, IntoOptionProp, MichiuError, MichiuSoA, MichiuTrace, ModTarget, Modifier,
+    ReadSignal, ScrollBarState, ScrollbarDisplay, ScrollbarStyle, SystemStore, Val,
     a11y::A11yInferenceTag, div_n, trace_error,
 };
 #[cfg(feature = "trace-lifecycle")]
 use crate::{ContextState, trace_lifecycle};
 use accesskit::{Node, Role};
+use slotmap::new_key_type;
 use smallvec::SmallVec;
 use std::{borrow::Cow, cell::Cell, rc::Rc, sync::Arc};
 
@@ -230,21 +228,21 @@ thread_local! {
     static ACTIVE_CONTEXT: Cell<Option<*mut Context>> = const { Cell::new(None) };
 }
 
-/// Builds the UI and returns the root element.
+/// Builds the UI and returns the root entity.
 ///
 /// # Examples
 ///
 /// ```rust
-/// use michiu_ui::{build_ui, div, div_n, ts, Color, Context};
+/// use michiu_ui::prelude::*;
 ///
 /// let mut cx = Context::new();
 /// let root = build_ui(&mut cx, || {
-///     div(ts().bg_color(Color::GREEN))
+///     div(ii().bg_color(Color::GREEN))
 ///         .child(div_n()) // empty container
 /// });
 ///
 /// ```
-pub fn build_ui(cx: &mut Context, f: impl FnOnce() -> Element) -> Element {
+pub fn build_ui(cx: &mut Context, f: impl FnOnce() -> Entity) -> Entity {
     let old = ACTIVE_CONTEXT.get();
     let current = std::ptr::from_mut::<Context>(cx);
 
@@ -256,17 +254,17 @@ pub fn build_ui(cx: &mut Context, f: impl FnOnce() -> Element) -> Element {
     let result = f();
     unsafe {
         // 戻り値に含まれるハンドルをルート要素として登録
-        (*current).register_root(result.id);
+        (*current).register_root(result);
         // 親子関係に組み込まれなかった無駄な孤児を自動一掃
         (*current).end_session(marker);
 
         // ツリーのすべてのトポロジーおよび provide 関係が組み上がったこの瞬間に、
         // キューされて保留されていた全子孫要素のエフェクトを一括して初回評価
-        (*current).evaluate_pending_element_effects();
+        (*current).evaluate_pending_entity_effects();
     }
 
     #[cfg(feature = "trace-lifecycle")]
-    trace_lifecycle!(None, &mut cx.debug, || MichiuTrace::BuildElement {
+    trace_lifecycle!(None, &mut cx.debug, || MichiuTrace::BuildEntity {
         old: old.map(<*mut Context>::addr),
         current: <*mut Context>::addr(current),
         root: result.id,
@@ -283,26 +281,27 @@ pub fn build_ui(cx: &mut Context, f: impl FnOnce() -> Element) -> Element {
 #[expect(clippy::panic)]
 #[inline]
 pub(crate) fn with_context<R>(f: impl FnOnce(&mut Context) -> R) -> R {
-    let ptr = ACTIVE_CONTEXT.get().unwrap_or_else(|| {
+    let Some(ptr) = ACTIVE_CONTEXT.get() else {
+        use crate::{RED_BOLD, RESET, UNDERLINE, YELLOW};
         let caller = std::panic::Location::caller();
         panic!(
             "\n=======================================================\n\
-            [Michiu UI Fatal Error: No Active Context]\n\
-            Called at: {caller}\n\
+            {RED_BOLD}[Michiu UI Fatal Error: No Active Context]{RESET}\n\
+            Called at: {UNDERLINE}{caller}{RESET}\n\
             \n\
-            Possible causes:\n\
+            {YELLOW}Possible causes:{RESET}\n\
              - Calling UI / Reactive APIs from a background thread (must be called on the UI main thread).\n\
              - Accessing Context before it was initialized or after it was dropped.\n\
              - Calling UI methods outside of the application event loop.\n\
             ======================================================="
-            );
-        });
+        );
+    };
     // UIスレッドは単一かつ非同期にまたがらないため、ポインタの生存期間は保証される。
     unsafe { f(&mut *ptr) }
 }
 
 // コンテキストを復元するための一時的なガード構造体
-#[allow(unused)]
+#[expect(unused)]
 pub(crate) struct ContextGuard {
     // drop 時にログを出すために自身がバインドしたポインタを保持
     current: *mut Context,
@@ -356,26 +355,26 @@ pub enum Prop<T> {
     Dynamic(Box<dyn Fn() -> T + 'static>),
 }
 
-/// A lightweight handle representing a completed UI element.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct Element {
-    pub(crate) id: EntityId,
+new_key_type! {
+    /// A unique generation management ID that identifies each entity ([`Entity`]) within the UI.
+    pub struct Entity;
 }
 
-impl Default for Element {
-    fn default() -> Self {
-        Self::new()
+impl From<Entity> for accesskit::NodeId {
+    fn from(value: Entity) -> Self {
+        Self(value.0.as_ffi())
     }
 }
 
-impl From<EntityId> for Element {
-    fn from(id: EntityId) -> Self {
-        Self { id }
+impl From<accesskit::NodeId> for Entity {
+    #[inline]
+    fn from(value: accesskit::NodeId) -> Self {
+        Self(slotmap::KeyData::from_ffi(value.0))
     }
 }
 
-impl Element {
-    /// Start building the new elements.
+impl Entity {
+    /// Start building the new entities.
     ///
     /// Prefer using [`crate::div`], [`crate::div_n`], [`crate::v_flex`], [`crate::h_flex`] etc.
     /// functions for a cleaner syntax.
@@ -383,46 +382,38 @@ impl Element {
     #[must_use]
     pub fn new() -> Self {
         // スレッドローカルの Context から安全に要素を spawn
-        let id = with_context(|cx| cx.spawn(None));
-        Self { id }
+        with_context(|cx| cx.spawn(None))
     }
 
-    /// Get the internal [`EntityId`].
+    /// Get the handle of the parent entity.
     #[inline]
     #[must_use]
-    pub fn id(&self) -> EntityId {
-        self.id
+    pub fn parent(self) -> Option<Entity> {
+        with_context(|cx| cx.parent(self))
     }
 
-    /// Get the handle of the parent element.
+    /// Get the list of handles for the child entities.
     #[inline]
     #[must_use]
-    pub fn parent_element(self) -> Option<Element> {
-        with_context(|cx| cx.parent_element(self))
-    }
-
-    /// Get the list of handles for the child elements.
-    #[inline]
-    #[must_use]
-    pub fn children_list(self) -> Vec<Element> {
+    pub fn children_list(self) -> Vec<Entity> {
         with_context(|cx| cx.children_list(self).collect())
     }
 
     /// Provides a context (signal) of type `T`.
     ///
-    /// Obtainable in this element and all its descendant elements via `use_provided::<T>()`.
+    /// Obtainable in this entity and all its descendant entities via `use_provided::<T>()`.
     #[inline]
     #[must_use]
     pub fn provide<T: Send + 'static>(self, read_signal: ReadSignal<T>) -> Self {
         with_context(|cx| {
-            cx.provide::<T>(Some(self.id), read_signal);
+            cx.provide::<T>(Some(self), read_signal);
         });
         self
     }
 
-    /// This element will be tagged `T`.
+    /// This entity will be tagged `T`.
     ///
-    /// Multiple tags can be attached to the same element.
+    /// Multiple tags can be attached to the same entity.
     ///
     /// # Examples
     ///
@@ -444,7 +435,7 @@ impl Element {
     /// Configure the user-defined `A11yInferenceTag` used when building the accessibility tree.
     ///
     /// `A11yInferenceTag` overrides only the default inferences.
-    /// It does not override the [`Element::a11y`] roles.
+    /// It does not override the [`Entity::a11y`] roles.
     #[inline]
     #[must_use]
     pub fn tag_a11y<T: A11yInferenceTag + 'static>(self) -> Self {
@@ -452,33 +443,33 @@ impl Element {
         self
     }
 
-    /// Retrieve the first element of type `T` found among the descendants.
+    /// Retrieve the first entity of type `T` found among the descendants.
     #[inline]
     #[must_use]
-    pub fn try_query_descendant<T: 'static>(&self) -> Option<Element> {
-        with_context(|cx| cx.try_query_descendant::<T>(self.id))
+    pub fn try_query_descendant<T: 'static>(&self) -> Option<Entity> {
+        with_context(|cx| cx.try_query_descendant::<T>(*self))
     }
 
-    /// Retrieve the first element of type `T` found among the descendants.
+    /// Retrieve the first entity of type `T` found among the descendants.
     #[track_caller]
     #[inline]
     #[must_use]
-    pub fn query_descendant<T: 'static>(&self) -> Element {
-        with_context(|cx| cx.query_descendant::<T>(self.id))
+    pub fn query_descendant<T: 'static>(&self) -> Entity {
+        with_context(|cx| cx.query_descendant::<T>(*self))
     }
 
-    /// Search for an element of type `T` among its descendants.
+    /// Search for an entity of type `T` among its descendants.
     #[inline]
     #[must_use]
-    pub fn query_descendants<T: 'static>(&self) -> Vec<Element> {
-        with_context(|cx| cx.query_descendants::<T>(self.id).collect())
+    pub fn query_descendants<T: 'static>(&self) -> Vec<Entity> {
+        with_context(|cx| cx.query_descendants::<T>(*self).collect())
     }
 
-    /// Search for an element of type `T` among its descendants.
+    /// Search for an entity of type `T` among its descendants.
     #[inline]
-    pub fn for_each_descendants<T: 'static>(&self, mut f: impl FnMut(Element)) {
+    pub fn for_each_descendants<T: 'static>(&self, mut f: impl FnMut(Entity)) {
         with_context(|cx| {
-            for id in cx.query_descendants::<T>(self.id) {
+            for id in cx.query_descendants::<T>(*self) {
                 f(id);
             }
         });
@@ -489,19 +480,18 @@ impl Element {
         self,
         prop: impl Into<Prop<T>>,
         category: EffectCategory,
-        mut apply_fn: impl FnMut(&mut Context, EntityId, T) + 'static,
+        mut apply_fn: impl FnMut(&mut Context, Entity, T) + 'static,
     ) -> Self {
-        let id = self.id;
         match prop.into() {
             Prop::None => {}
             Prop::Static(val) => {
-                with_context(|cx| apply_fn(cx, id, val));
+                with_context(|cx| apply_fn(cx, self, val));
             }
             Prop::Dynamic(f) => {
                 with_context(|cx| {
-                    cx.create_element_effect(id, category, move |cx| {
+                    cx.create_entity_effect(self, category, move |cx| {
                         let val = f();
-                        apply_fn(cx, id, val);
+                        apply_fn(cx, self, val);
                     });
                 });
             }
@@ -511,45 +501,43 @@ impl Element {
 
     /// Applies styles.
     #[must_use]
-    pub fn style(self, style: impl Into<Prop<ThisStyle>>) -> Self {
-        match style.into() {
+    pub fn modify(self, m: impl Into<Prop<Modifier>>) -> Self {
+        match m.into() {
             Prop::None => {}
-            Prop::Static(s) => {
-                let id = self.id;
+            Prop::Static(m) => {
                 with_context(|cx| {
                     // 静的なスタイルプロパティを通常通りマウント
                     // 静的チェーンはマージ（merge = true）
-                    with_context(|cx| Element::style_internal(cx, id, &s, true));
+                    with_context(|cx| Entity::modify_internal(cx, self, &m, true));
 
                     // 動的なセッターが存在する場合、それらを単一のエフェクトとして登録
-                    if !s.inner.dynamic_setters.is_empty() {
-                        let setters = s.inner.dynamic_setters.clone();
-                        cx.create_element_effect(id, EffectCategory::Style, move |cx| {
+                    if !m.inner.dynamic_setters.is_empty() {
+                        let setters = m.inner.dynamic_setters.clone();
+                        cx.create_entity_effect(self, EffectCategory::Style, move |cx| {
                             // すべての動的セッターを実行
                             for setter in &setters {
-                                setter(cx, id, StyleTarget::Base);
+                                setter(cx, self, ModTarget::Base);
                             }
                             // 状態が変化したため、最後に必ずスタイル解決
-                            cx.resolve_element_style_state(id, false);
+                            cx.resolve_entity_style_state(self, false);
                         });
                     }
                 });
             }
             Prop::Dynamic(f) => {
-                let id = self.id;
                 with_context(|cx| {
-                    cx.create_element_effect(id, EffectCategory::Style, move |cx| {
-                        let s = f();
+                    cx.create_entity_effect(self, EffectCategory::Style, move |cx| {
+                        let m = f();
 
                         // 動的評価された最新スタイルは蓄積を避けるため置換（merge = false）
                         // 修正: 動的評価されたスタイルもマージ（true）としてマウント
-                        Element::style_internal(cx, id, &s, true);
+                        Entity::modify_internal(cx, self, &m, true);
 
                         // 動的スタイルが自身の中で動的なプロバイダーを含む場合も評価
-                        for setter in &s.inner.dynamic_setters {
-                            setter(cx, id, StyleTarget::Base);
+                        for setter in &m.inner.dynamic_setters {
+                            setter(cx, self, ModTarget::Base);
                         }
-                        cx.resolve_element_style_state(id, false);
+                        cx.resolve_entity_style_state(self, false);
                     });
                 });
             }
@@ -567,14 +555,14 @@ impl Element {
     ///
     /// # Examples
     /// ```no_run
-    /// # use crate::prelude::*;
+    /// # use michiu_ui::prelude::*;
     /// #[derive(Debug, Clone)]
     /// struct Theme {
     ///     bg_color: Color,
     ///     text_color: Color,
     /// }
     ///
-    /// fn root() -> Element {
+    /// fn root() -> Entity {
     ///     let (theme, _) = create_signal(Theme {
     ///         bg_color: Color::BLUE,
     ///         text_color: Color::WHITE,
@@ -583,8 +571,8 @@ impl Element {
     ///     div_n()
     ///         .provide(theme)
     ///         .child(
-    ///             div_n().style_d(|t: &Theme| {
-    ///                 ts().bg_color(t.bg_color)
+    ///             div_n().modify_d(|t: &Theme| {
+    ///                 ii().bg_color(t.bg_color)
     ///                     .text_color(t.text_color)
     ///             })
     ///         )
@@ -592,10 +580,10 @@ impl Element {
     /// ```
     #[must_use]
     #[inline]
-    pub fn style_d<P, F>(self, f: F) -> Self
+    pub fn modify_d<P, F>(self, f: F) -> Self
     where
         P: Clone + 'static,
-        F: Fn(&P) -> ThisStyle + Send + Sync + 'static,
+        F: Fn(&P) -> Modifier + Send + Sync + 'static,
     {
         // 1引数のクロージャを、プロバイダー探索とシグナル購読（.get()）を内包した
         // 引数なしの Prop::Dynamic クロージャへラップして既存の style メソッドへ委譲
@@ -605,12 +593,12 @@ impl Element {
             f(&val)
         }));
 
-        self.style(dynamic_prop)
+        self.modify(dynamic_prop)
     }
 
     /// スタイルの適用
-    pub(crate) fn style_internal(cx: &mut Context, id: EntityId, style: &ThisStyle, merge: bool) {
-        let inner = &style.inner;
+    pub(crate) fn modify_internal(cx: &mut Context, id: Entity, m: &Modifier, merge: bool) {
+        let inner = &m.inner;
         let mask = inner.mask;
 
         // topo_active_masks にスタイル側のマスクをマージするが、
@@ -688,7 +676,7 @@ impl Element {
         if mask.has(ComponentMask::STYLE_SCROLLBAR)
             && let Some(ref sb) = inner.scrollbar_style
         {
-            Element::ensure_scrollbar_elements(cx, id, sb, merge);
+            Entity::ensure_scrollbar_entities(cx, id, sb, merge);
             need_push_dirty = true;
         }
 
@@ -707,41 +695,39 @@ impl Element {
             cx.mark_layout_dirty(id);
         }
 
-        cx.resolve_element_style_state(id, false);
+        cx.resolve_entity_style_state(id, false);
     }
 
-    /// Add a child element.
+    /// Add a child entity.
     #[must_use]
     #[inline]
-    pub fn child(self, element: impl Into<Prop<Element>>) -> Self {
-        match element.into() {
+    pub fn child(self, e: impl Into<Prop<Entity>>) -> Self {
+        match e.into() {
             Prop::None => {}
             Prop::Static(child) => {
-                with_context(|cx| cx.add_child(self.id, child.id));
+                with_context(|cx| cx.add_child(self, child));
             }
             Prop::Dynamic(f) => {
-                let parent_id = self.id;
-
                 with_context(|cx| {
                     // 前回配置された子要素の ID を安全に記録・保持するセル
                     // エフェクトのクロージャ内に所有権を持たせて生存期間を保証
-                    let current_child: Rc<Cell<Option<EntityId>>> = Rc::new(Cell::new(None));
+                    let current_child: Rc<Cell<Option<Entity>>> = Rc::new(Cell::new(None));
                     let current_child_clone = current_child.clone();
 
-                    cx.create_element_effect(parent_id, EffectCategory::Contents, move |cx| {
+                    cx.create_entity_effect(self, EffectCategory::Contents, move |cx| {
                         // 新しい子要素をクロージャから生成
                         let new_child = f();
 
                         if let Some(old_child) = current_child_clone.get() {
                             // 2回目以降の評価: 旧要素を直接新しい要素へ置換
-                            cx.replace_child(parent_id, old_child, new_child.id);
+                            cx.replace_child(self, old_child, new_child);
                         } else {
                             // 初回の評価: ダイレクトに親の子要素リストへ追加
-                            cx.add_child(parent_id, new_child.id);
+                            cx.add_child(self, new_child);
                         }
 
                         // 最新の生成要素 ID を退避・更新
-                        current_child_clone.set(Some(new_child.id));
+                        current_child_clone.set(Some(new_child));
                     });
                 });
             }
@@ -749,13 +735,13 @@ impl Element {
         self
     }
 
-    /// Dynamically resolve and add [`Element`] from provider `P`.
+    /// Dynamically resolve and add [`Entity`] from provider `P`.
     #[must_use]
     #[inline]
     pub fn child_d<P, F>(self, f: F) -> Self
     where
         P: Clone + 'static,
-        F: Fn(&P) -> Element + Send + Sync + 'static,
+        F: Fn(&P) -> Entity + Send + Sync + 'static,
     {
         let dynamic_prop = Prop::Dynamic(Box::new(move || {
             let signal = with_context(|cx| cx.use_provided::<P>());
@@ -765,24 +751,24 @@ impl Element {
         self.child(dynamic_prop)
     }
 
-    /// Adds multiple child elements at once.
+    /// Adds multiple child entities at once.
     #[must_use]
     #[inline]
-    pub fn children<I, E>(mut self, elements: I) -> Self
+    pub fn children<I, E>(mut self, entities: I) -> Self
     where
         I: IntoIterator<Item = E>,
-        E: Into<Prop<Element>>,
+        E: Into<Prop<Entity>>,
     {
-        for el in elements {
-            self = self.child(el);
+        for e in entities {
+            self = self.child(e);
         }
         self
     }
 
-    /// It dynamically resolves and adds multiple child elements in bulk from provider `P`.
+    /// It dynamically resolves and adds multiple child entities in bulk from provider `P`.
     ///
     /// # Panics
-    /// Not supported dynamic nested elements inside `children_d`.
+    /// Not supported dynamic nested entities inside `children_d`.
     #[expect(clippy::panic)]
     #[track_caller]
     #[must_use]
@@ -791,30 +777,28 @@ impl Element {
         P: Clone + 'static,
         F: Fn(&P) -> I + Send + Sync + 'static,
         I: IntoIterator<Item = E> + 'static,
-        E: Into<Prop<Element>>,
+        E: Into<Prop<Entity>>,
     {
-        let parent_id = self.id;
-
         with_context(|cx| {
             // 前回の評価でこのスロットによって生成・追加された子要素群のIDを保持するセル
-            let current_children: Rc<std::cell::RefCell<Vec<EntityId>>> =
+            let current_children: Rc<std::cell::RefCell<Vec<Entity>>> =
                 Rc::new(std::cell::RefCell::new(Vec::new()));
             let current_children_clone = current_children.clone();
 
-            cx.create_element_effect(parent_id, EffectCategory::Contents, move |cx| {
+            cx.create_entity_effect(self, EffectCategory::Contents, move |cx| {
                 // プロバイダーの値を動的解決
                 let signal = with_context(|cx| cx.use_provided::<P>());
                 let val = signal.get();
 
                 // 新しい子要素群の生成
-                let mut new_elements: SmallVec<[Element; 8]> = SmallVec::new();
+                let mut new_entities: SmallVec<[Entity; 8]> = SmallVec::new();
 
                 for e in f(&val) {
-                    if let Prop::Static(el) = e.into() {
-                        new_elements.push(el);
+                    if let Prop::Static(entity) = e.into() {
+                        new_entities.push(entity);
                     } else {
                         #[cfg(feature = "trace-error")]
-                        trace_error!(Some(parent_id), &mut cx.debug, || MichiuTrace::Error {
+                        trace_error!(Some(self), &mut cx.debug, || MichiuTrace::Error {
                             detail: MichiuError::UnsupportedDynamicNesting {
                                 caller: "children_d"
                             },
@@ -823,7 +807,7 @@ impl Element {
 
                         #[cfg(debug_assertions)]
                         panic!(
-                            "children_d: Not supported dynamic nested elements inside children_d"
+                            "children_d: Not supported dynamic nested entities inside children_d"
                         );
 
                         // リリースビルド時は None を返す代わりにこの要素を無視して次のループへ
@@ -837,49 +821,49 @@ impl Element {
                 }
 
                 // 生成された新しい子要素群を親コンテナの直下にマウント
-                for new_el in &new_elements {
-                    cx.add_child(parent_id, new_el.id);
-                    old_children.push(new_el.id);
+                for new_c in new_entities {
+                    cx.add_child(self, new_c);
+                    old_children.push(new_c);
                 }
 
                 // 親コンテナのレイアウト再計算と描画をダーティマーク
-                cx.mark_dirty(parent_id);
+                cx.mark_dirty(self);
             });
         });
 
         self
     }
 
-    /// Add a text label as a child element that allows interactions to pass through.
+    /// Add a text label as a child entity that allows interactions to pass through.
     #[must_use]
     #[inline]
     pub fn label(
         self,
         content: impl Into<Prop<Cow<'static, str>>>,
-        style: impl Into<Prop<ThisStyle>>,
+        modify: impl Into<Prop<Modifier>>,
     ) -> Self {
-        let style = match style.into() {
-            Prop::None => Prop::Static(ThisStyle::new().pointer_events_none()),
+        let style = match modify.into() {
+            Prop::None => Prop::Static(Modifier::new().pointer_events_none()),
             Prop::Static(s) => Prop::Static(s.pointer_events_none()),
             Prop::Dynamic(f) => Prop::Dynamic(Box::new(move || f().pointer_events_none())),
         };
-        let label_el = div_n().text(content).style(style);
+        let label_el = div_n().text(content).modify(style);
         self.child(label_el)
     }
 
     /// Dynamically resolve styles from provider `P` and add text labels.
     #[must_use]
     #[inline]
-    pub fn label_d<P, F>(self, content: impl Into<Prop<Cow<'static, str>>>, style: F) -> Self
+    pub fn label_d<P, F>(self, content: impl Into<Prop<Cow<'static, str>>>, modify: F) -> Self
     where
         P: Clone + 'static,
-        F: Fn(&P) -> ThisStyle + Send + Sync + 'static,
+        F: Fn(&P) -> Modifier + Send + Sync + 'static,
     {
         // スタイル側のみ、1引数のクロージャをプロバイダー解決を伴う Prop::Dynamic へラップ
         let style_prop = Prop::Dynamic(Box::new(move || {
             let signal = with_context(|cx| cx.use_provided::<P>());
             let val = signal.get();
-            style(&val)
+            modify(&val)
         }));
 
         self.label(content, style_prop)
@@ -887,36 +871,33 @@ impl Element {
 
     /// This will replace the contents of this container. All previous contents will be discarded.
     #[expect(clippy::return_self_not_must_use)]
-    pub fn set_contents(self, contents: impl Into<Prop<Element>>) -> Self {
+    pub fn set_contents(self, contents: impl Into<Prop<Entity>>) -> Self {
         match contents.into() {
             Prop::None => {}
             Prop::Static(new_child) => {
-                let id = self.id;
                 with_context(|cx| {
                     // 静的なコンテンツ上書き時のみ古い動的評価エフェクトを一括破棄
-                    if let Some(effects) = cx.reactive.react_element_effects.find_mut(id)
+                    if let Some(effects) = cx.reactive.react_entity_effects.find_mut(self)
                         && let Some(i) = effects
                             .iter()
                             .position(|(cat, _)| *cat == EffectCategory::Contents)
                     {
                         let (_, old_effect) = effects.remove(i);
                         cx.reactive.react_effects.remove(old_effect);
-                        cx.reactive.react_effect_to_element.remove(old_effect);
+                        cx.reactive.react_effect_to_entity.remove(old_effect);
                         cx.reactive
-                            .react_pending_element_effects
+                            .react_pending_entity_effects
                             .retain(|&x| x != old_effect);
                     }
                     self.set_contents_internal(cx, new_child);
                 });
             }
             Prop::Dynamic(f) => {
-                let id = self.id;
                 with_context(|cx| {
-                    cx.create_element_effect(id, EffectCategory::Contents, move |cx| {
+                    cx.create_entity_effect(self, EffectCategory::Contents, move |cx| {
                         let new_child = f();
-                        let container = Element { id };
                         // Dynamic 実行時は自殺させないためそのままマウントを実行
-                        container.set_contents_internal(cx, new_child);
+                        self.set_contents_internal(cx, new_child);
                     });
                 });
             }
@@ -926,12 +907,10 @@ impl Element {
 
     /// 既存のクロージャをクリアせずに、子要素の差し替え（マウント）のみを実行する
     #[track_caller]
-    fn set_contents_internal(self, cx: &mut Context, new_child: Element) {
-        let id = self.id;
-
+    fn set_contents_internal(self, cx: &mut Context, new_child: Entity) {
         // 親コンテナに紐づくスクロールバー専用要素のIDを安全に抽出
         let mut scrollbar_ids = std::collections::HashSet::new();
-        if let Some(sb) = cx.layouts.scrollbar.bar_styles.find(id) {
+        if let Some(sb) = cx.layouts.scrollbar.bar_styles.find(self) {
             if let Some(tid) = sb.v_track_id {
                 scrollbar_ids.insert(tid);
             }
@@ -947,8 +926,8 @@ impl Element {
         }
 
         // 現在の子要素のうち、スクロールバー関係の要素以外のコンテンツのみを再帰破棄
-        let children_list = cx.topology.topo_children.at(id);
-        let old_children: SmallVec<[EntityId; 8]> = children_list.iter().copied().collect();
+        let children_list = cx.topology.topo_children.at(self);
+        let old_children: SmallVec<[Entity; 8]> = children_list.iter().copied().collect();
         for child_id in old_children {
             if !scrollbar_ids.contains(&child_id) {
                 cx.despawn_internal(child_id);
@@ -956,10 +935,10 @@ impl Element {
         }
 
         // 新しい子要素を追加（親子トポロジーおよび Taffy ツリーの同期）
-        cx.add_child(id, new_child.id);
+        cx.add_child(self, new_child);
 
         // レイアウトと描画の再計算を要求
-        cx.mark_dirty(id);
+        cx.mark_dirty(self);
     }
 
     /// Set text.
@@ -1006,7 +985,7 @@ impl Element {
     ///
     ///   1. Replace topology
     ///
-    ///   The target UI element is despawned and then regenerated as an element with a new source specified
+    ///   The target UI entity is despawned and then regenerated as an entity with a new source specified
     ///   (this safely releases unnecessary resources from VRAM).
     ///
     ///   2. Switch within the provider's network.
@@ -1025,25 +1004,25 @@ impl Element {
     #[must_use]
     pub fn external_texture(self, texture: impl ExternalTexture + 'static) -> Self {
         let texture_arc = Arc::new(texture);
-        let id = self.id;
-
         let metadata = texture_arc.metadata();
 
         with_context(|cx| {
-            cx.contents.cont_external_textures.insert(id, texture_arc);
+            cx.contents.cont_external_textures.insert(self, texture_arc);
             cx.topology
                 .topo_active_masks
-                .at_mut(id)
+                .at_mut(self)
                 .set(ComponentMask::COMP_EXTERNAL_TEXTURE_CONTENT);
 
-            if !cx.layouts.lay_base_basic.contains_key(id) {
-                cx.layouts.lay_base_basic.insert(id, BasicLayout::default());
+            if !cx.layouts.lay_base_basic.contains_key(self) {
+                cx.layouts
+                    .lay_base_basic
+                    .insert(self, BasicLayout::default());
             }
-            let basic = cx.layouts.lay_base_basic.at_mut(id);
+            let basic = cx.layouts.lay_base_basic.at_mut(self);
             basic.size.width = Val::Px(metadata.size.width);
             basic.size.height = Val::Px(metadata.size.height);
 
-            cx.mark_dirty(id);
+            cx.mark_dirty(self);
         });
         self
     }
@@ -1053,34 +1032,34 @@ impl Element {
     #[must_use]
     pub fn external_visual(self, visual: impl ExternalVisual + 'static) -> Self {
         let visual_arc = Arc::new(visual);
-        let id = self.id;
-
         let metadata = visual_arc.metadata();
 
         with_context(|cx| {
-            cx.contents.cont_external_visual.insert(id, visual_arc);
+            cx.contents.cont_external_visual.insert(self, visual_arc);
             cx.topology
                 .topo_active_masks
-                .at_mut(id)
+                .at_mut(self)
                 .set(ComponentMask::COMP_EXTERNAL_VISUAL_CONTENT);
 
             if metadata.size.width > 0.0 || metadata.size.height > 0.0 {
-                if !cx.layouts.lay_base_basic.contains_key(id) {
-                    cx.layouts.lay_base_basic.insert(id, BasicLayout::default());
+                if !cx.layouts.lay_base_basic.contains_key(self) {
+                    cx.layouts
+                        .lay_base_basic
+                        .insert(self, BasicLayout::default());
                 }
-                let basic = cx.layouts.lay_base_basic.at_mut(id);
+                let basic = cx.layouts.lay_base_basic.at_mut(self);
                 basic.size.width = Val::Px(metadata.size.width);
                 basic.size.height = Val::Px(metadata.size.height);
             }
 
-            cx.mark_dirty(id);
+            cx.mark_dirty(self);
         });
         self
     }
 
     /// Sets accessibility roles and labels.
     ///
-    /// The `a11y::Role` set here takes precedence over [`Element::tag_a11y`] , [`Element::tag`].
+    /// The `a11y::Role` set here takes precedence over [`Entity::tag_a11y`] , [`Entity::tag`].
     #[must_use]
     pub fn a11y<M>(self, node: impl IntoOptionProp<Node, M>) -> Self {
         let prop = node.into_option_prop();
@@ -1096,7 +1075,7 @@ impl Element {
 
     /// Sets accessibility roles and labels.
     ///
-    /// The `a11y::Role` set here takes precedence over [`Element::tag_a11y`] , [`Element::tag`].
+    /// The `a11y::Role` set here takes precedence over [`Entity::tag_a11y`] , [`Entity::tag`].
     #[must_use]
     pub fn a11y_with<M, F>(self, node: impl IntoOptionProp<Node, M>, f: F) -> Self
     where
@@ -1127,7 +1106,7 @@ impl Element {
 
     /// Sets accessibility roles.
     ///
-    /// The `a11y::Role` set here takes precedence over [`Element::tag_a11y`] , [`Element::tag`].
+    /// The `a11y::Role` set here takes precedence over [`Entity::tag_a11y`] , [`Entity::tag`].
     #[must_use]
     pub fn a11y_role<M>(self, role: impl IntoOptionProp<Role, M>) -> Self {
         let prop = role.into_option_prop();
@@ -1143,7 +1122,7 @@ impl Element {
 
     /// Sets accessibility roles and label.
     ///
-    /// The `a11y::Role` set here takes precedence over [`Element::tag_a11y`] , [`Element::tag`].
+    /// The `a11y::Role` set here takes precedence over [`Entity::tag_a11y`] , [`Entity::tag`].
     #[must_use]
     pub fn a11y_label<M>(
         self,
@@ -1170,9 +1149,9 @@ impl Element {
     /// トラック・サムに相当する要素を遅延生成して親子関係にアタッチする。
     #[track_caller]
     #[inline]
-    pub(crate) fn ensure_scrollbar_elements(
+    pub(crate) fn ensure_scrollbar_entities(
         cx: &mut Context,
-        id: EntityId,
+        id: Entity,
         sb: &ScrollbarStyle,
         merge: bool,
     ) {
@@ -1213,7 +1192,7 @@ impl Element {
                 .inset((0.0, 0.0, 0.0, crate::auto()))
                 .pointer_events_auto(); // イベントを透過させない
 
-            Element::style_internal(cx, v_track, &track_style, merge);
+            Entity::modify_internal(cx, v_track, &track_style, merge);
 
             // 縦つまみ (V-Thumb、V-Track の子要素としてアタッチ)
             let v_thumb = if let Some(v_thumb) = state.v_thumb_id {
@@ -1243,7 +1222,7 @@ impl Element {
                 .inset((0.0, crate::auto(), crate::auto(), crate::auto()))
                 .pointer_events_auto();
 
-            Element::style_internal(cx, v_thumb, &thumb_style, merge);
+            Entity::modify_internal(cx, v_thumb, &thumb_style, merge);
 
             // 横スクロールバー (H-Track)
             let h_track = if let Some(h_track) = state.h_track_id {
@@ -1266,7 +1245,7 @@ impl Element {
                 .inset((crate::auto(), 0.0, 0.0, 0.0))
                 .pointer_events_auto();
 
-            Element::style_internal(cx, h_track, &track_style, merge);
+            Entity::modify_internal(cx, h_track, &track_style, merge);
 
             // B-1. 横つまみ (H-Thumb、H-Track の子要素としてアタッチ)
             let h_thumb = if let Some(h_thumb) = state.h_thumb_id {
@@ -1295,7 +1274,7 @@ impl Element {
                 .inset((crate::auto(), crate::auto(), crate::auto(), 0.0))
                 .pointer_events_auto();
 
-            Element::style_internal(cx, h_thumb, &thumb_style, merge);
+            Entity::modify_internal(cx, h_thumb, &thumb_style, merge);
         }
 
         if changed {

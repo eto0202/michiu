@@ -1,9 +1,8 @@
-#![allow(clippy::unwrap_used)]
-#![allow(clippy::expect_used)]
-#![allow(clippy::panic)]
+#![expect(clippy::unwrap_used)]
+#![expect(clippy::expect_used)]
 
 use michiu_window::{
-    MichiuEventBus, LogicalSize, MichiuAnyEvent, MichiuEventPump, MichiuWindowBuilder, MichiuWindow,
+    LogicalSize, MichiuAnyEvent, MichiuEventBus, MichiuEventPump, MichiuWindow, MichiuWindowBuilder,
 };
 use std::time::{Duration, Instant};
 

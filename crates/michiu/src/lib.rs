@@ -44,7 +44,7 @@
 //! ```no_run
 //! use michiu::prelude::*;
 //!
-//! fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! fn main() -> Result<()> {
 //!     // Preventing Screen Blur
 //!     let _ = MichiuWindow::init_dpi_awareness();
 //!     // COM Initialization for WinRT/DirectComposition
@@ -63,10 +63,11 @@
 //!     // 2. Initialize renderer
 //!     let scale_factor = window.scale_factor() as f32;
 //!     let handle = window.handle().assume_valid();
+//!     let rect = handle.client_rect();
 //!     // MichiuRenderer::new is async. Use any executor of your choice.
 //!     let renderer = pollster::block_on(MichiuRenderer::new(
 //!         handle.hwnd(),
-//!         LayoutSize::new(600.0, 500.0),
+//!         rect.cast(),
 //!         scale_factor,
 //!     ))?;
 //!
@@ -75,23 +76,23 @@
 //!         let (count, set_count) = create_signal(0u32); // Initialize the signal.
 //!
 //!         flex(
-//!             ts().size_full()
+//!             ii().size_full()
 //!             .justify_center()
 //!             .items_center()
 //!             .bg_color(rgb(22, 24, 29)))
 //!         .child(
 //!             flex(
-//!                 ts().size((200.0, 100.0))
+//!                 ii().size((200.0, 100.0))
 //!                 .r(6.0)
 //!                 .justify_center()
 //!                 .border_solid(2.0)
 //!                 .border_color(rgb(209, 92, 174))
-//!                 .pressed(ts().transform_scale(0.98, 0.98)),
+//!                 .pressed(ii().transform_scale(0.98, 0.98)),
 //!             )
 //!             .on_click(move || set_count.set(count.get() + 1))
 //!             .label(
 //!                 move || format!("Count: {}", count.get()),
-//!                 ts().text_color(rgb(156, 158, 163)).font_size(22.0),
+//!                 ii().text_color(rgb(156, 158, 163)).font_size(22.0),
 //!             ),
 //!         )
 //!     })?;
@@ -223,12 +224,21 @@
 //! }
 //! # }
 //! ```
-use crate::guard::Validated;
-use crate::ui::{
-    CapacityConfig, CharIndex, ImeState, VirtualKey, prelude::*, raw_wheel_delta_to_logical_pixels,
+use crate::{
+    guard::Validated,
+    ui::{CapacityConfig, CharIndex, ImeState, prelude::*, raw_wheel_delta_to_logical_pixels},
+    window::{ImeStateUpdate, PhysicalPoint, PhysicalSize, WheelDelta, WindowHandle, prelude::*},
 };
-use crate::window::{WindowHandle, prelude::*};
-use windows::Win32::UI::WindowsAndMessaging::{WM_ENTERSIZEMOVE, WM_EXITSIZEMOVE, WM_NULL};
+use thiserror::Error;
+use windows::Win32::{
+    Graphics::Gdi::ScreenToClient,
+    UI::{
+        Input::KeyboardAndMouse::{
+            VIRTUAL_KEY, VK_LBUTTON, VK_PACKET, VK_PROCESSKEY, VK_XBUTTON1, VK_XBUTTON2,
+        },
+        WindowsAndMessaging::{WM_ENTERSIZEMOVE, WM_EXITSIZEMOVE, WM_NULL},
+    },
+};
 
 #[cfg(feature = "ui")]
 #[doc(inline)]
@@ -242,12 +252,14 @@ pub use michiu_guard as guard;
 #[doc(inline)]
 pub use michiu_window as window;
 
+#[doc(hidden)]
 pub mod prelude {
     pub use crate::guard::{Unvalidated, Validate, Validated};
     pub use crate::ui::prelude::*;
     pub use crate::window::prelude::*;
     pub use crate::*;
 }
+#[doc(hidden)]
 pub mod accessibility {
     pub use crate::ui::accessibility::*;
 }
@@ -267,10 +279,11 @@ pub mod accessibility {
 ///
 /// ```no_run
 /// # use michiu::prelude::*;
-/// # fn run(window: MichiuWindow, renderer: MichiuRenderer) -> Result<(), Box<dyn std::error::Error>> {
+/// # fn run(window: MichiuWindow, renderer: MichiuRenderer) -> Result<()> {
 /// let (mut app, mut pump) = MichiuAppBuilder::new(window)
 ///     .build_with_ui(renderer, move || {
 ///         // Building the UI Tree
+///         div_n()
 ///     })?;
 /// # Ok(())
 /// # }
@@ -293,7 +306,7 @@ pub mod accessibility {
 /// # Examples
 /// ```no_run
 /// # use michiu::prelude::*;
-/// # fn event_loop(mut app: MichiuApp, mut pump: MichiuEventPump) -> Result<(), Box<dyn std::error::Error>> {
+/// # fn event_loop(mut app: MichiuApp, mut pump: MichiuEventPump) -> Result<()> {
 /// while pump.wait_event(|event, _, raw| {
 ///     let resp = app.standard_handle_window_event(&event, &raw);
 ///     if resp.needs_redraw {
@@ -344,14 +357,14 @@ pub struct MichiuApp {
     /// Used for redraw requests, changing cursor icons, switching views, and obtaining a Win32 `HWND`, among other things.
     pub handle: Validated<WindowHandle>,
 
-    /// The `EntityId` of the root element.
+    /// The `Entity` of the root entity.
     ///
     /// Private for security reasons.
     ///
     /// Set using [`MichiuApp::set_root`], [`MichiuApp::build_ui`],
     /// or [`MichiuAppBuilder::build_with_ui`],
-    /// and retrieve using [`MichiuApp::root_id`] or [`MichiuApp::try_root_id`].
-    root_id: Option<EntityId>,
+    /// and retrieve using [`MichiuApp::root`] or [`MichiuApp::try_root`].
+    root: Option<Entity>,
 
     /// Operation policy settings specified in the builder
     /// (such as automatic cursor resolution and enabling shortcuts).
@@ -372,7 +385,7 @@ pub struct MichiuApp {
 /// # Examples
 /// ```no_run
 /// # use michiu::prelude::*;
-/// # fn handle(app: &mut MichiuApp, event: MichiuAnyEvent, raw: RawEvent) {
+/// # fn handle(app: &mut MichiuApp, event: MichiuAnyEvent, raw: MichiuRawEvent) {
 /// let resp = app.standard_handle_window_event(&event, &raw);
 ///
 /// // When a normal redraw is required
@@ -394,7 +407,7 @@ pub struct MichiuApp {
 ///
 /// ## Why are there three flags?
 /// ### `consumed` (event interception)
-/// Indicates whether a UI element (such as a button or input field) has processed this action.
+/// Indicates whether a UI entity (such as a button or input field) has processed this action.
 ///
 /// For example, when typing in a text input field, if this flag is `true`,
 /// the subsequent processing is interrupted with a `return` to prevent global shortcuts—such
@@ -419,7 +432,7 @@ pub struct MichiuApp {
 pub struct MichiuEventResponse {
     /// Whether this event was consumed by the UI (or `ExternalVisual`).
     ///
-    /// If `true`, it means a UI element was clicked or a text input field has focus.
+    /// If `true`, it means a UI entity was clicked or a text input field has focus.
     ///
     /// Use this to skip application-specific keyboard shortcuts, game controls, and similar actions.
     pub consumed: bool,
@@ -438,60 +451,59 @@ pub struct MichiuEventResponse {
 }
 
 impl MichiuApp {
-    /// It builds the UI tree and automatically registers it as the root element.
+    /// It builds the UI tree and automatically registers it as the root entity.
     ///
     /// Since `set_root` is called automatically,
-    /// you can use `root_id` in subsequent processing to retrieve the `EntityId` of the root element.
+    /// you can use `root_id` in subsequent processing to retrieve the `Entity` of the root entity.
     #[inline]
-    pub fn build_ui<F>(&mut self, f: F) -> EntityId
+    pub fn build_ui<F>(&mut self, f: F) -> Entity
     where
-        F: FnOnce() -> Element,
+        F: FnOnce() -> Entity,
     {
         let root = build_ui(&mut self.context, f);
-        let id = root.id();
-        self.set_root(id);
-        id
+        self.set_root(root);
+        root
     }
 
-    /// Register the root element.
-    /// From this point on, you can retrieve the root element using [`MichiuApp::root_id`].
+    /// Register the root entity.
+    /// From this point on, you can retrieve the root entity using [`MichiuApp::root_id`].
     #[inline]
-    pub fn set_root(&mut self, root_id: EntityId) {
-        self.root_id = Some(root_id);
+    pub fn set_root(&mut self, root_id: Entity) {
+        self.root = Some(root_id);
     }
 
-    /// Retrieves the `EntityId` of the root element.
+    /// Retrieves the `Entity` of the root entity.
     ///
     /// To avoid a panic, use [`MichiuApp::try_root_id`] instead.
     ///
     /// # Panics
     ///
-    /// Panics if the root element has not yet been registered.
+    /// Panics if the root entity has not yet been registered.
     ///
-    /// Please register the root element in advance by calling [`MichiuApp::build_ui`],
+    /// Please register the root entity in advance by calling [`MichiuApp::build_ui`],
     /// [`MichiuAppBuilder::build_with_ui`], or
     /// [`MichiuApp::set_root`].
     ///
-    /// If this error occurs even though the root element has been registered correctly,
+    /// If this error occurs even though the root entity has been registered correctly,
     /// please report it to [GitHub Issues](https://github.com/eto0202/michiu/issues).
     #[must_use]
     #[inline]
-    #[allow(clippy::expect_used)]
-    pub fn root_id(&self) -> EntityId {
-        self.root_id.expect(
+    #[expect(clippy::expect_used)]
+    pub fn root(&self) -> Entity {
+        self.root.expect(
             "The root ID was not found.\
              Possible cause:\
                 - The root ID was not registered. Call `build_ui`, `build_with_ui`, or `set_root` first.",
         )
     }
 
-    /// Retrieves the `EntityId` of the root element.
+    /// Retrieves the `Entity` of the root entity.
     ///
     /// Returns `None` if it has not yet been registered.
     #[must_use]
     #[inline]
-    pub fn try_root_id(&self) -> Option<EntityId> {
-        self.root_id
+    pub fn try_root(&self) -> Option<Entity> {
+        self.root
     }
 
     /// Thread-safely requests a redraw of the window.
@@ -576,7 +588,7 @@ impl MichiuApp {
     /// # Examples
     /// ```no_run
     /// # use michiu::prelude::*;
-    /// # fn run(mut app: MichiuApp, mut pump: MichiuEventPump) -> Result<(), Box<dyn std::error::Error>> {
+    /// # fn run(mut app: MichiuApp, mut pump: MichiuEventPump) -> Result<()> {
     /// while pump.wait_event(|event, _, raw| {
     ///     // Process events using the standard handler
     ///     let resp = app.standard_handle_window_event(&event, &raw);
@@ -613,7 +625,7 @@ impl MichiuApp {
     /// # Ok(())
     /// # }
     /// ```
-    #[allow(clippy::too_many_lines)]
+    #[expect(clippy::too_many_lines)]
     pub fn standard_handle_window_event(
         &mut self,
         event: &MichiuAnyEvent,
@@ -662,9 +674,21 @@ impl MichiuApp {
         if let MichiuAnyEvent::Window { event, .. } = event {
             match event {
                 MichiuEvent::Resized(phy_size) => {
-                    let size = phy_size.assume_valid().into_inner();
-                    let width = size.width as u32;
-                    let height = size.height as u32;
+                    let result = phy_size
+                        .validate_with(MichiuValidator::window_bounds)
+                        .map(Validated::into_inner);
+
+                    let size = match result {
+                        Ok(size) => size,
+                        #[allow(unused)]
+                        Err(e) => {
+                            debug_eprintln!("Debug: invalid window bounds: {:?}", e);
+                            PhysicalSize::new(1, 1)
+                        }
+                    };
+
+                    let width = size.width.cast_unsigned();
+                    let height = size.height.cast_unsigned();
                     // レンダラーのリサイズとレイアウト物理サイズの更新
                     self.renderer
                         .resize(width, height, self.renderer.scale_factor());
@@ -674,31 +698,38 @@ impl MichiuApp {
                     needs_update_window = true;
                 }
                 MichiuEvent::CursorMoved { position } => {
-                    let pos = position.assume_valid().into_inner();
-                    let x = pos.x as f32;
-                    let y = pos.y as f32;
-                    let phys_pos = LayoutPoint::new(x, y);
-                    let logical_pos = LayoutPoint::new(
-                        x / self.renderer.scale_factor(),
-                        y / self.renderer.scale_factor(),
-                    );
+                    let result = position
+                        .validate_with(MichiuValidator::cursor_bounds)
+                        .map(Validated::into_inner);
 
-                    self.context
-                        .inject_action(EventAction::PointerMove(logical_pos));
+                    match result {
+                        Ok(pos) => {
+                            let phys_pos = pos.cast();
+                            let logical_pos = pos.cast_scaled(self.window.scale_factor());
 
-                    if self.config.external_visual_support {
-                        ext_consumed = MichiuRenderer::dispatch_raw_input_to_external_visual(
-                            &mut self.context,
-                            raw.msg,
-                            raw.wparam,
-                            raw.lparam,
-                            phys_pos,
-                            self.renderer.scale_factor(),
-                        );
+                            self.context
+                                .inject_action(EventAction::PointerMove(logical_pos));
+
+                            if self.config.external_visual_support {
+                                ext_consumed =
+                                    MichiuRenderer::dispatch_raw_input_to_external_visual(
+                                        &mut self.context,
+                                        raw.msg,
+                                        raw.wparam,
+                                        raw.lparam,
+                                        phys_pos,
+                                        self.renderer.scale_factor(),
+                                    );
+                            }
+
+                            consumed = has_hovered || ext_consumed;
+                            needs_redraw = true;
+                        }
+                        #[allow(unused)]
+                        Err(e) => {
+                            debug_eprintln!("Debug: cursor out of bounds: {:?}", e);
+                        }
                     }
-
-                    consumed = has_hovered || ext_consumed;
-                    needs_redraw = true;
                 }
                 MichiuEvent::CursorLeft => {
                     // ウィンドウ外に去ったため、論理空間外へポインタを移動させてホバーを確実に解除
@@ -715,22 +746,9 @@ impl MichiuApp {
                     state,
                     click_count,
                 } => {
-                    let button = match button {
-                        michiu_window::MouseButton::Left => MouseButton::Left,
-                        michiu_window::MouseButton::Right => MouseButton::Right,
-                        michiu_window::MouseButton::Middle => MouseButton::Middle,
-                        michiu_window::MouseButton::Other(_) => MouseButton::X1,
-                    };
-                    let modifiers = Modifiers {
-                        shift: modifiers.contains(michiu_window::Modifiers::SHIFT),
-                        ctrl: modifiers.contains(michiu_window::Modifiers::CONTROL),
-                        alt: modifiers.contains(michiu_window::Modifiers::ALT),
-                        logo: modifiers.contains(michiu_window::Modifiers::LOGO),
-                    };
-                    let state = match state {
-                        michiu_window::ElementState::Pressed => ElementState::Pressed,
-                        michiu_window::ElementState::Released => ElementState::Released,
-                    };
+                    let button = button.cast();
+                    let modifiers = modifiers.cast();
+                    let state = state.cast();
 
                     self.context.inject_action(EventAction::PointerButton {
                         button,
@@ -744,9 +762,9 @@ impl MichiuApp {
                     }
 
                     if self.config.external_visual_support {
-                        let x = (raw.lparam.0 & 0xffff) as i16 as f32;
-                        let y = ((raw.lparam.0 >> 16) & 0xffff) as i16 as f32;
+                        let (x, y) = raw.lparam.to_point_f32();
                         let phys_pos = LayoutPoint::new(x, y);
+
                         ext_consumed = MichiuRenderer::dispatch_raw_input_to_external_visual(
                             &mut self.context,
                             raw.msg,
@@ -772,131 +790,137 @@ impl MichiuApp {
                 } => {
                     let mut shortcut_handled = false;
 
-                    let key_code = key_code.assume_valid().into_inner();
-                    let key = VirtualKey::from_windows(key_code);
-                    let modifiers = Modifiers {
-                        shift: modifiers.contains(michiu_window::Modifiers::SHIFT),
-                        ctrl: modifiers.contains(michiu_window::Modifiers::CONTROL),
-                        alt: modifiers.contains(michiu_window::Modifiers::ALT),
-                        logo: modifiers.contains(michiu_window::Modifiers::LOGO),
-                    };
-                    let state = match state {
-                        michiu_window::ElementState::Pressed => ElementState::Pressed,
-                        michiu_window::ElementState::Released => ElementState::Released,
-                    };
+                    let result = key_code
+                        .validate_with(MichiuValidator::keyboard_input)
+                        .map(Validated::into_inner);
 
-                    if modifiers.ctrl
-                        && self.config.default_shortcuts
-                        && state == ElementState::Pressed
-                    {
-                        match raw.wparam.0 as i32 {
-                            // Ctrl + C
-                            0x43 if let Some(selected_text) = self.context.get_selected_text() => {
-                                let _ = set_win32_clipboard(&selected_text);
-                                shortcut_handled = true;
-                            }
-                            // Ctrl + V
-                            0x56 if has_focused
-                                && let Some(pasted_text) = get_win32_clipboard() =>
+                    match result {
+                        Ok(key_code) => {
+                            let key = key_code.into();
+                            let modifiers = modifiers.cast();
+                            let state = state.cast();
+
+                            if modifiers.ctrl
+                                && self.config.default_shortcuts
+                                && state == ElementState::Pressed
                             {
-                                self.context
-                                    .inject_action(EventAction::Paste(pasted_text.into()));
-                                shortcut_handled = true;
+                                match i32::try_from(raw.wparam.0).unwrap_or(0) {
+                                    // Ctrl + C
+                                    0x43 if let Some(selected_text) =
+                                        self.context.get_selected_text() =>
+                                    {
+                                        let _ = set_win32_clipboard(&selected_text);
+                                        shortcut_handled = true;
+                                    }
+                                    // Ctrl + V
+                                    0x56 if has_focused
+                                        && let Some(pasted_text) = get_win32_clipboard() =>
+                                    {
+                                        self.context
+                                            .inject_action(EventAction::Paste(pasted_text.into()));
+                                        shortcut_handled = true;
+                                    }
+                                    // Ctrl + X (切り取り)
+                                    0x58 if let Some(selected_text) =
+                                        self.context.get_selected_text() =>
+                                    {
+                                        let _ = set_win32_clipboard(&selected_text);
+                                        self.context.inject_action(EventAction::Cut);
+                                        shortcut_handled = true;
+                                    }
+                                    // Ctrl + Z (Undo)
+                                    0x5A if has_focused => {
+                                        self.context.inject_action(EventAction::Undo);
+                                        shortcut_handled = true;
+                                    }
+                                    // Ctrl + Y (Redo)
+                                    0x59 if has_focused => {
+                                        self.context.inject_action(EventAction::Redo);
+                                        shortcut_handled = true;
+                                    }
+                                    _ => {}
+                                }
                             }
-                            // Ctrl + X (切り取り)
-                            0x58 if let Some(selected_text) = self.context.get_selected_text() => {
-                                let _ = set_win32_clipboard(&selected_text);
-                                self.context.inject_action(EventAction::Cut);
-                                shortcut_handled = true;
-                            }
-                            // Ctrl + Z (Undo)
-                            0x5A if has_focused => {
-                                self.context.inject_action(EventAction::Undo);
-                                shortcut_handled = true;
-                            }
-                            // Ctrl + Y (Redo)
-                            0x59 if has_focused => {
-                                self.context.inject_action(EventAction::Redo);
-                                shortcut_handled = true;
-                            }
-                            _ => {}
+
+                            self.context.inject_action(EventAction::KeyboardKey {
+                                key,
+                                state,
+                                modifiers,
+                            });
+
+                            consumed = has_focused || shortcut_handled;
+                            needs_redraw = true;
+                        }
+                        Err(MichiuError::Invalidkey(
+                            KeyValidationError::ImeProcessKey | KeyValidationError::PacketKey,
+                        )) => {
+                            // IME中や文字直接入力は無視
+                        }
+                        #[allow(unused)]
+                        Err(e) => {
+                            debug_eprintln!("Debug: invalid key event: {:?}", e);
                         }
                     }
-
-                    self.context.inject_action(EventAction::KeyboardKey {
-                        key,
-                        state,
-                        modifiers,
-                    });
-
-                    consumed = has_focused || shortcut_handled;
-                    needs_redraw = true;
                 }
                 MichiuEvent::MouseWheel {
                     raw_delta_x,
                     raw_delta_y,
                 } => {
-                    let mut pt = windows::Win32::Foundation::POINT {
-                        x: (raw.lparam.0 & 0xffff) as i16 as i32,
-                        y: ((raw.lparam.0 >> 16) & 0xffff) as i16 as i32,
-                    };
-                    let _ = unsafe {
-                        windows::Win32::Graphics::Gdi::ScreenToClient(
-                            self.handle.hwnd(),
-                            &raw mut pt,
-                        )
-                    };
+                    let dx = raw_delta_x
+                        .validate_with(MichiuValidator::wheel_event)
+                        .map_or(WheelDelta(0), Validated::into_inner);
+                    let dy = raw_delta_y
+                        .validate_with(MichiuValidator::wheel_event)
+                        .map_or(WheelDelta(0), Validated::into_inner);
 
-                    // 横スクロール時は、右チルト（プラス値）された際に
-                    // 右方向へスクロール（オフセット加算）させるため、符号の方向性を補正
-                    let scroll_x = {
-                        let x = raw_delta_x.assume_valid().into_inner();
-                        -raw_wheel_delta_to_logical_pixels(x.raw() as f32)
-                    };
+                    // 両方 0 なら何もしない
+                    #[expect(clippy::as_conversions, clippy::cast_precision_loss)]
+                    if !(dx.0 == 0 && dy.0 == 0) {
+                        // 横スクロール時は、右チルト（プラス値）された際に
+                        // 右方向へスクロール（オフセット加算）させるため、符号の方向性を補正
 
-                    let scroll_y = {
-                        let y = raw_delta_y.assume_valid().into_inner();
-                        raw_wheel_delta_to_logical_pixels(y.raw() as f32)
-                    };
+                        let scroll_x = -raw_wheel_delta_to_logical_pixels(dx.raw() as f32);
+                        let scroll_y = raw_wheel_delta_to_logical_pixels(dy.raw() as f32);
 
-                    self.context
-                        .inject_action(EventAction::MouseWheel { scroll_x, scroll_y });
+                        self.context
+                            .inject_action(EventAction::MouseWheel { scroll_x, scroll_y });
 
-                    if self.config.external_visual_support {
-                        let phys_pos = LayoutPoint::new(pt.x as f32, pt.y as f32);
-                        ext_consumed = MichiuRenderer::dispatch_raw_input_to_external_visual(
-                            &mut self.context,
-                            raw.msg,
-                            raw.wparam,
-                            raw.lparam,
-                            phys_pos,
-                            self.renderer.scale_factor(),
-                        );
+                        if self.config.external_visual_support {
+                            let mut pt = raw.lparam.to_point();
+                            let _ = unsafe { ScreenToClient(self.handle.hwnd(), &raw mut pt) };
+
+                            let phys_pos = LayoutPoint::new(pt.x as f32, pt.y as f32);
+                            ext_consumed = MichiuRenderer::dispatch_raw_input_to_external_visual(
+                                &mut self.context,
+                                raw.msg,
+                                raw.wparam,
+                                raw.lparam,
+                                phys_pos,
+                                self.renderer.scale_factor(),
+                            );
+                        }
+
+                        consumed = has_hovered || ext_consumed;
+                        needs_redraw = true;
                     }
-
-                    consumed = has_hovered || ext_consumed;
-                    needs_redraw = true;
                 }
                 MichiuEvent::Ime(ime) => {
-                    let ime = ime.clone().assume_valid().into_inner();
-                    let ime_state = ImeState {
-                        is_open: ime.is_open,
-                        conversion_mode: ime.conversion_mode,
-                        sentence_mode: ime.sentence_mode,
-                        keyboard_layout_id: ime.keyboard_layout_id,
-                        composition_text: ime.composition_text.into(),
-                        result_text: ime.result_text.into(),
-                        caret_position: ime.caret_position.map(|p| LayoutPoint {
-                            x: p.x as f32,
-                            y: p.y as f32,
-                        }),
-                        composition_cursor: CharIndex(ime.composition_cursor),
-                        composition_attrs: ime.composition_attrs,
-                    };
+                    let reslut = ime
+                        .clone()
+                        .validate_with(MichiuValidator::ime_event)
+                        .map(Validated::into_inner);
 
-                    self.context.inject_action(EventAction::Ime(ime_state));
-                    consumed = has_focused;
-                    needs_redraw = true;
+                    match reslut {
+                        Ok(ime) => {
+                            self.context.inject_action(EventAction::Ime(ime.cast()));
+                            consumed = has_focused;
+                            needs_redraw = true;
+                        }
+                        #[allow(unused)]
+                        Err(e) => {
+                            debug_eprintln!("Debug: invalid ime event: {:?}", e);
+                        }
+                    }
                 }
                 _ => {}
             }
@@ -918,7 +942,7 @@ impl MichiuApp {
     ///
     /// # Rendering Pipeline Executed
     /// 1. **Frame Start (`begin_frame`)**: Drains the event queue and updates interaction states (e.g., hover).
-    /// 2. **Cursor Shape Update**: Synchronizes the mouse cursor icon based on the latest hover element.
+    /// 2. **Cursor Shape Update**: Synchronizes the mouse cursor icon based on the latest hover entity.
     /// 3. **System Frame Update (`tick_system_frame`)**: Advances animations and auto-drag states.
     /// 4. **Layout Synchronization (`sync_layout`)**: Recalculates layout in two passes to resolve scrollbars.
     /// 5. **Composition Update (`update_composition_tree`)**: Synchronizes `DirectComposition` for external visuals and the background.
@@ -934,18 +958,18 @@ impl MichiuApp {
     /// you can bypass this method and invoke the internal phase methods directly.
     ///
     /// # Panics
-    /// In debug builds, this method panics if the root element (`root_id`) has not been registered.
+    /// In debug builds, this method panics if the root entity (`root_id`) has not been registered.
     ///
     /// In release builds, it returns early without performing any operations.
     pub fn standard_redraw(&mut self) {
         debug_assert!(
-            self.try_root_id().is_some(),
+            self.try_root().is_some(),
             "The root ID was not found.\
              Possible cause:\
                - The root ID was not registered. Call `build_ui`, `build_with_ui`, or `set_root` first."
         );
 
-        let Some(root_id) = self.try_root_id() else {
+        let Some(root_id) = self.try_root() else {
             return;
         };
 
@@ -962,28 +986,26 @@ impl MichiuApp {
             self.context.update_accessibility();
         }
 
-        if let Some(_ctx) = self.window.begin_paint() {
-            self.renderer.draw(&mut self.context);
-        }
+        self.renderer.draw(&mut self.context);
 
         if self.context.has_active_frame() {
             if self.config.sync_mode == AutoSyncMode::DwmFlush {
-                self.handle.dwm_flush();
+                let _ = self.handle.dwm_flush();
             }
             self.handle.redraw_requested();
         }
     }
 
-    /// Updates the window cursor icon based on the currently hovered UI element.
+    /// Updates the window cursor icon based on the currently hovered UI entity.
     ///
-    /// This standard method resolves the appropriate cursor icon for the hovered element and automatic applies it to the OS.
+    /// This standard method resolves the appropriate cursor icon for the hovered entity and automatic applies it to the OS.
     /// Normally, this is executed automatically within [`standard_redraw`](Self::standard_redraw).
     /// Call this manually if you are constructing a custom rendering pipeline.
     ///
     /// # Behavior
     /// 1. **Configuration Guard**: If [`MichiuBuilderConfig::auto_resolve_cursor`] is `false`, this method returns immediately without doing anything.
-    /// 2. **Hover Lookup**: Queries the latest hovered element (`InteractionState::Hovered`) from [`Context`].
-    /// 3. **Fallback**: If no element is hovered, or if the hovered element specifies no custom cursor, it falls back to the default system cursor ([`CursorIcon::Default`]).
+    /// 2. **Hover Lookup**: Queries the latest hovered entity (`InteractionState::Hovered`) from [`Context`].
+    /// 3. **Fallback**: If no entity is hovered, or if the hovered entity specifies no custom cursor, it falls back to the default system cursor ([`CursorIcon::Default`]).
     /// 4. **OS Synchronization**: Converts the resolved icon into a native Win32 `HCURSOR` and updates the window's cursor via the underlying `SetCursor` API.
     ///
     /// # When to Call
@@ -1003,7 +1025,7 @@ impl MichiuApp {
 
         if let Ok(hcursor) = target_cursor.to_hcursor() {
             self.handle
-                .set_cursor_icon(michiu_window::CursorIcon::Other(hcursor));
+                .set_cursor_icon(window::CursorIcon::Other(hcursor));
         }
     }
 }
@@ -1026,7 +1048,7 @@ pub enum AutoSyncMode {
 /// Configuration for the standard pipeline of [`MichiuApp`].
 ///
 /// This is typically specified using the `with_*` methods of [`MichiuAppBuilder`].
-#[allow(clippy::struct_excessive_bools)]
+#[expect(clippy::struct_excessive_bools)]
 #[derive(Debug, Clone, Copy)]
 pub struct MichiuBuilderConfig {
     /// Whether to automatically dispatch raw input messages to `ExternalVisual`.
@@ -1052,7 +1074,7 @@ pub struct MichiuBuilderConfig {
     /// - **Purpose**: Set to `true` if you want to support assistive technologies such as screen readers.
     pub accessibility_support: bool,
 
-    /// Whether to automatically update the window's cursor icon based on the element being hovered over.
+    /// Whether to automatically update the window's cursor icon based on the entity being hovered over.
     ///
     /// - **Default**: `true`
     /// - **Purpose**: Set to `false` if you want to draw your own cursor or keep the OS cursor shape fixed.
@@ -1100,17 +1122,17 @@ impl Default for MichiuBuilderConfig {
 /// # Examples
 /// ```no_run
 /// # use michiu::prelude::*;
-/// # fn run(window: MichiuWindow, renderer: MichiuRenderer) -> Result<(), Box<dyn std::error::Error>> {
+/// # fn run(window: MichiuWindow, renderer: MichiuRenderer) -> Result<()> {
 /// let (mut app, mut pump) = MichiuAppBuilder::new(window)
 ///     .with_auto_resolve_cursor(true)
 ///     .with_default_shortcuts(true)
 ///     .build_with_ui(renderer, move || {
 ///         // Root UI tree
+///         div_n()
 ///     })?;
 /// # Ok(())
 /// # }
 /// ```
-#[allow(clippy::struct_excessive_bools)]
 pub struct MichiuAppBuilder {
     pub config: MichiuBuilderConfig,
     pub window: MichiuWindow,
@@ -1145,8 +1167,8 @@ impl MichiuAppBuilder {
     /// 2. Build the app using this method (or [`build_with_ui`](Self::build_with_ui)) and assemble the UI.
     /// 3. Only after everything is ready should you call **`handle.set_visible(true)`** to display the app.
     ///
-    /// # Regarding the State of the Root Element
-    /// At the time this method is called, the root element ([`root_id`](MichiuApp::try_root_id)) remains `None`.
+    /// # Regarding the State of the Root Entity
+    /// At the time this method is called, the root entity ([`root_id`](MichiuApp::try_root_id)) remains `None`.
     ///
     /// Be sure to register the UI using [`MichiuApp::build_ui`] or [`MichiuApp::set_root`] before starting the event loop.
     ///
@@ -1163,14 +1185,15 @@ impl MichiuAppBuilder {
     /// # Examples
     /// ```no_run
     /// # use michiu::prelude::*;
-    /// # fn run(window: MichiuWindow, renderer: MichiuRenderer) -> Result<(), Box<dyn std::error::Error>> {
+    /// # fn run(window: MichiuWindow, renderer: MichiuRenderer) -> Result<()> {
     /// let (mut app, mut pump) = MichiuAppBuilder::new(window)
     ///     .with_accessibility_support(true)
     ///     .build(renderer)?;
     ///
-    /// // Build UI and register the root element
+    /// // Build UI and register the root entity
     /// app.build_ui(move || {
     ///     // UI tree
+    ///     div_n()
     /// });
     ///
     /// // Make the window visible AFTER initialization
@@ -1179,10 +1202,7 @@ impl MichiuAppBuilder {
     /// # }
     /// ```
     #[inline]
-    pub fn build(
-        self,
-        renderer: MichiuRenderer,
-    ) -> michiu_window::Result<(MichiuApp, MichiuEventPump)> {
+    pub fn build(self, renderer: MichiuRenderer) -> window::Result<(MichiuApp, MichiuEventPump)> {
         let handle: Validated<WindowHandle> = self.window.handle().try_into()?;
         let hwnd = handle.hwnd();
 
@@ -1208,14 +1228,14 @@ impl MichiuAppBuilder {
                 context,
                 renderer,
                 handle,
-                root_id: None,
+                root: None,
                 config: self.config,
             },
             pump,
         ))
     }
 
-    /// Uses the builder to create [`MichiuApp`] and [`MichiuEventPump`], and performs the construction and registration of the root UI element in a single step.
+    /// Uses the builder to create [`MichiuApp`] and [`MichiuEventPump`], and performs the construction and registration of the root UI entity in a single step.
     ///
     /// This is a convenient shortcut equivalent to calling [`MichiuApp::build_ui`] after calling [`build`](Self::build).
     ///
@@ -1233,10 +1253,11 @@ impl MichiuAppBuilder {
     /// # Examples
     /// ```no_run
     /// # use michiu::prelude::*;
-    /// # fn run(window: MichiuWindow, renderer: MichiuRenderer) -> Result<(), Box<dyn std::error::Error>> {
+    /// # fn run(window: MichiuWindow, renderer: MichiuRenderer) -> Result<()> {
     /// let (mut app, mut pump) = MichiuAppBuilder::new(window)
     ///     .build_with_ui(renderer, move || {
     ///         // Root UI tree is automatically registered as the application root
+    ///         div_n()
     ///     })?;
     ///
     /// # Ok(())
@@ -1247,16 +1268,16 @@ impl MichiuAppBuilder {
         self,
         renderer: MichiuRenderer,
         ui_fn: F,
-    ) -> michiu_window::Result<(MichiuApp, MichiuEventPump)>
+    ) -> window::Result<(MichiuApp, MichiuEventPump)>
     where
-        F: FnOnce() -> Element,
+        F: FnOnce() -> Entity,
     {
         let (mut app, pump) = self.build(renderer)?;
         app.build_ui::<F>(ui_fn);
         Ok((app, pump))
     }
 
-    /// Whether to automatically update the window's cursor icon based on the element being hovered over.
+    /// Whether to automatically update the window's cursor icon based on the entity being hovered over.
     ///
     /// - **Default**: `true`
     /// - **Purpose**: Set to `false` if you want to draw your own cursor or keep the OS cursor shape fixed.
@@ -1322,7 +1343,7 @@ impl MichiuAppBuilder {
     /// # Examples
     /// ```no_run
     /// # use michiu::prelude::*;
-    /// # fn run(window: MichiuWindow, renderer: MichiuRenderer) -> Result<(), Box<dyn std::error::Error>> {
+    /// # fn run(window: MichiuWindow, renderer: MichiuRenderer) -> Result<()> {
     /// let inspector = MichiuInspector::new();
     /// let sub = inspector.subscribe(None); // Default buffer size: 128
     ///
@@ -1361,7 +1382,7 @@ impl MichiuAppBuilder {
     /// ```no_run
     /// # use michiu::prelude::*;
     /// # use michiu::ui::CapacityConfig;
-    /// # fn run(window: MichiuWindow, renderer: MichiuRenderer) -> Result<(), Box<dyn std::error::Error>> {
+    /// # fn run(window: MichiuWindow, renderer: MichiuRenderer) -> Result<()> {
     /// let (app, pump) = MichiuAppBuilder::new(window)
     ///     .with_capacity_config(CapacityConfig::from_base_nodes(1024))
     ///     .build(renderer)?;
@@ -1374,4 +1395,816 @@ impl MichiuAppBuilder {
         self.capacity = Some(config);
         self
     }
+}
+
+// ===================================================================
+// ===================================================================
+
+pub trait Cast<Target> {
+    fn cast(self) -> Target;
+}
+
+// window -> ui
+
+impl Cast<ui::LayoutSize> for window::LogicalSize {
+    #[inline]
+    #[expect(clippy::as_conversions, clippy::cast_possible_truncation)]
+    fn cast(self) -> LayoutSize {
+        ui::LayoutSize::new(self.width as f32, self.height as f32)
+    }
+}
+
+impl Cast<ui::LayoutSize> for window::PhysicalSize {
+    #[inline]
+    #[expect(clippy::as_conversions, clippy::cast_precision_loss)]
+    fn cast(self) -> LayoutSize {
+        ui::LayoutSize::new(self.width as f32, self.height as f32)
+    }
+}
+
+impl Cast<ui::LayoutPoint> for window::LogicalPoint {
+    #[inline]
+    #[expect(clippy::as_conversions, clippy::cast_possible_truncation)]
+    fn cast(self) -> ui::LayoutPoint {
+        ui::LayoutPoint {
+            x: self.x as f32,
+            y: self.y as f32,
+        }
+    }
+}
+
+impl Cast<ui::LayoutPoint> for window::PhysicalPoint {
+    #[inline]
+    #[expect(clippy::as_conversions, clippy::cast_precision_loss)]
+    fn cast(self) -> ui::LayoutPoint {
+        ui::LayoutPoint {
+            x: self.x as f32,
+            y: self.y as f32,
+        }
+    }
+}
+
+impl Cast<ui::LayoutRect> for window::LogicalRect {
+    #[inline]
+    #[expect(clippy::as_conversions, clippy::cast_possible_truncation)]
+    fn cast(self) -> ui::LayoutRect {
+        ui::LayoutRect {
+            // 原点は常に小さい方（左・上）を取る
+            x: self.left.min(self.right) as f32,
+            y: self.top.min(self.bottom) as f32,
+            // サイズは常に絶対差を取るのでに負数にならない
+            width: (self.right - self.left).abs() as f32,
+            height: (self.bottom - self.top).abs() as f32,
+        }
+    }
+}
+
+impl Cast<ui::LayoutRect> for window::PhysicalRect {
+    #[inline]
+    #[expect(clippy::as_conversions, clippy::cast_precision_loss)]
+    fn cast(self) -> ui::LayoutRect {
+        ui::LayoutRect {
+            x: self.left.min(self.right) as f32,
+            y: self.top.min(self.bottom) as f32,
+            // abs_diff は 2つの整数の絶対差を u32 で返す
+            width: self.right.abs_diff(self.left) as f32,
+            height: self.bottom.abs_diff(self.top) as f32,
+        }
+    }
+}
+
+// ui -> window
+
+impl Cast<window::LogicalSize> for ui::LayoutSize {
+    #[inline]
+    fn cast(self) -> window::LogicalSize {
+        LogicalSize {
+            width: f64::from(self.width),
+            height: f64::from(self.height),
+        }
+    }
+}
+
+impl Cast<window::PhysicalSize> for ui::LayoutSize {
+    #[inline]
+    fn cast(self) -> window::PhysicalSize {
+        window::PhysicalSize {
+            width: f32_round_to_i32(self.width).max(0),
+            height: f32_round_to_i32(self.height).max(0),
+        }
+    }
+}
+
+impl Cast<window::LogicalPoint> for ui::LayoutPoint {
+    #[inline]
+    fn cast(self) -> window::LogicalPoint {
+        window::LogicalPoint {
+            x: f64::from(self.x),
+            y: f64::from(self.y),
+        }
+    }
+}
+
+impl Cast<window::PhysicalPoint> for ui::LayoutPoint {
+    #[inline]
+    fn cast(self) -> window::PhysicalPoint {
+        window::PhysicalPoint {
+            x: f32_round_to_i32(self.x),
+            y: f32_round_to_i32(self.y),
+        }
+    }
+}
+
+impl Cast<window::LogicalRect> for ui::LayoutRect {
+    #[inline]
+    fn cast(self) -> window::LogicalRect {
+        window::LogicalRect {
+            left: f64::from(self.x),
+            top: f64::from(self.y),
+            right: f64::from(self.x + self.width),
+            bottom: f64::from(self.y + self.height),
+        }
+    }
+}
+
+impl Cast<window::PhysicalRect> for ui::LayoutRect {
+    #[inline]
+    fn cast(self) -> window::PhysicalRect {
+        let x1 = self.x;
+        let x2 = self.x + self.width;
+        let y1 = self.y;
+        let y2 = self.y + self.height;
+
+        window::PhysicalRect {
+            // min を left/top、max を right/bottom に割り当てることで万が一幅や高さがマイナスでも正常な矩形を維持する
+            left: f32_round_to_i32(x1.min(x2)),
+            top: f32_round_to_i32(y1.min(y2)),
+            right: f32_round_to_i32(x1.max(x2)),
+            bottom: f32_round_to_i32(y1.max(y2)),
+        }
+    }
+}
+
+#[inline]
+#[expect(clippy::as_conversions, clippy::cast_possible_truncation)]
+fn f32_round_to_i32(val: f32) -> i32 {
+    val.round() as i32
+}
+
+// ===================================================================
+// ===================================================================
+
+#[inline]
+#[expect(clippy::as_conversions, clippy::cast_possible_truncation)]
+fn f64_round_to_i32(val: f64) -> i32 {
+    val.round() as i32
+}
+
+#[inline]
+#[expect(clippy::as_conversions, clippy::cast_possible_truncation)]
+fn f64_to_f32(val: f64) -> f32 {
+    val as f32
+}
+
+pub trait CastScaled<Target> {
+    fn cast_scaled(self, scale_factor: f64) -> Target;
+}
+
+// window -> ui
+
+impl CastScaled<ui::LayoutSize> for window::PhysicalSize {
+    #[inline]
+    fn cast_scaled(self, scale_factor: f64) -> ui::LayoutSize {
+        let scale = scale_factor.max(0.001); // ゼロ除算防止
+        ui::LayoutSize::new(
+            f64_to_f32(f64::from(self.width) / scale),
+            f64_to_f32(f64::from(self.height) / scale),
+        )
+    }
+}
+
+impl CastScaled<ui::LayoutPoint> for window::PhysicalPoint {
+    #[inline]
+    fn cast_scaled(self, scale_factor: f64) -> ui::LayoutPoint {
+        let scale = scale_factor.max(0.001);
+        ui::LayoutPoint {
+            x: f64_to_f32(f64::from(self.x) / scale),
+            y: f64_to_f32(f64::from(self.y) / scale),
+        }
+    }
+}
+
+impl CastScaled<ui::LayoutRect> for window::PhysicalRect {
+    #[inline]
+    fn cast_scaled(self, scale_factor: f64) -> ui::LayoutRect {
+        let scale = scale_factor.max(0.001);
+        let x1 = f64::from(self.left) / scale;
+        let x2 = f64::from(self.right) / scale;
+        let y1 = f64::from(self.top) / scale;
+        let y2 = f64::from(self.bottom) / scale;
+
+        ui::LayoutRect {
+            // 原点は常に最小値（左・上）を取り反転を正規化
+            x: f64_to_f32(x1.min(x2)),
+            y: f64_to_f32(y1.min(y2)),
+            // サイズは常に絶対差（正数）を保証
+            width: f64_to_f32((x2 - x1).abs()),
+            height: f64_to_f32((y2 - y1).abs()),
+        }
+    }
+}
+
+// ui -> window
+
+impl CastScaled<window::PhysicalSize> for ui::LayoutSize {
+    #[inline]
+    fn cast_scaled(self, scale_factor: f64) -> window::PhysicalSize {
+        window::PhysicalSize {
+            // 四捨五入してスナップかつ負数を防止
+            width: f64_round_to_i32(f64::from(self.width) * scale_factor).max(0),
+            height: f64_round_to_i32(f64::from(self.height) * scale_factor).max(0),
+        }
+    }
+}
+
+impl CastScaled<window::PhysicalPoint> for ui::LayoutPoint {
+    #[inline]
+    fn cast_scaled(self, scale_factor: f64) -> window::PhysicalPoint {
+        window::PhysicalPoint {
+            x: f64_round_to_i32(f64::from(self.x) * scale_factor),
+            y: f64_round_to_i32(f64::from(self.y) * scale_factor),
+        }
+    }
+}
+
+impl CastScaled<window::PhysicalRect> for ui::LayoutRect {
+    #[inline]
+    fn cast_scaled(self, scale_factor: f64) -> window::PhysicalRect {
+        let x1 = f64_round_to_i32(f64::from(self.x) * scale_factor);
+        let x2 = f64_round_to_i32(f64::from(self.x + self.width) * scale_factor);
+        let y1 = f64_round_to_i32(f64::from(self.y) * scale_factor);
+        let y2 = f64_round_to_i32(f64::from(self.y + self.height) * scale_factor);
+
+        window::PhysicalRect {
+            // min を left/top、max を right/bottom にして Win32 互換を保つ
+            left: x1.min(x2),
+            top: y1.min(y2),
+            right: x1.max(x2),
+            bottom: y1.max(y2),
+        }
+    }
+}
+
+// ===================================================================
+// ===================================================================
+
+// window -> ui
+
+impl Cast<ui::ElementState> for window::ElementState {
+    #[inline]
+    fn cast(self) -> ui::ElementState {
+        match self {
+            window::ElementState::Pressed => ui::ElementState::Pressed,
+            window::ElementState::Released => ui::ElementState::Released,
+        }
+    }
+}
+
+impl Cast<ui::Modifiers> for window::Modifiers {
+    #[inline]
+    fn cast(self) -> ui::Modifiers {
+        ui::Modifiers {
+            shift: self.contains(window::Modifiers::SHIFT),
+            ctrl: self.contains(window::Modifiers::CONTROL),
+            alt: self.contains(window::Modifiers::ALT),
+            logo: self.contains(window::Modifiers::LOGO),
+        }
+    }
+}
+
+impl Cast<ui::MouseButton> for window::MouseButton {
+    #[inline]
+    fn cast(self) -> ui::MouseButton {
+        match self {
+            window::MouseButton::Left => ui::MouseButton::Left,
+            window::MouseButton::Right => ui::MouseButton::Right,
+            window::MouseButton::Middle => ui::MouseButton::Middle,
+            window::MouseButton::Other(param) => {
+                if param == VK_XBUTTON1.0 {
+                    ui::MouseButton::X1
+                } else if param == VK_XBUTTON2.0 {
+                    ui::MouseButton::X2
+                } else {
+                    ui::MouseButton::Left // 一旦 Left にフォールバック
+                }
+            }
+        }
+    }
+}
+
+// ui -> window
+
+impl Cast<window::ElementState> for ui::ElementState {
+    #[inline]
+    fn cast(self) -> window::ElementState {
+        match self {
+            ElementState::Pressed => window::ElementState::Pressed,
+            ElementState::Released => window::ElementState::Released,
+        }
+    }
+}
+
+impl Cast<window::Modifiers> for ui::Modifiers {
+    #[inline]
+    fn cast(self) -> window::Modifiers {
+        let mut modifiers = window::Modifiers::empty();
+
+        if self.shift {
+            modifiers.insert(window::Modifiers::SHIFT);
+        }
+        if self.ctrl {
+            modifiers.insert(window::Modifiers::CONTROL);
+        }
+        if self.alt {
+            modifiers.insert(window::Modifiers::ALT);
+        }
+        if self.logo {
+            modifiers.insert(window::Modifiers::LOGO);
+        }
+
+        modifiers
+    }
+}
+
+impl Cast<window::MouseButton> for ui::MouseButton {
+    #[inline]
+    fn cast(self) -> window::MouseButton {
+        match self {
+            MouseButton::Left => window::MouseButton::Left,
+            MouseButton::Right => window::MouseButton::Right,
+            MouseButton::Middle => window::MouseButton::Middle,
+            MouseButton::X1 => window::MouseButton::Other(VK_XBUTTON1.0),
+            MouseButton::X2 => window::MouseButton::Other(VK_XBUTTON2.0),
+        }
+    }
+}
+
+// ===================================================================
+// ===================================================================
+
+impl Cast<ui::ImeState> for window::ImeStateUpdate {
+    #[inline]
+    fn cast(self) -> ui::ImeState {
+        ImeState {
+            is_open: self.is_open,
+            conversion_mode: self.conversion_mode,
+            sentence_mode: self.sentence_mode,
+            keyboard_layout_id: self.keyboard_layout_id,
+            composition_text: self.composition_text.into(),
+            result_text: self.result_text.into(),
+            caret_position: self.caret_position.map(Cast::cast),
+            composition_cursor: CharIndex(self.composition_cursor),
+            composition_attrs: self.composition_attrs,
+        }
+    }
+}
+
+pub trait CastIme<Target> {
+    fn cast_ime(self, window_id: WindowId) -> Target;
+}
+
+impl CastIme<window::ImeStateUpdate> for ui::ImeState {
+    fn cast_ime(self, window_id: WindowId) -> window::ImeStateUpdate {
+        window::ImeStateUpdate {
+            window_id: window_id.id(),
+            is_open: self.is_open,
+            conversion_mode: self.conversion_mode,
+            sentence_mode: self.sentence_mode,
+            keyboard_layout_id: self.keyboard_layout_id,
+            composition_text: self.composition_text.into(),
+            result_text: self.result_text.into(),
+            caret_position: self.caret_position.map(Cast::cast),
+            composition_cursor: self.composition_cursor.0,
+            composition_attrs: self.composition_attrs,
+        }
+    }
+}
+
+pub type Result<T> = std::result::Result<T, MichiuError>;
+
+#[derive(Debug, Error)]
+pub enum MichiuError {
+    #[error("window error: {0}")]
+    Window(#[from] window::MichiuError),
+
+    #[error("ui error: {0}")]
+    Ui(#[from] ui::MichiuError),
+
+    #[error("invalid size: {0}")]
+    InvalidSize(#[from] SizeValidationError),
+
+    #[error("invalid point: {0}")]
+    InvalidPoint(#[from] PointValidationError),
+
+    #[error("invalid key: {0}")]
+    Invalidkey(#[from] KeyValidationError),
+
+    #[error("invalid key: {0}")]
+    InvalidWheel(#[from] WheelValidationError),
+
+    #[error("invalid ime: {0}")]
+    InvalidIme(#[from] ImeValidationError),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+pub enum SizeValidationError {
+    #[error("window size contains negative values (width: {width}, height: {height})")]
+    Negative { width: i32, height: i32 },
+
+    #[error("window size is zero (window may be minimized)")]
+    Zero { width: i32, height: i32 },
+
+    #[error(
+        "window size exceeds maximum allowed dimension `16_384` (width: {width}, height: {height})"
+    )]
+    TooLarge { width: i32, height: i32 },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+pub enum PointValidationError {
+    #[error("cursor position is out of reasonable virtual bounds ({x}, {y})")]
+    OutOfBounds { x: i32, y: i32 },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+pub enum KeyValidationError {
+    #[error("key code is zero or undefined")]
+    Zero,
+
+    #[error("key code exceeds 8-bit virtual key range: {0:#X}")]
+    OutOfRange(u16),
+
+    #[error("mouse button code received in keyboard event: {0:#X}")]
+    MouseButton(u16),
+
+    #[error("IME is processing the key (VK_PROCESSKEY)")]
+    ImeProcessKey,
+
+    #[error("packet/unicode injection key (VK_PACKET)")]
+    PacketKey,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+pub enum WheelValidationError {
+    #[error("wheel delta was likely unpacked without sign extension (value: {0})")]
+    SignExtensionBug(i32),
+
+    #[error("wheel delta exceeds reasonable physical limits (value: {0})")]
+    TooFast(i32),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+pub enum ImeValidationError {
+    #[error(
+        "composition cursor is invalid or points out of text bounds (cursor: {cursor}, text_len: {text_len})"
+    )]
+    CursorOutOfBounds { cursor: usize, text_len: usize },
+
+    #[error(
+        "composition attributes length does not match text length (attrs: {attrs_len}, text: {text_len})"
+    )]
+    AttributeLengthMismatch { attrs_len: usize, text_len: usize },
+
+    #[error("text contains invalid control characters or null bytes")]
+    CorruptedText,
+}
+
+/// A collection of built-in validation helpers for incoming window events.
+///
+/// Provides standard validation routines for raw, unverified data ([`Unvalidated`][crate::guard::Unvalidated])
+/// originating from Win32 APIs, guarding against out-of-bounds panics, integer overflow, and system quirks.
+///
+/// Designed to be passed directly as function pointers into [`validate_with`][crate::guard::Unvalidated::validate_with].
+///
+/// # Available Validators
+///
+/// - [`window_bounds`][Self::window_bounds]: Guards against zero, negative, and oversized dimensions (minimization & GPU limits).
+/// - [`cursor_bounds`][Self::cursor_bounds]: Catches corrupted coordinates outside virtual bounds (preserves valid negative drag coords).
+/// - [`keyboard_input`][Self::keyboard_input]: Filters out IME composition keys (`VK_PROCESSKEY`) and invalid 8-bit keycodes.
+/// - [`wheel_event`][Self::wheel_event]: Detects sign-extension unpacking bugs and runaway scroll deltas.
+/// - [`ime_event`][Self::ime_event]: Prevents null bytes, cursor overflows, and attribute length mismatches.
+///
+/// # Examples
+///
+/// ```
+/// use michiu::prelude::*;
+///
+/// # fn test(event: MichiuEvent) {
+/// match event {
+///     MichiuEvent::Resized(phy_size) => {
+///         let valid_size = phy_size
+///             .validate_with(MichiuValidator::window_bounds)
+///             .map_or(PhysicalSize::new(1, 1), Validated::into_inner);
+///     }
+///     MichiuEvent::CursorMoved { position } => {
+///         if let Ok(pos) = position.validate_with(MichiuValidator::cursor_bounds) {
+///             // Process only valid coordinates
+///         }
+///     }
+///     _ => {}
+/// }
+/// # }
+/// ```
+pub struct MichiuValidator;
+impl MichiuValidator {
+    // 最大テクスチャサイズの目安
+    pub const MAX_WINDOW_DIMENSION: i32 = 16_384;
+
+    // Win32の仮想スクリーンとしてあり得る最大境界
+    pub const MIN_CURSOR_COORD: i32 = -32_768;
+    pub const MAX_CURSOR_COORD: i32 = 32_767;
+
+    // 1フレームあたりの妥当な最大デルタ
+    pub const MAX_REASONABLE_DELTA: i32 = 6_000;
+
+    /// Validates that the physical window size is within a safe, renderable range.
+    ///
+    /// Checks that the dimensions are non-negative, non-zero, and do not exceed
+    /// the maximum allowed texture limit ([`MAX_WINDOW_DIMENSION`](MichiuValidator::MAX_WINDOW_DIMENSION)).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MichiuError::InvalidSize`] under the following conditions:
+    ///
+    /// - **[`SizeValidationError::Negative`]**: If either `width` or `height` is less than 0.
+    /// - **[`SizeValidationError::Zero`]**: If either `width` or `height` is equal to 0 (e.g., when minimized).
+    /// - **[`SizeValidationError::TooLarge`]**: If either dimension exceeds [`MAX_WINDOW_DIMENSION`](MichiuValidator::MAX_WINDOW_DIMENSION).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use michiu::prelude::*;
+    ///
+    /// assert!(MichiuValidator::window_bounds(PhysicalSize::new(800, 600)).is_ok());
+    ///
+    /// assert!(MichiuValidator::window_bounds(PhysicalSize::new(0, 600)).is_err());
+    /// assert!(MichiuValidator::window_bounds(PhysicalSize::new(MichiuValidator::MAX_WINDOW_DIMENSION + 1, 600)).is_err());
+    /// ```
+    pub fn window_bounds(size: PhysicalSize) -> Result<PhysicalSize> {
+        let (w, h) = (size.width, size.height);
+        if w < 0 || h < 0 {
+            return Err(MichiuError::InvalidSize(SizeValidationError::Negative {
+                width: w,
+                height: h,
+            }));
+        }
+        if w == 0 || h == 0 {
+            return Err(MichiuError::InvalidSize(SizeValidationError::Zero {
+                width: w,
+                height: h,
+            }));
+        }
+        if w > MichiuValidator::MAX_WINDOW_DIMENSION || h > MichiuValidator::MAX_WINDOW_DIMENSION {
+            return Err(MichiuError::InvalidSize(SizeValidationError::TooLarge {
+                width: w,
+                height: h,
+            }));
+        }
+        Ok(size)
+    }
+
+    /// Validates that the cursor position is within a reasonable virtual screen boundary.
+    ///
+    /// Checks that the coordinates are within the Win32 virtual screen limits ([`MIN_CURSOR_COORD`](MichiuValidator::MIN_CURSOR_COORD)..=[`MAX_CURSOR_COORD`](MichiuValidator::MAX_CURSOR_COORD)) to prevent corrupted data or integer overflow.
+    ///
+    /// # Notes
+    ///
+    /// Negative coordinates are considered valid to properly support multi-monitor setups (screens positioned to the left or top of the primary monitor) and mouse drag operations captured outside the window.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MichiuError::InvalidPoint`] ([`PointValidationError::OutOfBounds`])
+    /// if either the X or Y coordinate is outside the allowed virtual bounds.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use michiu::prelude::*;
+    ///
+    /// assert!(MichiuValidator::cursor_bounds(PhysicalPoint::new(100, 200)).is_ok());
+    /// assert!(MichiuValidator::cursor_bounds(PhysicalPoint::new(-50, -100)).is_ok());
+    ///
+    /// assert!(MichiuValidator::cursor_bounds(PhysicalPoint::new(MichiuValidator::MAX_CURSOR_COORD + 1, 0)).is_err());
+    /// assert!(MichiuValidator::cursor_bounds(PhysicalPoint::new(0, MichiuValidator::MIN_CURSOR_COORD - 1)).is_err());
+    /// ```
+    pub fn cursor_bounds(point: PhysicalPoint) -> Result<PhysicalPoint> {
+        let (x, y) = (point.x, point.y);
+
+        // 仮想スクリーンの範囲を逸脱していないかチェック
+        if !(MichiuValidator::MIN_CURSOR_COORD..=MichiuValidator::MAX_CURSOR_COORD).contains(&x)
+            || !(MichiuValidator::MIN_CURSOR_COORD..=MichiuValidator::MAX_CURSOR_COORD).contains(&y)
+        {
+            return Err(MichiuError::InvalidPoint(
+                PointValidationError::OutOfBounds { x, y },
+            ));
+        }
+
+        Ok(point)
+    }
+
+    /// Validates that a [`VIRTUAL_KEY`] represents a valid, dispatchable keystroke.
+    ///
+    /// Filters out undefined/corrupted values (outside the 8-bit range), mouse button codes,
+    /// and special keys that should not be handled as physical keystrokes (such as IME compositions).
+    ///
+    /// # Notes
+    ///
+    /// - **IME Input**: When typing with an active IME (e.g., Japanese input), [`VK_PROCESSKEY`] is emitted.
+    ///   This is rejected to prevent triggering UI shortcut keys accidentally.
+    /// - **Text Injection**: [`VK_PACKET`], which is used to inject raw Unicode characters via software keyboards
+    ///   or input tools, is also rejected as it should be handled by text/character input events instead.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MichiuError::Invalidkey`] under the following conditions:
+    ///
+    /// - **[`KeyValidationError::Zero`]**: The key code is 0 (undefined).
+    /// - **[`KeyValidationError::OutOfRange`]**: The code exceeds the standard 8-bit virtual key range (`> 0xFF`).
+    /// - **[`KeyValidationError::MouseButton`]**: The code is a mouse button virtual key (`VK_LBUTTON`..=`VK_XBUTTON2`).
+    /// - **[`KeyValidationError::ImeProcessKey`]**: The key is an active IME composition key ([`VK_PROCESSKEY`]).
+    /// - **[`KeyValidationError::PacketKey`]**: The key is a character packet injection ([`VK_PACKET`]).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use michiu::prelude::*;
+    /// use windows::Win32::UI::Input::KeyboardAndMouse::*;
+    ///
+    /// assert!(MichiuValidator::keyboard_input(VK_RETURN).is_ok());
+    /// assert!(MichiuValidator::keyboard_input(VK_A).is_ok());
+    ///
+    /// assert!(MichiuValidator::keyboard_input(VIRTUAL_KEY(0)).is_err());
+    /// assert!(MichiuValidator::keyboard_input(VIRTUAL_KEY(0x0100)).is_err());
+    ///
+    /// assert!(MichiuValidator::keyboard_input(VK_PROCESSKEY).is_err());
+    /// assert!(MichiuValidator::keyboard_input(VK_LBUTTON).is_err());
+    /// ```
+    pub fn keyboard_input(key_code: VIRTUAL_KEY) -> Result<VIRTUAL_KEY> {
+        let code = key_code.0;
+
+        // 範囲チェック (0 または 256 以上)
+        if code == 0 {
+            return Err(MichiuError::Invalidkey(KeyValidationError::Zero));
+        }
+        if code > 0xFF {
+            return Err(MichiuError::Invalidkey(KeyValidationError::OutOfRange(
+                code,
+            )));
+        }
+
+        // マウスボタンの混入チェック
+        if (VK_LBUTTON.0..=VK_XBUTTON2.0).contains(&code) {
+            return Err(MichiuError::Invalidkey(KeyValidationError::MouseButton(
+                code,
+            )));
+        }
+
+        // IME・特殊入力のチェック
+        if key_code == VK_PROCESSKEY {
+            return Err(MichiuError::Invalidkey(KeyValidationError::ImeProcessKey));
+        }
+        if key_code == VK_PACKET {
+            return Err(MichiuError::Invalidkey(KeyValidationError::PacketKey));
+        }
+
+        Ok(key_code)
+    }
+
+    /// Validates that a raw mouse wheel delta ([`WheelDelta`]) is within a safe, physical range.
+    ///
+    /// Protects against common Win32 sign-extension bugs (where negative values turn into ~65,000) and runaway scroll values caused by faulty drivers or erratic touchpads.
+    ///
+    /// # Notes
+    ///
+    /// - **Zero Deltas**: A value of `0` is considered valid by this function alone, because Win32 delivers horizontal and vertical wheel messages separately (meaning one axis is normally `0`).
+    ///   Checking whether *both* axes are zero should be handled by the caller.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MichiuError::InvalidWheel`] under the following conditions:
+    ///
+    /// - **[`WheelValidationError::SignExtensionBug`]**: The value falls within `32_768..=65_535`.
+    ///   This strongly indicates a 16-bit signed `short` was mistakenly unpacked without proper sign extension.
+    /// - **[`WheelValidationError::TooFast`]**: The absolute value exceeds [`MAX_REASONABLE_DELTA`](MichiuValidator::MAX_REASONABLE_DELTA) (~50 notches).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use michiu::prelude::*;
+    ///
+    /// assert!(MichiuValidator::wheel_event(WheelDelta(120)).is_ok());
+    /// assert!(MichiuValidator::wheel_event(WheelDelta(-120)).is_ok());
+    ///
+    /// assert!(MichiuValidator::wheel_event(WheelDelta(65416)).is_err());
+    /// assert!(MichiuValidator::wheel_event(WheelDelta(MichiuValidator::MAX_REASONABLE_DELTA + 1)).is_err());
+    /// ```
+    pub fn wheel_event(raw_delta: WheelDelta) -> Result<WheelDelta> {
+        let val = raw_delta.0;
+
+        // 符号なし拡張バグの検知 (0xFF88 などが 65000 付近になるのを弾く)
+        if (32_768..=65_535).contains(&val) {
+            return Err(MichiuError::InvalidWheel(
+                WheelValidationError::SignExtensionBug(val),
+            ));
+        }
+
+        // 極端な値 (-6000 ..= 6000 を超えるものは弾く)
+        if val.abs() > MichiuValidator::MAX_REASONABLE_DELTA {
+            return Err(MichiuError::InvalidWheel(WheelValidationError::TooFast(
+                val,
+            )));
+        }
+
+        Ok(raw_delta)
+    }
+
+    /// Validates that an [`ImeStateUpdate`] payload is safe for memory and string access.
+    ///
+    /// Guards against panic-inducing conditions in the UI layer, such as null-byte contamination from Win32 C-strings, out-of-bounds cursor positions (e.g., unsigned overflow from `-1`),
+    /// and length mismatches between composition attributes and text.
+    ///
+    /// # Notes
+    ///
+    /// - **End-of-text Cursor**: A `composition_cursor` pointing exactly at the end of the string (`cursor == char_count`) is valid and indicates the cursor is at the tail.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MichiuError::InvalidIme`] under the following conditions:
+    ///
+    /// - **[`ImeValidationError::CorruptedText`]**: Either `composition_text` or `result_text`
+    ///   contains embedded null bytes (`\0`).
+    /// - **[`ImeValidationError::CursorOutOfBounds`]**: `composition_cursor` exceeds the character
+    ///   count of `composition_text`.
+    /// - **[`ImeValidationError::AttributeLengthMismatch`]**: The length of `composition_attrs`
+    ///   does not match the character count of `composition_text`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use michiu::{prelude::*, window::ImeStateUpdate};
+    ///
+    /// // Valid IME composition state
+    /// let mut ime = ImeStateUpdate::default();
+    /// ime.composition_text = "Typing".into();
+    /// ime.composition_cursor = 6; // Cursor at the end is valid
+    /// assert!(MichiuValidator::ime_event(ime).is_ok());
+    ///
+    /// // Cursor beyond text boundary returns an error
+    /// let mut invalid_ime = ImeStateUpdate::default();
+    /// invalid_ime.composition_text = "Text".into();
+    /// invalid_ime.composition_cursor = 10;
+    /// assert!(MichiuValidator::ime_event(invalid_ime).is_err());
+    /// ```
+    pub fn ime_event(ime: ImeStateUpdate) -> Result<ImeStateUpdate> {
+        // Null文字の混入
+        if ime.composition_text.contains('\0') || ime.result_text.contains('\0') {
+            return Err(MichiuError::InvalidIme(ImeValidationError::CorruptedText));
+        }
+
+        let char_count = ime.composition_text.chars().count();
+
+        // カーソル位置
+        // 末尾 (cursor == char_count) は正常
+        if ime.composition_cursor > char_count {
+            return Err(MichiuError::InvalidIme(
+                ImeValidationError::CursorOutOfBounds {
+                    cursor: ime.composition_cursor,
+                    text_len: char_count,
+                },
+            ));
+        }
+
+        // 属性配列の長さ一致
+        if !ime.composition_text.is_empty()
+            && !ime.composition_attrs.is_empty()
+            && ime.composition_attrs.len() != char_count
+        {
+            return Err(MichiuError::InvalidIme(
+                ImeValidationError::AttributeLengthMismatch {
+                    attrs_len: ime.composition_attrs.len(),
+                    text_len: char_count,
+                },
+            ));
+        }
+
+        Ok(ime)
+    }
+}
+
+#[macro_export]
+macro_rules! debug_eprintln {
+    ($($arg:tt)*) => {
+        #[cfg(debug_assertions)]
+        eprintln!($($arg)*);
+    };
 }

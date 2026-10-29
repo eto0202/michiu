@@ -4,10 +4,10 @@ pub use scrollbar::*;
 
 use crate::{
     ActiveMasksSecondary, ActiveTransitionsSparse, BasicLayout, CapacityConfig, ChildrenSecondary,
-    ComponentMask, Context, DebugStore, EdgeInsets, EntityId, FlexDirection, FlexLayout,
-    GridLayout, InteractionPropertiesSecondary, InteractionStyles, LayoutRect, Length, MichiuSoA,
-    ParentsSecondary, PropertyList, Rect, RenderStore, StyleTarget, TaffyResultTraceExt, TextAlign,
-    ThisStyle, VisualPropertiesSecondary, define_secondary, define_sparse_secondary, define_vec,
+    ComponentMask, Context, DebugStore, EdgeInsets, Entity, FlexDirection, FlexLayout, GridLayout,
+    InteractionPropertiesSecondary, InteractionStyles, LayoutRect, Length, MichiuSoA, ModTarget,
+    Modifier, ParentsSecondary, PropertyList, Rect, RenderStore, TaffyResultTraceExt, TextAlign,
+    VisualPropertiesSecondary, define_secondary, define_sparse_secondary, define_vec,
 };
 use slotmap::{SecondaryMap, SparseSecondaryMap};
 use std::sync::Arc;
@@ -23,14 +23,14 @@ define_secondary!(pub struct ResolvedFlexSecondary(FlexLayout));
 
 impl FlexLayoutsSecondary {
     #[inline]
-    pub(crate) fn flex_direction(&self, id: EntityId) -> FlexDirection {
+    pub(crate) fn flex_direction(&self, id: Entity) -> FlexDirection {
         self.find(id).map(|f| f.flex_direction).unwrap_or_default()
     }
 }
 
 impl ResolvedFlexSecondary {
     #[inline]
-    pub(crate) fn text_algin(&self, id: EntityId) -> TextAlign {
+    pub(crate) fn text_algin(&self, id: Entity) -> TextAlign {
         self.find(id).map(|f| f.text_align).unwrap_or_default()
     }
 }
@@ -38,14 +38,14 @@ impl ResolvedFlexSecondary {
 define_sparse_secondary!(pub struct GridLayoutsSparse(GridLayout));
 define_sparse_secondary!(pub struct ResolvedGridSparse(GridLayout));
 
-define_vec!(pub struct DirtyLayoutEntitiesVec(EntityId));
+define_vec!(pub struct DirtyLayoutEntitiesVec(Entity));
 
-pub type TaffyTreeEntityId = taffy::TaffyTree<EntityId>;
+pub type TaffyTreeEntity = taffy::TaffyTree<Entity>;
 
 pub struct LayoutStore {
     pub(crate) scrollbar: ScrollbarStore,
     pub(crate) lay_dirty_entities: DirtyLayoutEntitiesVec,
-    pub(crate) lay_taffy_tree: TaffyTreeEntityId,
+    pub(crate) lay_taffy_tree: TaffyTreeEntity,
     pub(crate) lay_taffy_nodes: TaffyNodesSecondary,
     pub(crate) lay_basic: BasicLayoutsSecondary,
     pub(crate) lay_flex: FlexLayoutsSecondary,
@@ -127,7 +127,7 @@ impl LayoutStore {
     }
 
     #[inline]
-    pub(crate) fn despawn(&mut self, id: EntityId) {
+    pub(crate) fn despawn(&mut self, id: Entity) {
         self.scrollbar.despawn(id);
         self.lay_dirty_entities.retain(|&x| x != id);
         self.lay_taffy_nodes.remove(id);
@@ -147,7 +147,7 @@ impl LayoutStore {
     #[track_caller]
     #[inline]
     pub(crate) fn resolve_active_layouts(
-        id: EntityId,
+        id: Entity,
         topo_active_masks: &ActiveMasksSecondary,
         topo_parents: &ParentsSecondary,
         lay_basic: &BasicLayoutsSecondary,
@@ -201,7 +201,7 @@ impl LayoutStore {
 
     #[inline]
     pub(crate) fn update_resolved_active_layout_cache(
-        id: EntityId,
+        id: Entity,
         topo_active_masks: &ActiveMasksSecondary,
         topo_parents: &ParentsSecondary,
         lay_resolved_basic: &mut ResolvedBasicSecondary,
@@ -238,12 +238,12 @@ impl LayoutStore {
     }
     /// ターゲット状態に応じた `BasicLayout` の可変参照を引き出す
     pub(crate) fn get_basic_layout_mut<'a>(
-        id: EntityId,
-        target: StyleTarget,
+        id: Entity,
+        target: ModTarget,
         lay_base_basic: &'a mut BaseBasicLayoutsSecondary,
         rnd_interaction: &'a mut InteractionPropertiesSecondary,
     ) -> &'a mut BasicLayout {
-        if target == StyleTarget::Base {
+        if target == ModTarget::Base {
             lay_base_basic.at_mut(id)
         } else {
             if !rnd_interaction.contains_key(id) {
@@ -251,18 +251,18 @@ impl LayoutStore {
             }
             // 上で入れたばっかだから Some のはず
             let styles = rnd_interaction.at_mut(id);
-            let style_ref = styles.get_style_target_mut(target);
+            let style_ref = styles.get_mod_target_mut(target);
             &mut Arc::make_mut(&mut style_ref.inner).basic_layout
         }
     }
 
     pub(crate) fn get_flex_layout_mut<'a>(
-        id: EntityId,
-        target: StyleTarget,
+        id: Entity,
+        target: ModTarget,
         lay_flex: &'a mut FlexLayoutsSecondary,
         rnd_interaction: &'a mut InteractionPropertiesSecondary,
     ) -> &'a mut FlexLayout {
-        if target == StyleTarget::Base {
+        if target == ModTarget::Base {
             lay_flex.at_mut(id)
         } else {
             if !rnd_interaction.contains_key(id) {
@@ -270,13 +270,13 @@ impl LayoutStore {
             }
             // 上で入れたばっかだから Some のはず
             let styles = rnd_interaction.at_mut(id);
-            let style_ref = styles.get_style_target_mut(target);
+            let style_ref = styles.get_mod_target_mut(target);
             &mut Arc::make_mut(&mut style_ref.inner).flex_layout
         }
     }
 
     pub(crate) fn is_transition_currently_running(
-        id: EntityId,
+        id: Entity,
         rnd_active_transitions: &ActiveTransitionsSparse,
     ) -> (bool, bool) {
         let Some(list) = rnd_active_transitions.find(id) else {
@@ -303,12 +303,12 @@ impl LayoutStore {
     }
 
     pub(crate) fn apply_interaction_styles(
-        id: EntityId,
+        id: Entity,
         active_mask: &ComponentMask,
         basic: &mut BasicLayout,
         flex: &mut FlexLayout,
         grid: &mut Option<GridLayout>,
-        focused_resolved: &[Option<ThisStyle>; 2],
+        focused_resolved: &[Option<Modifier>; 2],
         is_transitioning: (bool, bool),
         rnd_interaction: &InteractionPropertiesSecondary,
     ) {
@@ -355,7 +355,7 @@ impl LayoutStore {
 
     // Taffyスタイルを一括解決するヘルパー
     pub(crate) fn resolve_taffy_style(
-        id: EntityId,
+        id: Entity,
         basic: &BasicLayout,
         flex: &FlexLayout,
         grid: Option<&GridLayout>,
@@ -467,11 +467,11 @@ impl LayoutStore {
     #[track_caller]
     #[inline]
     pub(crate) fn set_taffy_style(
-        id: EntityId,
+        id: Entity,
         basic: &BasicLayout,
         flex: &FlexLayout,
         grid: Option<&GridLayout>,
-        lay_taffy_tree: &mut TaffyTreeEntityId,
+        lay_taffy_tree: &mut TaffyTreeEntity,
         lay_taffy_nodes: &TaffyNodesSecondary,
         bar_styles: &ScrollbarStylesSparse,
         debug: &mut DebugStore,
@@ -486,8 +486,8 @@ impl LayoutStore {
     #[track_caller]
     #[inline]
     pub(crate) fn local_rect_from_taffy(
-        id: EntityId,
-        lay_taffy_tree: &TaffyTreeEntityId,
+        id: Entity,
+        lay_taffy_tree: &TaffyTreeEntity,
         lay_taffy_nodes: &TaffyNodesSecondary,
     ) -> LayoutRect {
         let taffy_node = *lay_taffy_nodes.at(id);
@@ -509,9 +509,9 @@ impl LayoutStore {
     #[track_caller]
     #[inline]
     pub(crate) fn resync_taffy_children_order(
-        parent_id: EntityId,
+        parent_id: Entity,
         topo_children: &ChildrenSecondary,
-        lay_taffy_tree: &mut TaffyTreeEntityId,
+        lay_taffy_tree: &mut TaffyTreeEntity,
         lay_taffy_nodes: &TaffyNodesSecondary,
         debug: &mut DebugStore,
     ) {
@@ -551,11 +551,11 @@ impl LayoutStore {
     #[track_caller]
     #[inline]
     pub(crate) fn mark_layout_dirty(
-        id: EntityId,
+        id: Entity,
         topo_active_masks: &mut ActiveMasksSecondary,
         topo_parents: &ParentsSecondary,
         lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
-        lay_taffy_tree: &mut TaffyTreeEntityId,
+        lay_taffy_tree: &mut TaffyTreeEntity,
         lay_taffy_nodes: &TaffyNodesSecondary,
         debug: &mut DebugStore,
     ) {
@@ -635,7 +635,7 @@ impl LayoutStore {
     }
 
     #[inline]
-    pub fn taffy_tree_mut(&mut self) -> &mut TaffyTree<EntityId> {
+    pub fn taffy_tree_mut(&mut self) -> &mut TaffyTree<Entity> {
         &mut self.lay_taffy_tree
     }
 
@@ -649,8 +649,8 @@ impl Context {
     #[inline]
     pub(crate) fn get_basic_layout_mut(
         &mut self,
-        id: EntityId,
-        target: StyleTarget,
+        id: Entity,
+        target: ModTarget,
     ) -> &mut BasicLayout {
         LayoutStore::get_basic_layout_mut(
             id,
@@ -661,11 +661,7 @@ impl Context {
     }
 
     #[inline]
-    pub(crate) fn get_flex_layout_mut(
-        &mut self,
-        id: EntityId,
-        target: StyleTarget,
-    ) -> &mut FlexLayout {
+    pub(crate) fn get_flex_layout_mut(&mut self, id: Entity, target: ModTarget) -> &mut FlexLayout {
         LayoutStore::get_flex_layout_mut(
             id,
             target,

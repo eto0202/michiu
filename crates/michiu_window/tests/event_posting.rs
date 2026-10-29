@@ -1,6 +1,5 @@
-#![allow(clippy::unwrap_used)]
-#![allow(clippy::expect_used)]
-#![allow(clippy::panic)]
+#![expect(clippy::unwrap_used)]
+#![expect(clippy::expect_used)]
 
 use michiu_window::{
     LogicalSize, MichiuAnyEvent, MichiuEvent, MichiuEventPump, MichiuWindow, MichiuWindowBuilder,
@@ -28,7 +27,7 @@ where
     handle.join().expect("Test thread panicked");
 }
 
-#[allow(clippy::too_many_lines)]
+#[expect(clippy::too_many_lines)]
 #[test]
 fn test_integration_event_posting_and_translation_lifecycle() {
     let _ = MichiuWindow::init_dpi_awareness();
@@ -150,7 +149,7 @@ fn test_integration_event_posting_and_translation_lifecycle() {
                             _ => {}
                         }
                     }
-                    _ => {}
+                    MichiuAnyEvent::Other => {}
                 }
             });
 

@@ -1,4 +1,4 @@
-#![allow(
+#![expect(
     clippy::similar_names,
     clippy::struct_field_names,
     clippy::too_many_arguments,
@@ -19,7 +19,7 @@
 //!
 //! ## Summary
 //!
-//! The pipeline in this crate consists primarily of four core elements:
+//! The pipeline in this crate consists primarily of four core entities:
 //!
 //! 1. **Preparing the Renderer**:
 //!    [`MichiuRenderer`] is a backend integrating DirectComposition and wgpu (DirectX 12). It is initialized asynchronously by passing a `HWND` created by any windowing backend.
@@ -39,7 +39,7 @@
 //! struct AppState {
 //!     renderer: MichiuRenderer,
 //!     context: Context,
-//!     root_id: EntityId,
+//!     root_id: Entity,
 //! }
 //!
 //! // 1. Create a window and retrieve the HWND and scale factor
@@ -62,14 +62,14 @@
 //!     let (count, set_count) = create_signal(0u32);
 //!
 //!     flex(
-//!         ts().size_full()
+//!         ii().size_full()
 //!             .justify_center()
 //!             .bg_color(rgb(22, 24, 29)),
 //!     )
 //!     .on_click(move || set_count.set(count.get() + 1))
 //!     .label(
 //!         move || format!("Count: {}", count.get()),
-//!         ts().text_color(rgb(156, 158, 163)),
+//!         ii().text_color(rgb(156, 158, 163)),
 //!     )
 //! });
 //!
@@ -94,23 +94,23 @@
 //! use windows::Win32::Graphics::Gdi::{BeginPaint, EndPaint, InvalidateRect, PAINTSTRUCT};
 //! use windows::Win32::Graphics::Dwm::DwmFlush;
 //!
-//! fn win32_message(app: &mut AppState, hwnd: HWND, event: MyWindowEvent) {
+//! fn win32_message(app: &mut AppState, hwnd: HWND, event: YourWindowEvent) {
 //!     match event {
 //!         // --- 1. Event Received (Mouse, Keyboard, etc.) ---
 //!         // Do not run layout or redraw immediately; queue actions instead
-//!         MyWindowEvent::MouseInput { button, state, modifiers } => {
+//!         YourWindowEvent::MouseInput { button, state, modifiers } => {
 //!             app.context.inject_action(EventAction::PointerButton { button, state, modifiers });
 //!         }
-//!         MyWindowEvent::CursorMoved { x, y } => {
+//!         YourWindowEvent::CursorMoved { x, y } => {
 //!             app.context.inject_action(EventAction::PointerMove(LayoutPoint::new(x, y)));
 //!         }
 //!
 //!         // --- 2. Redraw Requested (WM_PAINT, Resize, VSync, etc.) ---
-//!         MyWindowEvent::RedrawRequested => {
+//!         YourWindowEvent::RedrawRequested => {
 //!             // 1. Flush event queue and update interaction states (hover, focus, click)
 //!             app.context.begin_frame();
 //!
-//!             // 2. Advance timers for animations and automated scrolling/dragging
+//!             // 2. Advance timers for animations and automated dragging
 //!             app.context.tick_system_frame(&TickType::All);
 //!
 //!             // 3. Recalculate layout
@@ -170,7 +170,7 @@
 //! ### 2. State Management via Data-Oriented Design (DOD)
 //! The internal architecture of `Context` is built on a flat Data-Oriented Design.
 //!
-//! An `Element` is not a heavy, heap-allocated UI object; it is merely a lightweight index key ([`EntityId`]) pointing into an internal Structure of Arrays (SoA).
+//! An `Entity` is not a heavy, heap-allocated UI object; it is merely a lightweight index key ([`Entity`]) pointing into an internal Structure of Arrays (SoA).
 //! Because of this, you are free from Rust's typical self-referential borrowing constraints and can freely mix four distinct paradigms:
 //!
 //! | Approach | Key Benefit | Recommended Use Case |
@@ -178,76 +178,76 @@
 //! | **1. Signal** | Complete state/view separation | Complex business logic, global state |
 //! | **2. Direct** | Zero boilerplate, low overhead | Simple toggles, ephemeral local state |
 //! | **3. Event Context** | Self-contained components | Handling reactions to user events |
-//! | **4. Tag Query** | Type-safe loose coupling | Direct manipulation of sibling or external elements |
+//! | **4. Tag Query** | Type-safe loose coupling | Direct manipulation of sibling or external entities |
 //!
 //! #### 1. Signal Approach (Declarative & Reactive)
-//! Value updates automatically propagate to subscribing property closures (inspired by SolidJS and Leptos).
+//! Value updates automatically propagate to subscribing property closures.
 //! ```rust,ignore
 //! use michiu_ui::prelude::*;
 //!
 //! let (count, set_count) = create_signal(0u32);
 //!
 //! div_n().on_click(move || set_count.set(count.get() + 1))
-//!        .label(move || format!("Signal: {}", count.get()), ts())
+//!        .label(move || format!("Signal: {}", count.get()), ii())
 //! ```
 //!
 //! #### 2. Direct Approach (Local Variable Capture)
-//! Move the `Element` directly into an event closure (such as `on_click`) to manipulate it imperatively.
+//! Move the `Entity` directly into an event closure (such as `on_click`) to manipulate it imperatively.
 //! ```rust,ignore
 //! use michiu_ui::prelude::*;
 //!
-//! let el = h_flex(ts().bg_color(Color::BLUE));
+//! let e = h_flex(ii().bg_color(Color::BLUE));
 //! let mut count = 0u32;
 //!
-//! el.label(move || format!("Direct: {count}"), ts())
+//! e.label(move || format!("Direct: {count}"), ii())
 //!   .on_click(move || {
 //!        count += 1;
-//!        el.set_contents(div_n().label(move || format!("Direct: {count}"), ts()))
-//!          .style(ts().bg_color(Color::RED));
+//!        e.set_contents(div_n().label(move || format!("Direct: {count}"), ii()))
+//!          .modify(ii().bg_color(Color::RED));
 //!   })
 //! ```
 //!
-//! #### 3. Event Context Approach (Current Element Manipulation)
+//! #### 3. Event Context Approach (Current Entity Manipulation)
 //! Access the event target (`cx.current()`) directly from the handler argument `cx: &mut Context` (`_with` variants).
 //! ```rust,ignore
 //! use michiu_ui::prelude::*;
 //!
 //! let mut count = 0u32;
 //!
-//! h_flex(ts().bg_color(Color::BLUE))
-//!     .label(move || format!("Event: {count}"), ts())
+//! h_flex(ii().bg_color(Color::BLUE))
+//!     .label(move || format!("Event: {count}"), ii())
 //!     .on_click_with(move |cx| {
 //!          count += 1;
-//!          cx.current().set_contents(div_n().label(move || format!("Event: {count}"), ts()))
-//!            .style(ts().bg_color(Color::RED));
+//!          cx.current().set_contents(div_n().label(move || format!("Event: {count}"), ii()))
+//!            .modify(ii().bg_color(Color::RED));
 //!     })
 //! ```
 //!
 //! #### 4. Tag Query Approach (Type-Safe Tree Lookups)
-//! The Tag system attaches zero-sized marker types to elements, allowing you to query and mutate them from anywhere in the tree without knowing the hierarchy.
+//! The Tag system attaches zero-sized marker types to entities, allowing you to query and mutate them from anywhere in the tree without knowing the hierarchy.
 //!
 //! In conventional declarative UIs, modifying an ancestor or sibling from a deeply nested child requires lifting state and **prop drilling** callbacks through every intermediate layer.
 //!
-//! In `michiu_ui`, thanks to flat ID management, an isolated child component can directly and imperatively mutate other elements across the tree.
+//! In `michiu_ui`, thanks to flat ID management, an isolated child component can directly and imperatively mutate other entities across the tree.
 //! ```rust,ignore
 //! use michiu_ui::prelude::*;
 //!
 //! let mut count = 0u32;
 //!
-//! let left = flex(ts()).tag::<a11y::AButton>();
+//! let left = flex(ii()).tag::<a11y::AButton>();
 //!
-//! let right = flex(ts()).label("Click", ts()).on_click_with(move |cx| {
-//!     let el = cx.query_first::<a11y::AButton>();
+//! let right = flex(ii()).label("Click", ii()).on_click_with(move |cx| {
+//!     let e = cx.query_first::<a11y::AButton>();
 //!     count += 1;
-//!     el.set_contents(div_n().label(move || format!("Tag: {count}"), ts()));
+//!     e.set_contents(div_n().label(move || format!("Tag: {count}"), ii()));
 //! });
 //!
-//! h_flex(ts()).children([left, right])
+//! h_flex(ii()).children([left, right])
 //! ```
 //!
 //! #### Advantages
 //! 1. **Complete Decoupling**:
-//!    The triggering element (`right`) needs zero knowledge of the tree layout; it only targets elements tagged with `a11y::AButton`.
+//!    The triggering entity (`right`) needs zero knowledge of the tree layout; it only targets entities tagged with `a11y::AButton`.
 //! 2. **Unified Accessibility (a11y)**:
 //!    Marker types like [`a11y::AButton`] serve double duty: they convey UI Automation roles (via AccessKit) and act as type-safe query keys. Custom tags can be created using the [`A11yInferenceTag`](crate::a11y::A11yInferenceTag) trait.
 //!
@@ -263,11 +263,11 @@
 //! use michiu_ui::prelude::*;
 //!
 //! // 1. Create and provide signals at the root
-//! pub fn create_root() -> Element {
+//! pub fn create_root() -> Entity {
 //!     let (theme, _) = create_signal(Theme::dark());
 //!     let (search_text, _) = create_signal(SearchText(String::new()));
 //!
-//!     v_flex(move || ts().size_full().bg_color(theme.get().background))
+//!     v_flex(move || ii().size_full().bg_color(theme.get().background))
 //!         .provide(theme)
 //!         .provide(search_text)
 //!         .children([
@@ -278,8 +278,8 @@
 //! }
 //!
 //! // 2. Subscribe from any nested child
-//! fn some_label() -> Element {
-//!     label("Hello", ts().text_color(dynamic(|t: &Theme| t.primary)))
+//! fn some_label() -> Entity {
+//!     label("Hello", ii().text_color(dynamic(|t: &Theme| t.primary)))
 //! }
 //! ```
 //!
@@ -294,24 +294,24 @@
 //!
 //! # Dynamic Styling and Performance Guide
 //!
-//! `michiu_ui` offers two patterns for dynamic styling: **block-level evaluation (`style_d` / `style`)** and **per-property evaluation (`dynamic`)**.
+//! `michiu_ui` offers two patterns for dynamic styling: **block-level evaluation (`modify_d` / `modify`)** and **per-property evaluation (`dynamic`)**.
 //!
 //! ---
 //!
-//! ## 1. Equivalence of `style(move || ...)` and `style_d`
+//! ## 1. Equivalence of `modify(move || ...)` and `modify_d`
 //!
 //! The following two patterns are identical in internal behavior and performance:
 //!
 //! ```rust,ignore
-//! // Pattern A: Passing a closure directly to `style`
-//! .style(move || {
+//! // Pattern A: Passing a closure directly to `modify`
+//! .modify(move || {
 //!     let t = use_provided::<Theme>().get();
-//!     ts().bg_color(t.background)
+//!     ii().bg_color(t.background)
 //! })
 //!
-//! // Pattern B: Using the `style_d` shorthand
-//! .style_d(|t: &Theme| {
-//!     ts().bg_color(t.background)
+//! // Pattern B: Using the `modify_d` shorthand
+//! .modify_d(|t: &Theme| {
+//!     ii().bg_color(t.background)
 //! })
 //! ```
 //!
@@ -320,13 +320,13 @@
 //!
 //! ---
 //!
-//! ## 2. Block-Level (`style_d`) vs. Per-Property (`dynamic`)
+//! ## 2. Block-Level (`modify_d`) vs. Per-Property (`dynamic`)
 //!
-//! | Metric | Block-Level (`style_d`) | Per-Property (`dynamic`) |
+//! | Metric | Block-Level (`modify_d`) | Per-Property (`dynamic`) |
 //! | :--- | :--- | :--- |
-//! | **Evaluation Unit** | Entire `ThisStyle` object | Individual properties (color, size, etc.) |
+//! | **Evaluation Unit** | Entire `Modifier` object | Individual properties (color, size, etc.) |
 //! | **Tree Traversals (`use_provided`)** | **Once** (resolved at start of closure) | **Once per property** (resolved individually) |
-//! | **Re-evaluation Behavior** | Regenerates `ThisStyle` and bulk-merges (`override_with`) the SoA | Executes individual dynamic setters directly into SoA fields |
+//! | **Re-evaluation Behavior** | Regenerates `Modifier` and bulk-merges (`override_with`) the SoA | Executes individual dynamic setters directly into SoA fields |
 //! | **Memory & CPU Characteristics** | Optimized for bulk memory assignment and cache efficiency | Zero struct allocations; minimal overhead |
 //!
 //! > **Note:**
@@ -339,25 +339,25 @@
 //!
 //! ### Rule A: Few dynamic values (1–2 properties)
 //! * **Recommended**: **`dynamic()` per property**
-//! * **Reason**: Bypasses `ThisStyle` generation and SoA re-merging entirely.
+//! * **Reason**: Bypasses `Modifier` generation and SoA re-merging entirely.
 //!
 //! ```rust,ignore
-//! div(ts().bg_color(dynamic(|t: &Theme| t.background)))
+//! div(ii().bg_color(dynamic(|t: &Theme| t.background)))
 //! ```
 //!
 //! ### Rule B: Many dynamic values (borders, backgrounds, text colors, etc.)
-//! * **Recommended**: **`style_d()` block-level**
+//! * **Recommended**: **`modify_d()` block-level**
 //! * **Reason**:
 //!   - **Ancestral lookup reduction**: Resolves `use_provided` only once, saving CPU cycles on deep trees.
 //!   - **Cache locality**: Direct bulk assignment beats sequential call-stack evaluation of multiple closures.
 //!   - **Readability**: Keeps static layout and dynamic styling cleanly separated.
 //!
 //! ```rust,ignore
-//! div(ts().w_full().p_y(4.0))
-//!     .style_d(|t: &Theme| {
-//!         ts().border_color(t.border)
+//! div(ii().w_full().p_y(4.0))
+//!     .modify_d(|t: &Theme| {
+//!         ii().border_color(t.border)
 //!             .bg_color(t.background)
-//!             .pressed(ts().border_color(t.primary).bg_color(t.background_hover))
+//!             .pressed(ii().border_color(t.primary).bg_color(t.background_hover))
 //!     })
 //! ```
 //!
@@ -367,13 +367,13 @@
 //!
 //! | Scenario | Recommended Approach |
 //! | :--- | :--- |
-//! | Fully static styles | `style(ts())` |
-//! | Styles with conditional logic | `style(\|\| ts())` |
+//! | Fully static styles | `modify(ii())` |
+//! | Styles with conditional logic | `modify(\|\| ii())` |
 //! | 1–2 dynamic properties | `dynamic(\|t: &T\|)` |
-//! | Many dynamic properties | `style_d(\|t: &T\|)` |
-//! | Dynamic properties + conditional logic | `style_d` |
-//! | Static layout + few dynamic properties | `style` + `dynamic` |
-//! | Extensive static + dynamic properties | `style(static)` + `style_d(dynamic)` |
+//! | Many dynamic properties | `modify_d(\|t: &T\|)` |
+//! | Dynamic properties + conditional logic | `modify_d` |
+//! | Static layout + few dynamic properties | `modify` + `dynamic` |
+//! | Extensive static + dynamic properties | `modify(static)` + `modify_d(dynamic)` |
 //!
 //! ---
 //!
@@ -384,21 +384,21 @@
 //! * [**Renderer Implementation**](crate::renderer) - DirectComposition surface management and rendering command generation via wgpu
 //! * [**`Context` Structure**](crate::context) - Global state maintenance, storage management, and lifecycle control
 //! * [**`pipeline` module**](crate::pipeline) - Frame progression orchestrator
-//! * [**UI Construction and Styling**](crate::element) - Widget tree construction via [`build_ui`] and the list of properties for `ts()` (style builder)
+//! * [**UI Construction and Styling**](crate::entity) - Widget tree construction via [`build_ui`] and the list of properties for `ii()` (style builder)
 //! * [**Reactivity**](crate::signal) - Reactive programming model and dependency tracking via [`create_signal`]
-//! * [**Tag Feature**](crate::tag) - Assigning identification tags to elements, and tree traversal and querying
+//! * [**Tag Feature**](crate::tag) - Assigning identification tags to entities, and tree traversal and querying
 //! * [**Accessibility**](crate::context::acce_store) - Integration with AccessKit and tree synchronization
-//! * [**Embedding External Elements**](crate::external) - Integration of images, videos, external files, and `IDCompositionVisual2`
+//! * [**Embedding External entities**](crate::external) - Integration of images, videos, external files, and `IDCompositionVisual2`
 //! * [**Debugging Tools**](crate::context::debug_store) - Collection of logs (including errors) and visualization of the lifecycle
 
 mod bitmap;
 pub mod context;
-pub mod element;
+pub mod entity;
 pub mod external;
+mod modifier;
 mod option;
 pub mod renderer;
 pub mod signal;
-mod style;
 pub mod tag;
 mod types;
 mod utils;
@@ -408,10 +408,13 @@ pub use bitmap::*;
 #[doc(inline)]
 pub use context::*;
 #[doc(inline)]
-pub use element::*;
+pub use entity::*;
 #[doc(inline)]
 pub use external::*;
 #[doc(inline)]
+pub use modifier::*;
+#[doc(inline)]
+#[allow(unused)] // なぜか必要
 pub use option::*;
 #[doc(inline)]
 pub use renderer::*;
@@ -420,14 +423,13 @@ pub use signal::*;
 #[doc(inline)]
 pub use soa::MichiuSoA;
 #[doc(inline)]
-pub use style::*;
-#[doc(inline)]
 pub use tag::*;
 #[doc(inline)]
 pub use types::*;
 #[doc(inline)]
 pub use utils::*;
 
+#[doc(hidden)]
 pub mod accessibility {
     pub const NO_A11Y_NODE: crate::Prop<Option<accesskit::Node>> = crate::Prop::None;
     pub use crate::a11y::{self, A11yInferenceTag};
@@ -437,26 +439,28 @@ pub mod accessibility {
 #[doc(hidden)]
 pub mod prelude {
     pub use crate::{
-        bitmap::PropertyList,
-        context::{Context, EntityId, MichiuInspector},
-        dnd::{DndDragPayload, DndDropTarget},
-        element::{Element, build_ui},
+        animation::PropertyList,
+        context::{Context, MichiuInspector},
+        dnd::{DndDragMode, DndDropTarget},
+        entity::{Entity, build_ui},
         input::InputContents,
+        m,
+        modifier::Modifier,
         pipeline::{EventAction, TickType},
         renderer::MichiuRenderer,
         scrollbar::{ScrollbarDisplay, ScrollbarMode, ScrollbarStyle},
         signal::{ReadSignal, SignalId, WriteSignal},
-        style::ThisStyle,
         types::{
             AnimationCurve, Backdrop, BorderAlignment, BorderStyle, Color, CursorIcon, Display,
             ElementState, InteractionState, KeyframeAnimation, LayoutPoint, LayoutRect, LayoutSize,
             Modifiers, MouseButton, PlaybackCount, PointerEvents, Transform, Transition,
         },
         utils::{
-            auto, blur, create_signal, div, div_n, dynamic, external_texture, fill, flex, flex_d,
-            get_win32_clipboard, grid_box, h_flex, h_flex_d, hex, hidden_box, hsl, hsla, input,
-            input_area, input_area_d, input_d, offset, pct, px, rgb, rgba, set_win32_clipboard,
-            shadow, spread, text, text_d, ts, use_provided, use_provided_setter, v_flex, v_flex_d,
+            auto, blur, create_signal, div, div_d, div_n, dynamic, external_texture, fill, flex,
+            flex_d, get_win32_clipboard, grid_box, h_flex, h_flex_d, hex, hidden_box, hsl, hsla,
+            ii, input, input_area, input_area_d, input_d, offset, oklab, oklaba, oklch, oklcha,
+            pct, px, rgb, rgba, set_win32_clipboard, shadow, spread, text, text_d, use_provided,
+            use_provided_setter, v_flex, v_flex_d,
         },
     };
 }

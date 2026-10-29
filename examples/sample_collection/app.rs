@@ -6,7 +6,7 @@ pub mod theme;
 use crate::app::theme::Theme;
 use michiu::prelude::*;
 
-pub fn create_root() -> Element {
+pub fn create_root() -> Entity {
     let (theme, _) = create_signal(Theme::dark());
     let (comp_type, _) = create_signal(ComponentType::Div);
 
@@ -14,9 +14,9 @@ pub fn create_root() -> Element {
     let (sort_order, _) = create_signal(SidebarSortOrder::Ascending);
 
     v_flex(move || {
-        ts().size_full()
+        ii().size_full()
             .bg_color(theme.get().background)
-            .backdrop_acrylic() // 背景色は不透明のため見た目は変化しない
+            .backdrop_acrylic()
     })
     .provide(theme)
     .provide(comp_type)
@@ -24,7 +24,7 @@ pub fn create_root() -> Element {
     .provide(sort_order)
     .children([
         header::header(),
-        h_flex(ts().grow().size_full().overflow_hidden())
+        h_flex(ii().grow().size_full().overflow_hidden())
             .children([sidebar::sidebar(), main_area::main_area()]),
     ])
 }

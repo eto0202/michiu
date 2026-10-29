@@ -1,12 +1,8 @@
-#![allow(clippy::print_stdout)]
-#![allow(clippy::print_stderr)]
-#![allow(clippy::unwrap_used)]
-#![allow(clippy::expect_used)]
+#![expect(clippy::print_stdout)]
+#![expect(clippy::unwrap_used)]
 
 use michiu_guard::{Unvalidated, Validated};
-use michiu_window::{
-    MichiuComContext, MichiuWindow, MichiuWindowBuilder, WindowHandle,
-};
+use michiu_window::{MichiuComContext, MichiuWindow, MichiuWindowBuilder, WindowHandle};
 
 // cargo run --example error_showcase
 

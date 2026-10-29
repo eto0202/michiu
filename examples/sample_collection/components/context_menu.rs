@@ -4,9 +4,9 @@ use michiu::{prelude::*, ui::a11y};
 const WIDTH: f32 = 150.0;
 const HEIGHT: f32 = 250.0;
 
-pub fn container() -> Element {
+pub fn container() -> Entity {
     v_flex(
-        ts().gap(16.0)
+        ii().gap(16.0)
             .p(16.0)
             .size_full()
             .justify_center()
@@ -26,28 +26,28 @@ pub fn container() -> Element {
             top = pos.y - HEIGHT;
         }
 
-        let menu_style = ts().flex().top(top).left(left);
+        let menu_style = ii().flex().top(top).left(left);
 
-        let Some(el) = cx.try_query_first::<a11y::AContextMenu>() else {
-            let root = cx.find_root_entity().expect("Not Found Root EntityId");
-            let menu = context_menu().style(menu_style);
-            let _ = root.into_el().child(menu);
+        let Some(e) = cx.try_query_first::<a11y::AContextMenu>() else {
+            let root = cx.find_root().expect("Not Found Root Entity");
+            let menu = context_menu().modify(menu_style);
+            let _ = root.child(menu);
             return;
         };
-        let _ = el.style(menu_style);
+        let _ = e.modify(menu_style);
     })
     .on_click_with(|cx| {
-        let _ = cx.query_first::<a11y::AContextMenu>().style(ts().hidden());
+        let _ = cx.query_first::<a11y::AContextMenu>().modify(ii().hidden());
     })
     .label(
         "Please right click",
-        ts().text_color(dynamic(|t: &Theme| t.text)).font_size(20.0),
+        ii().text_color(dynamic(|t: &Theme| t.text)).font_size(20.0),
     )
 }
 
-fn context_menu() -> Element {
+fn context_menu() -> Entity {
     v_flex(
-        ts().absolute()
+        ii().absolute()
             .r(4.0)
             .p(6.0)
             .size((WIDTH, HEIGHT))
@@ -55,28 +55,28 @@ fn context_menu() -> Element {
             .items_center()
             .border_solid(1.0)
             .border_color(dynamic(|t: &Theme| t.border))
-            .bg_color(dynamic(|t: &Theme| t.background_hover)),
+            .bg_color(dynamic(|t: &Theme| t.sidebar)),
     )
     .tag::<a11y::AContextMenu>()
     .children(menu_item())
 }
 
-fn menu_item() -> [Element; 8] {
+fn menu_item() -> [Entity; 8] {
     let item = |label: &'static str| {
         flex(
-            ts().r(3.0)
+            ii().r(3.0)
                 .size_full()
                 .p_l(8.0)
-                .pressed(ts().bg_color(dynamic(|t: &Theme| t.border_hover)))
-                .hovered(ts().bg_color(dynamic(|t: &Theme| t.border))),
+                .pressed(ii().bg_color(dynamic(|t: &Theme| t.header)))
+                .hovered(ii().bg_color(dynamic(|t: &Theme| t.sidebar_hover))),
         )
         .tag::<a11y::AMenuItem>()
         .on_click_with(|cx| {
-            let _ = cx.query_first::<a11y::AContextMenu>().style(ts().hidden());
+            let _ = cx.query_first::<a11y::AContextMenu>().modify(ii().hidden());
         })
         .label(
             label,
-            ts().font_size(14.0).text_color(dynamic(|t: &Theme| t.text)),
+            ii().font_size(14.0).text_color(dynamic(|t: &Theme| t.text)),
         )
     };
 

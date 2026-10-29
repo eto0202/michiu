@@ -1,9 +1,9 @@
 use crate::{
     ActiveInteractionStates, ActiveMasksSecondary, BaseBasicLayoutsSecondary, BasicLayout,
     BasicLayoutsSecondary, ComponentMask, CursorIcon, DEFAULT_BASIC, DebugStore,
-    DirtyLayoutEntitiesVec, DirtyRenderEntitiesVec, EntityId, LayoutPoint, LayoutRect, LayoutSize,
+    DirtyLayoutEntitiesVec, DirtyRenderEntitiesVec, Entity, LayoutPoint, LayoutRect, LayoutSize,
     LayoutStore, Length, MichiuSoA, OutputStore, ParentsSecondary, Position, Rect, RectsSecondary,
-    TaffyNodesSecondary, TaffyTreeEntityId, TopologyStore, Val, VisualPropertiesSecondary,
+    TaffyNodesSecondary, TaffyTreeEntity, TopologyStore, Val, VisualPropertiesSecondary,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -20,14 +20,14 @@ pub enum ResizeDirection {
 
 #[derive(Debug, Clone)]
 pub struct ResizingState {
-    pub entity_id: EntityId,
+    pub entity_id: Entity,
     pub direction: ResizeDirection,
     pub start_mouse_pos: LayoutPoint,
     pub start_rect: LayoutRect,
     pub start_inset: Rect<Val>,
 }
 
-pub type ActiveResizeHoverOption = Option<(EntityId, ResizeDirection)>;
+pub type ActiveResizeHoverOption = Option<(Entity, ResizeDirection)>;
 
 pub(crate) struct ResizeStore {
     pub(crate) res_resizing_state: Option<ResizingState>,
@@ -69,7 +69,7 @@ impl ResizeStore {
     }
 
     pub(crate) fn apply_resizable_cursor_style(
-        id: EntityId,
+        id: Entity,
         dir: ResizeDirection,
         rnd_visual: &mut VisualPropertiesSecondary,
     ) {
@@ -137,14 +137,14 @@ impl ResizeStore {
 
     #[track_caller]
     pub(crate) fn found_resize_hover(
-        target_id: Option<EntityId>,
+        target_id: Option<Entity>,
         logical_pos: LayoutPoint,
         topo_active_masks: &ActiveMasksSecondary,
         topo_parents: &ParentsSecondary,
         lay_basic: &BasicLayoutsSecondary,
         out_rects: &RectsSecondary,
         debug: &mut DebugStore,
-    ) -> (Option<EntityId>, Option<(EntityId, ResizeDirection)>) {
+    ) -> (Option<Entity>, Option<(Entity, ResizeDirection)>) {
         let mut current_id = target_id;
         let mut found_resize_hover = None;
         while let Some(id) = current_id {
@@ -172,7 +172,7 @@ impl ResizeStore {
 
     #[track_caller]
     pub(crate) fn state_pressed_resize_drag(
-        id: EntityId,
+        id: Entity,
         dir: ResizeDirection,
         evt_interaction_states: &mut ActiveInteractionStates,
         res_resizing_state: &mut Option<ResizingState>,
@@ -252,7 +252,7 @@ impl ResizeStore {
         topo_active_masks: &mut ActiveMasksSecondary,
         topo_parents: &ParentsSecondary,
         lay_dirty_entities: &mut DirtyLayoutEntitiesVec,
-        lay_taffy_tree: &mut TaffyTreeEntityId,
+        lay_taffy_tree: &mut TaffyTreeEntity,
         lay_basic: &mut BasicLayoutsSecondary,
         lay_base_basic: &mut BaseBasicLayoutsSecondary,
         lay_taffy_nodes: &TaffyNodesSecondary,

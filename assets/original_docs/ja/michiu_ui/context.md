@@ -43,7 +43,7 @@ UIアプリケーションの全状態を保持する中央データベースで
 
 - `cx.current()`: イベントを発火させた要素自身を取得
 - `cx.query_first::<T>()` / `cx.try_query_first::<T>()`: Tag をキーにして他の要素を探索
-- `cx.find_root_entity()`: ルート要素を取得
+- `cx.find_root()`: ルート要素を取得
 - `cx.pointer_position()` / `cx.window_last_size()`: 現在のポインタ座標やウィンドウサイズを取得
 
 その他メソッドに関しては [`Context`] のドキュメントを確認してください。

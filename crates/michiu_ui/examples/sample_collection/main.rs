@@ -1,4 +1,9 @@
-#![allow(clippy::pedantic, clippy::restriction)]
+#![expect(
+    clippy::pedantic,
+    clippy::print_stdout,
+    clippy::unwrap_used,
+    clippy::expect_used
+)]
 
 use crate::{
     logger::logger,
@@ -28,7 +33,7 @@ mod window;
 struct AppState {
     renderer: MichiuRenderer,
     context: Context,
-    root_id: EntityId,
+    root: Entity,
 }
 
 #[derive(Clone)]
@@ -56,7 +61,7 @@ pub const ALLOW_STRESS_TEST: bool = false;
 static ALLOC: dhat::Alloc = dhat::Alloc;
 
 // cargo build --timings --example sample_collection
-// cargo build --example sample_collection --release
+// cargo build --example sample_collection --release --features="webview2 css"
 // cargo run --example sample_collection --release --features dhat-heap
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(feature = "dhat-heap")]
@@ -128,7 +133,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let app_state = Box::new(AppState {
         renderer,
         context,
-        root_id: root.id(),
+        root,
     });
 
     unsafe { SetWindowLongPtrW(hwnd, GWLP_USERDATA, Box::into_raw(app_state) as isize) };

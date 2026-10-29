@@ -2,10 +2,10 @@ use crate::{
     app::theme::Theme,
     components::{label_style, section_title},
 };
-pub use michiu_ui::prelude::*;
+use michiu_ui::prelude::*;
 
-pub fn container() -> Element {
-    v_flex(ts().gap(24.0).p(16.0)).children([
+pub fn container() -> Entity {
+    v_flex(ii().gap(24.0).p(16.0)).children([
         style_container(),
         weight_container(),
         length_container(),
@@ -14,16 +14,16 @@ pub fn container() -> Element {
     ])
 }
 
-fn section_style() -> ThisStyle {
-    ts().grow().gap(14.0)
+fn section_style() -> Modifier {
+    ii().grow().gap(14.0)
 }
 
-fn wrapper_style() -> ThisStyle {
-    ts().w_full().gap(14.0)
+fn wrapper_style() -> Modifier {
+    ii().w_full().gap(14.0)
 }
 
-fn base(change: bool) -> ThisStyle {
-    let s = ts()
+fn base(change: bool) -> Modifier {
+    let s = ii()
         .p(12.0)
         .r(4.0)
         .size((170.0, 75.0))
@@ -31,7 +31,7 @@ fn base(change: bool) -> ThisStyle {
         .items_center()
         .p(10.0)
         .r(4.0)
-        .hovered(ts().bg_color(dynamic(|t: &Theme| t.background_hover)));
+        .hovered(ii().bg_color(dynamic(|t: &Theme| t.background_hover)));
 
     if change {
         s
@@ -40,7 +40,7 @@ fn base(change: bool) -> ThisStyle {
     }
 }
 
-fn style_container() -> Element {
+fn style_container() -> Entity {
     let solid = flex(base(false).border_solid(2.0)).label("solid", label_style());
     let dashed = flex(base(false).border_dashed(2.0)).label("dashed", label_style());
     let dotted = flex(base(false).border_dotted(2.0)).label("dotted", label_style());
@@ -52,7 +52,7 @@ fn style_container() -> Element {
     ])
 }
 
-fn weight_container() -> Element {
+fn weight_container() -> Entity {
     let one = flex(base(false).border_solid(1.0)).label("1.0 px", label_style());
     let two = flex(base(false).border_solid(2.0)).label("2.0 px", label_style());
     let four = flex(base(false).border_solid(4.0)).label("4.0 px", label_style());
@@ -64,7 +64,7 @@ fn weight_container() -> Element {
     ])
 }
 
-fn length_container() -> Element {
+fn length_container() -> Entity {
     let top_only = flex(
         base(false)
             .border_solid(2.0)
@@ -87,7 +87,7 @@ fn length_container() -> Element {
     ])
 }
 
-fn align_container() -> Element {
+fn align_container() -> Entity {
     let start = flex(
         base(false)
             .border_solid(2.0)
@@ -118,7 +118,7 @@ fn align_container() -> Element {
     ])
 }
 
-fn color_container() -> Element {
+fn color_container() -> Entity {
     let red =
         flex(base(true).border_solid(2.0).border_color(Color::RED)).label("Red", label_style());
     let yellow = flex(base(true).border_solid(2.0).border_color(Color::YELLOW))

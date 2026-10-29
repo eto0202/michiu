@@ -1,28 +1,27 @@
 use crate::app::{SearchText, theme::Theme};
-pub use michiu_ui::{accessibility::*, prelude::*};
+use michiu_ui::{accessibility::*, prelude::*};
 use std::time::Duration;
 
-pub fn header() -> Element {
+pub fn header() -> Entity {
     h_flex(
-        ts().w_full()
+        ii().w_full()
             .height(40.0)
             .shrink_0()
             .justify_center()
             .items_center()
-            .border_bottom(BorderStyle::Solid, 1.0)
-            .border_color(dynamic(|t: &Theme| t.border)),
+            .bg_color(dynamic(|t: &Theme| t.sidebar)),
     )
     .children([search_box(), toggle_btn()])
-    .a11y_role(Role::Header)
+    .tag::<a11y::AHeader>()
 }
 
-fn search_box() -> Element {
+fn search_box() -> Entity {
     let input_wrapper = h_flex(
-        ts().justify_center()
+        ii().justify_center()
             .items_center()
             .size((pct(35.0), 26.0))
             .max_size((600.0, 26.0))
-            .bg_color(dynamic(|t: &Theme| t.background_hover))
+            .bg_color(dynamic(|t: &Theme| t.background))
             .r(4.0)
             .p_x(16.0),
     );
@@ -40,8 +39,8 @@ fn search_box() -> Element {
                 .caret_color(t.text)
                 .caret_width(1.0)
         })
-        .style_d(|t: &Theme| {
-            ts().grow()
+        .modify_d(|t: &Theme| {
+            ii().grow()
                 .h_auto()
                 .bg_color(Color::TRANSPARENT)
                 .font_size(t.font_size_base)
@@ -53,16 +52,16 @@ fn search_box() -> Element {
         })
         .a11y_role(Role::SearchInput);
 
-    let suffix_element = text("✕")
-        .style_d(move |t: &Theme| {
+    let suffix_entity = text("✕")
+        .modify_d(move |t: &Theme| {
             let input_text = use_provided::<SearchText>().get();
 
             let has_text = !input_text.0.is_empty();
-            let base_style = ts()
+            let base_style = ii()
                 .text_color(t.text_muted)
                 .font_size(t.font_size_base)
                 .pointer_events_auto()
-                .hovered(ts().text_color(t.text));
+                .hovered(ii().text_color(t.text));
 
             if has_text {
                 base_style.opacity(1.0)
@@ -76,10 +75,10 @@ fn search_box() -> Element {
         })
         .a11y_with(Node::new(Role::Button), |n| n.set_label("Clean Button"));
 
-    input_wrapper.child(text_input).child(suffix_element)
+    input_wrapper.child(text_input).child(suffix_entity)
 }
 
-fn toggle_btn() -> Element {
+fn toggle_btn() -> Entity {
     let mode_change = || {
         let t = use_provided::<Theme>().get();
         let set_t = use_provided_setter::<Theme>();
@@ -91,32 +90,29 @@ fn toggle_btn() -> Element {
         }
     };
 
-    let btn_wrapper = h_flex_d(|t: &Theme| {
-        // ダーク（Active）時はアクセントカラーや hover 色を、ライト時は標準の境界色を割り当てます
-        let track_color = if t.is_dark { t.surface } else { t.border };
-
-        ts().r(4.0)
+    let btn_wrapper = h_flex(
+        ii().r(4.0)
             .items_center()
             .size((50.0, 26.0))
-            .bg_color(track_color)
+            .bg_color(dynamic(|t: &Theme| t.background))
             .absolute()
-            .right(10.0)
+            .right(70.0)
             .focusable_self_keyboard()
             .focused(
-                ts().outline_solid(1.0)
+                ii().outline_solid(1.0)
                     .outline_offset(2.0)
                     .outline_color(dynamic(|t: &Theme| t.text)),
-            )
-    })
+            ),
+    )
     .on_click(mode_change);
 
     let btn_inner = h_flex_d(|t: &Theme| {
-        ts().r(4.0)
+        ii().r(4.0)
             .m_l(4.0)
             .height(20.0)
             .width(20.0)
-            .bg_color(t.primary)
-            .actived(ts().transform_translate(22.0, 0.0))
+            .bg_color(t.accent)
+            .actived(ii().transform_translate(22.0, 0.0))
             .trans_transform(Duration::from_millis(150), AnimationCurve::EaseInOutQuad)
     })
     .active(dynamic(|t: &Theme| t.is_dark))

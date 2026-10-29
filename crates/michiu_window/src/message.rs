@@ -2,6 +2,7 @@ use crate::{
     ElementState, ImeContext, ImeStateUpdate, MichiuAnyEvent, MichiuError, MichiuEvent, Modifiers,
     MouseButton, PhysicalPoint, PhysicalRect, PhysicalSize, SetWindowCommand, WM_RUN_ON_UI_THREAD,
     WM_WINDOW_COMMAND, WheelDelta, WindowId, WindowState, ZOrder,
+    win32_ext::{LParamExt, WParamExt},
 };
 use michiu_guard::Unvalidated;
 use std::{
@@ -12,7 +13,7 @@ use std::{
 };
 use windows::{
     Win32::{
-        Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM},
+        Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM},
         Graphics::{
             Dwm::{DwmExtendFrameIntoClientArea, DwmFlush},
             Gdi::{InvalidateRect, ScreenToClient, UpdateWindow},
@@ -23,7 +24,7 @@ use windows::{
                 Ime::{GCS_COMPATTR, GCS_CURSORPOS, GCS_RESULTSTR, ImmGetCompositionStringW},
                 KeyboardAndMouse::{
                     GetKeyState, ReleaseCapture, TME_LEAVE, TME_NONCLIENT, TRACKMOUSEEVENT,
-                    TrackMouseEvent, VIRTUAL_KEY, VK_CONTROL, VK_LWIN, VK_MENU, VK_RWIN, VK_SHIFT,
+                    TrackMouseEvent, VK_CONTROL, VK_LWIN, VK_MENU, VK_RWIN, VK_SHIFT,
                 },
             },
             WindowsAndMessaging::{
@@ -31,14 +32,14 @@ use windows::{
                 HWND_NOTOPMOST, HWND_TOPMOST, IsWindow, IsZoomed, MSG, PM_REMOVE, PeekMessageW,
                 PostMessageW, PostQuitMessage, SW_HIDE, SW_MAXIMIZE, SW_MINIMIZE, SW_RESTORE,
                 SW_SHOW, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER,
-                SendMessageW, SetWindowPos, SetWindowTextW, ShowWindow, TranslateMessage, WM_CHAR,
-                WM_CLOSE, WM_CREATE, WM_DESTROY, WM_DPICHANGED, WM_IME_COMPOSITION,
-                WM_IME_ENDCOMPOSITION, WM_IME_NOTIFY, WM_IME_STARTCOMPOSITION, WM_INPUTLANGCHANGE,
-                WM_KEYDOWN, WM_KEYUP, WM_KILLFOCUS, WM_LBUTTONDBLCLK, WM_LBUTTONDOWN, WM_LBUTTONUP,
-                WM_MBUTTONDBLCLK, WM_MBUTTONDOWN, WM_MBUTTONUP, WM_MOUSEHWHEEL, WM_MOUSEMOVE,
-                WM_MOUSEWHEEL, WM_MOVE, WM_NCMOUSEMOVE, WM_PAINT, WM_QUIT, WM_RBUTTONDBLCLK,
-                WM_RBUTTONDOWN, WM_RBUTTONUP, WM_SETCURSOR, WM_SETFOCUS, WM_SIZE, WM_SYSCOMMAND,
-                WM_SYSKEYDOWN, WM_SYSKEYUP, WM_USER,
+                SetWindowPos, SetWindowTextW, ShowWindow, TranslateMessage, WM_CHAR, WM_CLOSE,
+                WM_CREATE, WM_DESTROY, WM_DPICHANGED, WM_IME_COMPOSITION, WM_IME_ENDCOMPOSITION,
+                WM_IME_NOTIFY, WM_IME_STARTCOMPOSITION, WM_INPUTLANGCHANGE, WM_KEYDOWN, WM_KEYUP,
+                WM_KILLFOCUS, WM_LBUTTONDBLCLK, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDBLCLK,
+                WM_MBUTTONDOWN, WM_MBUTTONUP, WM_MOUSEHWHEEL, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_MOVE,
+                WM_NCMOUSEMOVE, WM_PAINT, WM_QUIT, WM_RBUTTONDBLCLK, WM_RBUTTONDOWN, WM_RBUTTONUP,
+                WM_SETCURSOR, WM_SETFOCUS, WM_SIZE, WM_SYSCOMMAND, WM_SYSKEYDOWN, WM_SYSKEYUP,
+                WM_USER,
             },
         },
     },
@@ -277,7 +278,7 @@ impl Drop for MichiuEventPump {
 /// the `WndProc` bypasses further processing (such as `DefWindowProcW`) and returns immediately.
 /// If `None` is returned, processing is not bypassed;
 /// instead, the message is passed directly to the OS's default handling.
-#[allow(clippy::too_many_lines)]
+#[expect(clippy::too_many_lines)]
 pub(crate) fn translate_and_dispatch(
     hwnd: HWND,
     msg: u32,
@@ -312,8 +313,7 @@ pub(crate) fn translate_and_dispatch(
             None
         }
         WM_SIZE => {
-            let width = (lparam.0 & 0xffff) as i32;
-            let height = ((lparam.0 >> 16) & 0xffff) as i32;
+            let (width, height) = lparam.to_size_i32();
             push_win_event(MichiuEvent::Resized(Unvalidated::new(PhysicalSize {
                 width,
                 height,
@@ -321,8 +321,7 @@ pub(crate) fn translate_and_dispatch(
             None
         }
         WM_MOVE => {
-            let x = (lparam.0 & 0xffff) as i16 as i32;
-            let y = ((lparam.0 >> 16) & 0xffff) as i16 as i32;
+            let (x, y) = lparam.to_point_i32();
             push_win_event(MichiuEvent::Moved(Unvalidated::new(PhysicalPoint::new(
                 x, y,
             ))));
@@ -337,7 +336,7 @@ pub(crate) fn translate_and_dispatch(
             None
         }
         WM_KEYDOWN | WM_SYSKEYDOWN => {
-            let key_code = VIRTUAL_KEY(wparam.0 as u16);
+            let key_code = wparam.to_virtual_key();
             push_win_event(MichiuEvent::KeyboardInput {
                 key_code: Unvalidated::new(key_code),
                 modifiers: get_active_modifiers(),
@@ -346,7 +345,7 @@ pub(crate) fn translate_and_dispatch(
             None
         }
         WM_KEYUP | WM_SYSKEYUP => {
-            let key_code = VIRTUAL_KEY(wparam.0 as u16);
+            let key_code = wparam.to_virtual_key();
             push_win_event(MichiuEvent::KeyboardInput {
                 key_code: Unvalidated::new(key_code),
                 modifiers: get_active_modifiers(),
@@ -355,7 +354,7 @@ pub(crate) fn translate_and_dispatch(
             None
         }
         WM_CHAR => {
-            if let Some(c) = char::from_u32(wparam.0 as u32) {
+            if let Some(c) = wparam.to_char() {
                 push_win_event(MichiuEvent::CharacterInput(c));
             }
             None
@@ -365,8 +364,12 @@ pub(crate) fn translate_and_dispatch(
                 state.is_cursor_inside = true;
                 push_win_event(MichiuEvent::CursorEntered);
 
+                #[expect(clippy::expect_used)]
+                let cb = u32::try_from(std::mem::size_of::<TRACKMOUSEEVENT>())
+                    .expect("TRACKMOUSEEVENT size fits in u32");
+
                 let mut tme = TRACKMOUSEEVENT {
-                    cbSize: std::mem::size_of::<TRACKMOUSEEVENT>() as u32,
+                    cbSize: cb,
                     dwFlags: TME_LEAVE,
                     hwndTrack: hwnd,
                     dwHoverTime: 0,
@@ -376,8 +379,7 @@ pub(crate) fn translate_and_dispatch(
                 }
             }
 
-            let x = (lparam.0 & 0xffff) as i16 as i32;
-            let y = ((lparam.0 >> 16) & 0xffff) as i16 as i32;
+            let (x, y) = lparam.to_point_i32();
 
             push_win_event(MichiuEvent::CursorMoved {
                 position: Unvalidated::new(PhysicalPoint::new(x, y)),
@@ -386,18 +388,17 @@ pub(crate) fn translate_and_dispatch(
         }
         WM_NCMOUSEMOVE => {
             // スクリーン座標を取り出す
-            let x = (lparam.0 & 0xffff) as i16 as i32;
-            let y = ((lparam.0 >> 16) & 0xffff) as i16 as i32;
-            let mut pt = POINT { x, y };
-
+            let mut pt = lparam.to_point();
             // クライアント領域の相対座標に変換
-            unsafe {
-                let _ = ScreenToClient(hwnd, &raw mut pt);
-            }
+            let _ = unsafe { ScreenToClient(hwnd, &raw mut pt) };
+
+            #[expect(clippy::expect_used)]
+            let cb = u32::try_from(std::mem::size_of::<TRACKMOUSEEVENT>())
+                .expect("TRACKMOUSEEVENT size fits in u32");
 
             // マウスがボタンから外に出た時を検知するため TrackMouseEvent を仕込む
             let mut tme = TRACKMOUSEEVENT {
-                cbSize: std::mem::size_of::<TRACKMOUSEEVENT>() as u32,
+                cbSize: cb,
                 dwFlags: TME_NONCLIENT | TME_LEAVE,
                 hwndTrack: hwnd,
                 dwHoverTime: 0,
@@ -474,7 +475,7 @@ pub(crate) fn translate_and_dispatch(
             None
         }
         WM_MOUSEWHEEL => {
-            let delta = (wparam.0 >> 16) as i16 as i32;
+            let delta = wparam.to_wheel_delta();
             push_win_event(MichiuEvent::MouseWheel {
                 raw_delta_x: Unvalidated::new(WheelDelta(0)),
                 raw_delta_y: Unvalidated::new(WheelDelta(delta)), // 上がプラス、下がマイナス
@@ -482,7 +483,7 @@ pub(crate) fn translate_and_dispatch(
             None
         }
         WM_MOUSEHWHEEL => {
-            let delta = (wparam.0 >> 16) as i16 as i32;
+            let delta = wparam.to_wheel_delta();
             push_win_event(MichiuEvent::MouseWheel {
                 raw_delta_x: Unvalidated::new(WheelDelta(delta)), // 右がプラス、左がマイナス
                 raw_delta_y: Unvalidated::new(WheelDelta(0)),
@@ -491,51 +492,44 @@ pub(crate) fn translate_and_dispatch(
         }
         WM_PAINT => {
             push_win_event(MichiuEvent::RedrawRequested);
-            // DefWindowProcW のデフォルト描画をスキップ
+            if !state.manual_paint_validation {
+                return None;
+            }
             Some(LRESULT(0))
         }
 
         WM_DPICHANGED => {
-            // wparam の下位16ビット（LOWORD）に新しいDPI（96, 120, 144, 192など）
-            let dpi = (wparam.0 & 0xffff) as u32;
-            let scale_factor = dpi as f64 / 96.0; // 96 DPI = 1.0 (100%)
+            let scale_factor = wparam.to_scale();
 
-            // lparam には新しいDPIにスケーリングされた推奨サイズ（RECT構造体のポインタ）
-            let rect_ptr = lparam.0 as *const RECT;
-            if !rect_ptr.is_null() {
-                let rect = unsafe { *rect_ptr };
-                let bounds = PhysicalRect::new(rect.left, rect.top, rect.right, rect.bottom);
+            // lparam から推奨 RECT を安全に取り出す (null チェックも内包)
+            let rect = (unsafe { lparam.to_ref::<RECT>() })?;
+            let bounds = PhysicalRect::new(rect.left, rect.top, rect.right, rect.bottom);
 
-                push_win_event(MichiuEvent::ScaleFactorChanged {
-                    scale_factor,
-                    suggested_bounds: Unvalidated::new(bounds),
-                });
+            push_win_event(MichiuEvent::ScaleFactorChanged {
+                scale_factor,
+                suggested_bounds: Unvalidated::new(bounds),
+            });
 
-                if state.auto_dpi_scaling {
-                    let rect_ptr = lparam.0 as *const RECT;
-                    if !rect_ptr.is_null() {
-                        let rect = unsafe { *rect_ptr };
-                        unsafe {
-                            let _ = SetWindowPos(
-                                hwnd,
-                                None,
-                                rect.left,
-                                rect.top,
-                                rect.right - rect.left,
-                                rect.bottom - rect.top,
-                                SWP_NOZORDER | SWP_NOACTIVATE,
-                            );
-                        }
-                    }
-                    return Some(LRESULT(0));
+            if state.auto_dpi_scaling {
+                unsafe {
+                    let _ = SetWindowPos(
+                        hwnd,
+                        None,
+                        rect.left,
+                        rect.top,
+                        rect.right - rect.left,
+                        rect.bottom - rect.top,
+                        SWP_NOZORDER | SWP_NOACTIVATE,
+                    );
                 }
+                return Some(LRESULT(0));
             }
             None
         }
         WM_SETCURSOR => {
             // wparam にはウィンドウのHWND、lparam の下位16ビットにはヒットテスト値が入る。
             // ヒットテスト値が HTERROR などのエラーでない場合、かつクライアント領域にある場合はカーソルを上書き
-            let hit_test = (lparam.0 & 0xffff) as u32;
+            let hit_test = lparam.loword_u32();
 
             // クライアント領域 (HTCLIENT = 1) での移動時のみカスタムカーソルを適用
             if hit_test == 1 {
@@ -559,7 +553,7 @@ pub(crate) fn translate_and_dispatch(
             None
         }
         WM_IME_NOTIFY => {
-            let sub_msg = wparam.0 as u32;
+            let sub_msg = lparam.to_u32();
             // 状態変更通知 (IMN_SETOPENSTATUS = 0x000F, IMN_SETCONVERSIONMODE = 0x0006) のみフック
             if sub_msg == 0x000F || sub_msg == 0x0006 {
                 push_ime_state_update(hwnd, id, raw, state);
@@ -567,29 +561,26 @@ pub(crate) fn translate_and_dispatch(
             None
         }
         WM_WINDOW_COMMAND => {
-            let raw_ptr = lparam.0 as *mut SetWindowCommand;
-            if !raw_ptr.is_null() {
-                unsafe {
-                    let command = Box::from_raw(raw_ptr);
+            if let Some(command) = unsafe { lparam.take_box::<SetWindowCommand>() } {
+                match *command {
+                    SetWindowCommand::Title(title) => {
+                        let title_wide: Vec<u16> =
+                            title.encode_utf16().chain(std::iter::once(0)).collect();
+                        let _ = unsafe { SetWindowTextW(hwnd, PCWSTR(title_wide.as_ptr())) };
+                    }
+                    SetWindowCommand::Visible(visible) => {
+                        let show_cmd = if visible { SW_SHOW } else { SW_HIDE };
+                        let _ = unsafe { ShowWindow(hwnd, show_cmd) };
+                    }
+                    SetWindowCommand::ZOrder(z_order) => {
+                        let hwnd_insert_after = match z_order {
+                            ZOrder::Topmost => HWND_TOPMOST,
+                            ZOrder::Default => HWND_NOTOPMOST,
+                            ZOrder::Bottom => HWND_BOTTOM,
+                        };
 
-                    match *command {
-                        SetWindowCommand::Title(title) => {
-                            let title_wide: Vec<u16> =
-                                title.encode_utf16().chain(std::iter::once(0)).collect();
-                            let _ = SetWindowTextW(hwnd, PCWSTR(title_wide.as_ptr()));
-                        }
-                        SetWindowCommand::Visible(visible) => {
-                            let show_cmd = if visible { SW_SHOW } else { SW_HIDE };
-                            let _ = ShowWindow(hwnd, show_cmd);
-                        }
-                        SetWindowCommand::ZOrder(z_order) => {
-                            let hwnd_insert_after = match z_order {
-                                ZOrder::Topmost => HWND_TOPMOST,
-                                ZOrder::Default => HWND_NOTOPMOST,
-                                ZOrder::Bottom => HWND_BOTTOM,
-                            };
-
-                            let _ = SetWindowPos(
+                        let _ = unsafe {
+                            SetWindowPos(
                                 hwnd,
                                 Some(hwnd_insert_after),
                                 0,
@@ -597,10 +588,12 @@ pub(crate) fn translate_and_dispatch(
                                 0,
                                 0,
                                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
-                            );
-                        }
-                        SetWindowCommand::Size(size) => {
-                            let _ = SetWindowPos(
+                            )
+                        };
+                    }
+                    SetWindowCommand::Size(size) => {
+                        let _ = unsafe {
+                            SetWindowPos(
                                 hwnd,
                                 Some(HWND::default()),
                                 0,
@@ -608,10 +601,12 @@ pub(crate) fn translate_and_dispatch(
                                 size.width,
                                 size.height,
                                 SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE,
-                            );
-                        }
-                        SetWindowCommand::Position(position) => {
-                            let _ = SetWindowPos(
+                            )
+                        };
+                    }
+                    SetWindowCommand::Position(position) => {
+                        let _ = unsafe {
+                            SetWindowPos(
                                 hwnd,
                                 Some(HWND::default()),
                                 position.x,
@@ -619,59 +614,66 @@ pub(crate) fn translate_and_dispatch(
                                 0,
                                 0,
                                 SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
-                            );
-                        }
-                        SetWindowCommand::SetClipboardText(text) => {
-                            let _ = crate::set_clipboard_text_impl(hwnd, &text);
-                        }
-                        SetWindowCommand::CursorCapture(capture) => {
-                            crate::set_cursor_capture_impl(hwnd, capture);
-                        }
-                        SetWindowCommand::CursorClipping(clip) => {
-                            crate::set_cursor_clipping_impl(hwnd, clip);
-                        }
-                        SetWindowCommand::Fullscreen(fullscreen) => {
-                            crate::set_fullscreen_impl(hwnd, fullscreen);
-                        }
-                        SetWindowCommand::CenterOnScreen => {
-                            crate::center_on_screen_impl(hwnd);
-                        }
-                        SetWindowCommand::StartDragging => {
-                            const SC_DRAGMOVE: usize = 0xF012;
+                            )
+                        };
+                    }
+                    SetWindowCommand::SetClipboardText(text) => {
+                        let _ = crate::set_clipboard_text_impl(hwnd, &text);
+                    }
+                    SetWindowCommand::CursorCapture(capture) => {
+                        crate::set_cursor_capture_impl(hwnd, capture);
+                    }
+                    SetWindowCommand::CursorClipping(clip) => {
+                        crate::set_cursor_clipping_impl(hwnd, clip);
+                    }
+                    SetWindowCommand::Fullscreen(fullscreen) => {
+                        crate::set_fullscreen_impl(hwnd, fullscreen);
+                    }
+                    SetWindowCommand::CenterOnScreen => {
+                        crate::center_on_screen_impl(hwnd);
+                    }
+                    SetWindowCommand::StartDragging => {
+                        const SC_DRAGMOVE: usize = 0xF012;
 
-                            let _ = ReleaseCapture();
-                            let pos = GetMessagePos();
+                        let _ = unsafe { ReleaseCapture() };
+                        let pos = unsafe { GetMessagePos() };
+                        let pos_usize = usize::try_from(pos).unwrap_or(0);
+                        let lparam_val = isize::from_ne_bytes(pos_usize.to_ne_bytes());
 
-                            SendMessageW(
-                                hwnd,
+                        // 再入防止のため `SendMessage` は使用しない
+                        let _ = unsafe {
+                            PostMessageW(
+                                Some(hwnd),
                                 WM_SYSCOMMAND,
-                                Some(WPARAM(SC_DRAGMOVE)),
-                                Some(LPARAM(pos as isize)),
-                            );
+                                WPARAM(SC_DRAGMOVE),
+                                LPARAM(lparam_val),
+                            )
+                        };
+                    }
+                    SetWindowCommand::SetCursor(cursor) => {
+                        state.current_cursor = cursor;
+                    }
+                    SetWindowCommand::Destroy => unsafe {
+                        let is_alive = IsWindow(Some(hwnd)).as_bool();
+                        if is_alive {
+                            let _ = DestroyWindow(hwnd);
                         }
-                        SetWindowCommand::SetCursor(cursor) => {
-                            state.current_cursor = cursor;
-                        }
-                        SetWindowCommand::Destroy => {
-                            let is_alive = IsWindow(Some(hwnd)).as_bool();
-                            if is_alive {
-                                let _ = DestroyWindow(hwnd);
-                            }
-                        }
-                        SetWindowCommand::Quit => {
-                            PostQuitMessage(0);
-                        }
-                        SetWindowCommand::RedrawRequested => {
-                            let _ = InvalidateRect(Some(hwnd), None, false);
-                        }
-                        SetWindowCommand::UpdateWindow => {
-                            let _ = UpdateWindow(hwnd);
-                        }
-                        SetWindowCommand::DwmFlush => {
-                            let _ = DwmFlush();
-                        }
-                        SetWindowCommand::FrameChanged => {
-                            let _ = SetWindowPos(
+                    },
+                    SetWindowCommand::Quit => unsafe {
+                        PostQuitMessage(0);
+                    },
+                    SetWindowCommand::RedrawRequested => unsafe {
+                        let _ = InvalidateRect(Some(hwnd), None, false);
+                    },
+                    SetWindowCommand::UpdateWindow => unsafe {
+                        let _ = UpdateWindow(hwnd);
+                    },
+                    SetWindowCommand::DwmFlush => unsafe {
+                        let _ = DwmFlush();
+                    },
+                    SetWindowCommand::FrameChanged => {
+                        let _ = unsafe {
+                            SetWindowPos(
                                 hwnd,
                                 None,
                                 0,
@@ -679,29 +681,29 @@ pub(crate) fn translate_and_dispatch(
                                 0,
                                 0,
                                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED,
-                            );
-                        }
-                        SetWindowCommand::DefaultFrameRendering => {
-                            let margins = MARGINS {
-                                cxLeftWidth: -1,
-                                cxRightWidth: -1,
-                                cyTopHeight: -1,
-                                cyBottomHeight: -1,
-                            };
-                            let _ = DwmExtendFrameIntoClientArea(hwnd, &raw const margins);
-                        }
-                        SetWindowCommand::Minimize => {
-                            let _ = ShowWindow(hwnd, SW_MINIMIZE);
-                        }
-                        SetWindowCommand::Maximize => {
-                            let is_maximized = IsZoomed(hwnd).as_bool();
-                            let show = if is_maximized {
-                                SW_RESTORE
-                            } else {
-                                SW_MAXIMIZE
-                            };
-                            let _ = ShowWindow(hwnd, show);
-                        }
+                            )
+                        };
+                    }
+                    SetWindowCommand::DefaultFrameRendering => {
+                        let margins = MARGINS {
+                            cxLeftWidth: -1,
+                            cxRightWidth: -1,
+                            cyTopHeight: -1,
+                            cyBottomHeight: -1,
+                        };
+                        let _ = unsafe { DwmExtendFrameIntoClientArea(hwnd, &raw const margins) };
+                    }
+                    SetWindowCommand::Minimize => unsafe {
+                        let _ = ShowWindow(hwnd, SW_MINIMIZE);
+                    },
+                    SetWindowCommand::Maximize => {
+                        let is_maximized = unsafe { IsZoomed(hwnd).as_bool() };
+                        let show = if is_maximized {
+                            SW_RESTORE
+                        } else {
+                            SW_MAXIMIZE
+                        };
+                        let _ = unsafe { ShowWindow(hwnd, show) };
                     }
                 }
             }
@@ -709,29 +711,22 @@ pub(crate) fn translate_and_dispatch(
             Some(LRESULT(0))
         }
         WM_RUN_ON_UI_THREAD => {
-            let raw_ptr = lparam.0 as *mut Box<dyn FnOnce(HWND) + Send + 'static>;
-            if !raw_ptr.is_null() {
-                unsafe {
-                    let closure = Box::from_raw(raw_ptr);
-
-                    // ユーザーのクロージャが万が一パニックした場合、
-                    // WndProc（FFIの境界）を越えて Unwind が起きると致命的なクラッシュ（未定義動作）を引き起こす。
-                    // std::panic::catch_unwind を使って安全に保護します。
-                    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                        closure(hwnd);
-                    }));
-                }
+            type WindowTask = Box<dyn FnOnce(HWND) + Send + 'static>;
+            if let Some(task) = unsafe { lparam.take_box::<WindowTask>() } {
+                // ユーザーのクロージャが万が一パニックした場合、
+                // WndProc（FFIの境界）を越えて Unwind が起きると致命的なクラッシュ（未定義動作）を引き起こす。
+                // std::panic::catch_unwind を使って安全に保護します。
+                let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    task(hwnd);
+                }));
             }
 
             Some(LRESULT(0))
         }
         WM_USER_EVENT => {
-            let raw_ptr = lparam.0 as *mut Box<dyn Any + Send>;
-            if !raw_ptr.is_null() {
-                unsafe {
-                    let boxed_any = Box::from_raw(raw_ptr);
-                    dispatch_to_active_handler(MichiuAnyEvent::User(*boxed_any), id, raw);
-                }
+            type AnyBox = Box<dyn Any + Send>;
+            if let Some(any_data) = unsafe { lparam.take_box::<AnyBox>() } {
+                dispatch_to_active_handler(MichiuAnyEvent::User(*any_data), id, raw);
             }
 
             Some(LRESULT(0)) // 処理完了
@@ -749,16 +744,16 @@ fn get_active_modifiers() -> Modifiers {
     let mut modifiers = Modifiers::empty();
     unsafe {
         // 戻り値がマイナスならキーは押されていると判定
-        if GetKeyState(VK_SHIFT.0 as i32) < 0 {
+        if GetKeyState(i32::from(VK_SHIFT.0)) < 0 {
             modifiers.insert(Modifiers::SHIFT);
         }
-        if GetKeyState(VK_CONTROL.0 as i32) < 0 {
+        if GetKeyState(i32::from(VK_CONTROL.0)) < 0 {
             modifiers.insert(Modifiers::CONTROL);
         }
-        if GetKeyState(VK_MENU.0 as i32) < 0 {
+        if GetKeyState(i32::from(VK_MENU.0)) < 0 {
             modifiers.insert(Modifiers::ALT);
         }
-        if GetKeyState(VK_LWIN.0 as i32) < 0 || GetKeyState(VK_RWIN.0 as i32) < 0 {
+        if GetKeyState(i32::from(VK_LWIN.0)) < 0 || GetKeyState(i32::from(VK_RWIN.0)) < 0 {
             modifiers.insert(Modifiers::LOGO);
         }
     }
@@ -980,8 +975,10 @@ fn push_ime_state_update(hwnd: HWND, id: WindowId, raw: MichiuRawEvent, state: &
             .unwrap_or_default()
             .unwrap_or_default();
 
-        let has_result_flag =
-            raw.msg == WM_IME_COMPOSITION && (raw.lparam.0 as u32 & GCS_RESULTSTR.0) != 0;
+        let is_composition_msg = raw.msg == WM_IME_COMPOSITION;
+        let lparam_flags = raw.lparam.to_u32();
+
+        let has_result_flag = is_composition_msg && (lparam_flags & GCS_RESULTSTR.0) != 0;
 
         let result_text = if has_result_flag {
             ctx.get_result_string()
@@ -993,47 +990,41 @@ fn push_ime_state_update(hwnd: HWND, id: WindowId, raw: MichiuRawEvent, state: &
 
         let caret_position = ctx.get_composition_window_position();
 
-        // WM_IME_COMPOSITION かつ該当フラグが立っている時だけ取得する
-        let is_composition_msg = raw.msg == WM_IME_COMPOSITION;
-        let lparam_flags = raw.lparam.0 as u32;
-
         // カーソル位置の取得
         let composition_cursor = if is_composition_msg && (lparam_flags & GCS_CURSORPOS.0) != 0 {
             let cursor_pos = unsafe { ImmGetCompositionStringW(ctx.himc, GCS_CURSORPOS, None, 0) };
-            if cursor_pos >= 0 {
-                cursor_pos as usize
-            } else {
-                0
-            }
+            // cursor_pos が負なら Err になり 0
+            usize::try_from(cursor_pos).unwrap_or(0)
         } else {
             0
         };
 
         // 文字属性配列（下線情報）の取得
-        let composition_attrs = if is_composition_msg && (lparam_flags & GCS_COMPATTR.0) != 0 {
-            let len = unsafe { ImmGetCompositionStringW(ctx.himc, GCS_COMPATTR, None, 0) };
-            if len > 0 {
-                let mut attrs = vec![0u8; len as usize];
-                let written = unsafe {
-                    ImmGetCompositionStringW(
-                        ctx.himc,
-                        GCS_COMPATTR,
-                        Some(attrs.as_mut_ptr().cast()),
-                        len as u32,
-                    )
-                };
-                if written > 0 {
-                    attrs.truncate(written as usize);
-                    attrs
-                } else {
-                    Vec::new()
-                }
-            } else {
-                Vec::new()
+        let composition_attrs = (|| {
+            if !is_composition_msg || (lparam_flags & GCS_COMPATTR.0) == 0 {
+                return None;
             }
-        } else {
-            Vec::new()
-        };
+
+            let len = unsafe { ImmGetCompositionStringW(ctx.himc, GCS_COMPATTR, None, 0) };
+            // len <= 0 や負のエラー値なら早期リターンして Vec::new() に
+            let len_usize = usize::try_from(len).ok().filter(|&l| l > 0)?;
+            let len_u32 = u32::try_from(len).ok()?;
+
+            let mut attrs = vec![0u8; len_usize];
+            let written = unsafe {
+                ImmGetCompositionStringW(
+                    ctx.himc,
+                    GCS_COMPATTR,
+                    Some(attrs.as_mut_ptr().cast()),
+                    len_u32,
+                )
+            };
+
+            let written_usize = usize::try_from(written).ok()?;
+            attrs.truncate(written_usize);
+            Some(attrs)
+        })()
+        .unwrap_or_default();
 
         let update = ImeStateUpdate {
             window_id: id.0,

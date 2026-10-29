@@ -1,9 +1,9 @@
-#![allow(clippy::pedantic, clippy::restriction)]
+#![expect(clippy::pedantic)]
 
 use michiu::prelude::*;
 
 // cargo build --example minimal_sample --release
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let _ = MichiuWindow::init_dpi_awareness();
 
     let com = MichiuComContext::new_ro_single()?;
@@ -20,12 +20,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let scale_factor = window.scale_factor() as f32;
     let handle = window.handle().assume_valid();
     let rect = handle.client_rect();
-    let width = rect.width as f32;
-    let height = rect.height as f32;
 
     let renderer = pollster::block_on(MichiuRenderer::new(
         handle.hwnd(),
-        LayoutSize::new(width, height),
+        rect.cast(),
         scale_factor,
     ))?;
 
@@ -33,24 +31,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let (count, set_count) = create_signal(0u32);
 
         flex(
-            ts().size_full()
+            ii().size_full()
                 .justify_center()
                 .items_center()
                 .bg_color(rgb(22, 24, 29)),
         )
         .child(
             flex(
-                ts().r(6.0)
+                ii().r(6.0)
                     .size((200.0, 100.0))
                     .border_solid(2.0)
                     .border_color(rgb(209, 92, 174))
                     .justify_center()
-                    .pressed(ts().transform_scale(0.98, 0.98)),
+                    .pressed(ii().transform_scale(0.98, 0.98)),
             )
             .on_click(move || set_count.set(count.get() + 1))
             .label(
                 move || format!("Count: {}", count.get()),
-                ts().text_color(rgb(156, 158, 163)).font_size(22.0),
+                ii().text_color(rgb(156, 158, 163)).font_size(22.0),
             ),
         )
     })?;

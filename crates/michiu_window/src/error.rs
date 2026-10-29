@@ -100,7 +100,7 @@ pub enum MichiuError {
     InvalidHandleState { reason: &'static str },
 
     /// Attempted to access a window from a thread other than the one that created it.
-    /// Windows UI elements are thread-affine and cannot be manipulated from foreign threads.
+    /// Windows UI entities are thread-affine and cannot be manipulated from foreign threads.
     #[error(
         "Thread mismatch: Window must be accessed from thread {expected}, but was accessed from {actual}."
     )]
@@ -142,6 +142,10 @@ pub enum MichiuError {
         #[source]
         source: windows::core::Error,
     },
+
+    /// Aggregates events such as the failure of immutable conditions—which should never occur—and internal calculation overflows
+    #[error("Internal error: {0}")]
+    Internal(&'static str),
 
     /// A generic fallback for other unexpected Windows OS errors.
     #[error("Unexpected OS error (HRESULT: {0:?})")]
@@ -239,7 +243,7 @@ impl MichiuError {
             ),
 
             Self::ThreadMismatch { .. } => Some(
-                "Windows GUI elements are thread-affine. You must interact with the window \
+                "Windows GUI entities are thread-affine. You must interact with the window \
                 only from the thread that created it (typically the thread that runs the main message loop).",
             ),
 
@@ -377,8 +381,8 @@ impl SysErrorInfo {
     }
 }
 
-#[allow(clippy::unwrap_used)]
-#[allow(clippy::print_stdout)]
+#[expect(clippy::unwrap_used)]
+#[expect(clippy::print_stdout)]
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -451,7 +455,7 @@ mod tests {
     }
 
     #[test]
-    fn test_error_remedy_hints() {
+    fn test_error_remedy_hinii() {
         // バリデーションエラーにおける remedy の分岐を検証
         let err_transparent = MichiuError::ValidationError {
             parameter: "transparent",

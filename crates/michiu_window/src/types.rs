@@ -1,6 +1,8 @@
 use windows::Win32::UI::WindowsAndMessaging::HCURSOR;
 
-/// Describes the state of a physical input element (e.g., Keyboard Key, Mouse Button).
+use crate::utils::round_to_i32;
+
+/// Describes the state of a physical input entity (e.g., Keyboard Key, Mouse Button).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ElementState {
     /// The element is currently pressed down.
@@ -125,8 +127,8 @@ impl PhysicalPoint {
     #[inline]
     pub fn to_logical(&self, scale_factor: f64) -> LogicalPoint {
         LogicalPoint {
-            x: self.x as f64 / scale_factor,
-            y: self.y as f64 / scale_factor,
+            x: f64::from(self.x) / scale_factor,
+            y: f64::from(self.y) / scale_factor,
         }
     }
 }
@@ -150,8 +152,8 @@ impl PhysicalSize {
     #[inline]
     pub fn to_logical(&self, scale_factor: f64) -> LogicalSize {
         LogicalSize {
-            width: self.width as f64 / scale_factor,
-            height: self.height as f64 / scale_factor,
+            width: f64::from(self.width) / scale_factor,
+            height: f64::from(self.height) / scale_factor,
         }
     }
 }
@@ -182,10 +184,10 @@ impl PhysicalRect {
     #[inline]
     pub fn to_logical(&self, scale_factor: f64) -> LogicalRect {
         LogicalRect {
-            left: self.left as f64 / scale_factor,
-            top: self.top as f64 / scale_factor,
-            right: self.right as f64 / scale_factor,
-            bottom: self.bottom as f64 / scale_factor,
+            left: f64::from(self.left) / scale_factor,
+            top: f64::from(self.top) / scale_factor,
+            right: f64::from(self.right) / scale_factor,
+            bottom: f64::from(self.bottom) / scale_factor,
         }
     }
 }
@@ -210,8 +212,8 @@ impl LogicalPoint {
     #[inline]
     pub fn to_physical(&self, scale_factor: f64) -> PhysicalPoint {
         PhysicalPoint {
-            x: (self.x * scale_factor).round() as i32,
-            y: (self.y * scale_factor).round() as i32,
+            x: round_to_i32(self.x * scale_factor),
+            y: round_to_i32(self.y * scale_factor),
         }
     }
 }
@@ -235,8 +237,8 @@ impl LogicalSize {
     #[inline]
     pub fn to_physical(&self, scale_factor: f64) -> PhysicalSize {
         PhysicalSize {
-            width: (self.width * scale_factor).round() as i32,
-            height: (self.height * scale_factor).round() as i32,
+            width: round_to_i32(self.width * scale_factor),
+            height: round_to_i32(self.height * scale_factor),
         }
     }
 }
@@ -267,10 +269,10 @@ impl LogicalRect {
     #[inline]
     pub fn to_physical(&self, scale_factor: f64) -> PhysicalRect {
         PhysicalRect {
-            left: (self.left * scale_factor).round() as i32,
-            top: (self.top * scale_factor).round() as i32,
-            right: (self.right * scale_factor).round() as i32,
-            bottom: (self.bottom * scale_factor).round() as i32,
+            left: round_to_i32(self.left * scale_factor),
+            top: round_to_i32(self.top * scale_factor),
+            right: round_to_i32(self.right * scale_factor),
+            bottom: round_to_i32(self.bottom * scale_factor),
         }
     }
 }
@@ -291,8 +293,8 @@ impl WheelDelta {
     /// Retrieve the number of rows normalized to 1.0 per notch (supports high-precision wheels)
     #[must_use]
     #[inline]
-    pub fn notches(self) -> f32 {
-        self.0 as f32 / Self::STANDARD_NOTCH as f32
+    pub fn notches(self) -> f64 {
+        f64::from(self.0) / f64::from(Self::STANDARD_NOTCH)
     }
 }
 
@@ -313,6 +315,18 @@ pub enum PreferredAppMode {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(test)]
+    macro_rules! assert_approx_eq {
+        ($left:expr, $right:expr) => {
+            let l = $left;
+            let r = $right;
+            assert!(
+                (l - r).abs() < 1e-6,
+                "assertion failed: `(left ≈ right)`\n  left: `{l}`,\n right: `{r}`"
+            );
+        };
+    }
 
     #[test]
     fn test_modifiers_operations() {
@@ -336,28 +350,27 @@ mod tests {
 
     #[test]
     fn test_coordinate_conversions_physical_to_logical() {
-        // スケールファクターが 150% (1.5) の場合
         let scale_factor = 1.5;
 
         // Point
         let phys_pt = PhysicalPoint::new(15, 30);
         let log_pt = phys_pt.to_logical(scale_factor);
-        assert_eq!(log_pt.x, 10.0);
-        assert_eq!(log_pt.y, 20.0);
+        assert_approx_eq!(log_pt.x, 10.0);
+        assert_approx_eq!(log_pt.y, 20.0);
 
         // Size
         let phys_size = PhysicalSize::new(1920, 1080);
-        let log_size = phys_size.to_logical(2.0); // 200% scaling
-        assert_eq!(log_size.width, 960.0);
-        assert_eq!(log_size.height, 540.0);
+        let log_size = phys_size.to_logical(2.0);
+        assert_approx_eq!(log_size.width, 960.0);
+        assert_approx_eq!(log_size.height, 540.0);
 
         // Rect
         let phys_rect = PhysicalRect::new(0, 0, 150, 300);
         let log_rect = phys_rect.to_logical(1.5);
-        assert_eq!(log_rect.left, 0.0);
-        assert_eq!(log_rect.top, 0.0);
-        assert_eq!(log_rect.right, 100.0);
-        assert_eq!(log_rect.bottom, 200.0);
+        assert_approx_eq!(log_rect.left, 0.0);
+        assert_approx_eq!(log_rect.top, 0.0);
+        assert_approx_eq!(log_rect.right, 100.0);
+        assert_approx_eq!(log_rect.bottom, 200.0);
     }
 
     #[test]

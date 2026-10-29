@@ -114,8 +114,8 @@ pub enum MichiuEvent {
     Ime(Unvalidated<ImeStateUpdate>),
 }
 
-#[allow(clippy::unwrap_used)]
-#[allow(clippy::panic)]
+#[expect(clippy::unwrap_used)]
+#[expect(clippy::panic)]
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -211,7 +211,7 @@ mod tests {
                 assert!(matches!(event, MichiuEvent::CloseRequested));
             }
             MichiuAnyEvent::User(_) => panic!("Expected MichiuEvent::Event"),
-            _ => {}
+            MichiuAnyEvent::Other => {}
         }
     }
 

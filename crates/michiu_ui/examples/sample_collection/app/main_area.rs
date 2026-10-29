@@ -3,29 +3,30 @@ use crate::{
     app::{ComponentType, theme::Theme},
     components::{
         accessibility, background, border, button, color, context_menu, css, cursor, div,
-        draggable, external_visual, flexbox, focusable, gradient, hover, image, input, outline,
-        resizable, scrollbar, stress_test, transform,
+        draggable, external_texture, external_visual, flexbox, focusable, gradient, hover, input,
+        outline, resizable, scrollbar, stress_test, transform,
     },
 };
-pub use michiu_ui::prelude::*;
+use michiu_ui::a11y;
+use michiu_ui::prelude::*;
 use strum::IntoEnumIterator;
 
-pub fn main_area() -> Element {
-    let main_contents = v_flex(ts().size_full().overflow_hidden().p(20.0));
+pub fn main_area() -> Entity {
+    let main_contents = v_flex(ii().size_full().overflow_hidden().p(20.0)).tag::<a11y::AMain>();
 
     // 全ての ComponentType の要素を起動時に一度だけ spawn してマウント
     let mut children = Vec::new();
     for comp_type in ComponentType::iter() {
-        let child_el = create_component_element(comp_type);
+        let child_el = create_component_entity(comp_type);
 
         // 現在の ComponentType と一致しているか否かを動的に解決
         let styled_child = flex_d(move |active: &ComponentType| {
             if *active == comp_type {
                 // 表示状態のスタイル
-                ts().size_full().flex() // hidden() と対応させる
+                ii().size_full().flex() // hidden() と対応させる
             } else {
                 // Display::None を適用して Context 内に常駐
-                ts().hidden()
+                ii().hidden()
             }
         })
         .child(child_el);
@@ -36,11 +37,10 @@ pub fn main_area() -> Element {
     main_contents.children(children)
 }
 
-fn create_component_element(comp_type: ComponentType) -> Element {
+fn create_component_entity(comp_type: ComponentType) -> Entity {
     match comp_type {
         ComponentType::Button => wrapper(button::container()),
         ComponentType::Input => wrapper(input::container()),
-        ComponentType::InputArea => text("InputArea"),
         ComponentType::Background => wrapper(background::container()),
         ComponentType::Div => wrapper(div::container()),
         ComponentType::Flexbox => wrapper(flexbox::container()),
@@ -56,7 +56,7 @@ fn create_component_element(comp_type: ComponentType) -> Element {
         ComponentType::Cursor => wrapper(cursor::container()),
         ComponentType::Outline => wrapper(outline::container()),
         ComponentType::Focusable => wrapper(focusable::container()),
-        ComponentType::Image => wrapper(image::container()),
+        ComponentType::ExternalTexture => wrapper(external_texture::container()),
         ComponentType::ExternalVisual => wrapper(external_visual::container()),
         ComponentType::Accessibility => wrapper(accessibility::container()),
         ComponentType::Size => text("Size"),
@@ -71,13 +71,13 @@ fn create_component_element(comp_type: ComponentType) -> Element {
     }
 }
 
-fn wrapper(el: Element) -> Element {
+fn wrapper(e: Entity) -> Entity {
     v_flex_d(|t: &Theme| {
-        ts().size_full()
+        ii().size_full()
             .r(4.0)
             .overflow_hidden()
             .border_dashed(1.0)
             .border_color(t.border)
     })
-    .child(el)
+    .child(e)
 }

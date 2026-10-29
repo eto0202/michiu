@@ -28,7 +28,7 @@ pub(crate) fn logger(sub: TraceSubscription) {
                         );
                     }
                     #[cfg(feature = "trace-lifecycle")]
-                    MichiuTrace::BuildElement {
+                    MichiuTrace::BuildEntity {
                         old, current, root, ..
                     } => {
                         println!(

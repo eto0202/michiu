@@ -10,7 +10,7 @@ pub use focus::*;
 pub use resize::*;
 pub use scroll::*;
 
-use crate::{CapacityConfig, EntityId};
+use crate::{CapacityConfig, Entity};
 
 pub struct StateStore {
     pub(crate) dnd: DndStore,
@@ -57,7 +57,7 @@ impl StateStore {
     }
 
     #[inline]
-    pub(crate) fn despawn(&mut self, id: EntityId) {
+    pub(crate) fn despawn(&mut self, id: Entity) {
         self.dnd.despawn(id);
         self.scroll.despawn(id);
         self.edit.despawn(id);
@@ -94,7 +94,7 @@ impl StateStore {
     }
 
     #[inline]
-    pub fn active_resize_hover_mut(&mut self) -> &mut Option<(EntityId, ResizeDirection)> {
+    pub fn active_resize_hover_mut(&mut self) -> &mut Option<(Entity, ResizeDirection)> {
         &mut self.resize.res_active_resize_hover
     }
 
