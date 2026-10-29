@@ -35,7 +35,6 @@ pub struct CapacityConfig {
     pub topo_despawned_queue: usize,
     pub lay_basic: usize,
     pub lay_flex: usize,
-    pub lay_grid: usize,
     pub lay_base_basic: usize,
     pub lay_base_flex: usize,
     pub bar_styles: usize,
@@ -44,7 +43,6 @@ pub struct CapacityConfig {
     pub lay_dirty_entities: usize,
     pub lay_resolved_basic: usize,
     pub lay_resolved_flex: usize,
-    pub lay_resolved_grid: usize,
     pub rnd_visual: usize,
     pub rnd_interaction: usize,
     pub rnd_base_visual: usize,
@@ -107,8 +105,7 @@ impl CapacityConfig {
             cont_movie_properties: (base / 1000).max(1),
             cont_external_textures: base / 10,
 
-            lay_flex: base / 2,  // 2つに1つはFlexbox
-            lay_grid: base / 10, // Gridは少なめ
+            lay_flex: base / 2, // 2つに1つはFlexbox
             lay_base_flex: base / 2,
             lay_resolved_basic: base / 2,
             lay_resolved_flex: base / 2,
@@ -157,7 +154,6 @@ impl CapacityConfig {
         topo_despawned_queue: 0,
         lay_basic: 0,
         lay_flex: 0,
-        lay_grid: 0,
         lay_base_basic: 0,
         lay_base_flex: 0,
         bar_styles: 0,
@@ -166,7 +162,6 @@ impl CapacityConfig {
         lay_dirty_entities: 0,
         lay_resolved_basic: 0,
         lay_resolved_flex: 0,
-        lay_resolved_grid: 0,
         rnd_visual: 0,
         rnd_interaction: 0,
         rnd_base_visual: 0,

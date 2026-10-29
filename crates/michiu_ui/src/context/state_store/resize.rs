@@ -209,12 +209,22 @@ impl ResizeStore {
                 (p_rect, border_l, border_t)
             });
 
-        // 親コンテナのボーダー内側を基準点として物理相対位置を逆算
-        let local_x = rect.x - (parent_rect.x + parent_border_left);
-        let local_y = rect.y - (parent_rect.y + parent_border_top);
+        // 基準原点の決定（Fixed は画面原点 (0, 0)、それ以外は親コンテナのボーダー内側）
+        let (origin_x, origin_y) = if position == Position::Fixed {
+            (0.0, 0.0)
+        } else {
+            (
+                parent_rect.x + parent_border_left,
+                parent_rect.y + parent_border_top,
+            )
+        };
 
-        // 絶対配置の場合、開始時に Top-Left 基準に完全に正規化
-        if position == Position::Absolute {
+        // 基準点からの相対位置を逆算
+        let local_x = rect.x - origin_x;
+        let local_y = rect.y - origin_y;
+
+        // 絶対配置または固定配置の場合、開始時に Top-Left 基準に完全に正規化
+        if matches!(position, Position::Absolute | Position::Fixed) {
             start_inset = Rect {
                 top: Val::Px(local_y),
                 right: Val::Auto,
@@ -222,7 +232,6 @@ impl ResizeStore {
                 left: Val::Px(local_x),
             };
 
-            // SoA 側も、この Top-Left 座標で即時上書きアップデート
             let basic = lay_basic.get_mut(id);
             let base_basic = lay_base_basic.get_mut(id);
             for layout in [basic, base_basic].into_iter().flatten() {
@@ -326,16 +335,16 @@ impl ResizeStore {
 
         if let Some(factor) = h_factor {
             new_w = (start_rect.width + delta_x * factor).clamp(min_w, max_w);
-            // 絶対配置（Absolute）で、左側へサイズを伸ばした（縮めた）場合はインセットを同期補正
-            if basic.position == Position::Absolute && factor < 0.0 {
+            // 絶対配置（Absolute）または固定配置（Fixed）で、左側へサイズを伸ばした（縮めた）場合はインセットを同期補正
+            if matches!(basic.position, Position::Absolute | Position::Fixed) && factor < 0.0 {
                 delta_inset_left = start_rect.width - new_w;
             }
         }
 
         if let Some(factor) = v_factor {
             new_h = (start_rect.height + delta_y * factor).clamp(min_h, max_h);
-            // 絶対配置（Absolute）で、上側へサイズを伸ばした（縮めた）場合はインセットを同期補正
-            if basic.position == Position::Absolute && factor < 0.0 {
+            // 絶対配置または固定配置で、上側へサイズを伸ばした場合はインセットを同期補正
+            if matches!(basic.position, Position::Absolute | Position::Fixed) && factor < 0.0 {
                 delta_inset_top = start_rect.height - new_h;
             }
         }

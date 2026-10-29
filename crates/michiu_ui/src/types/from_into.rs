@@ -2,10 +2,9 @@
 
 use crate::{
     AlignContent, AlignItems, AlignSelf, Auto, BoxSizing, CornerRadius, Direction, Display, Entity,
-    FlexDirection, FlexWrap, FocusTrigger, Focusable, GridAutoFlow, GridLine, GridPlacement,
-    InputContents, JustifyContent, LayoutOverflow, LayoutPoint, Length, LinearGradient, ModValue,
-    Modifier, Overflow, Percent, Pixel, Point, Position, Prop, ReadSignal, Rect, Size, Stretch,
-    TextAlign, Transform, Val,
+    FlexDirection, FlexWrap, FocusTrigger, Focusable, InputContents, JustifyContent,
+    LayoutOverflow, LayoutPoint, Length, LinearGradient, ModValue, Modifier, Overflow, Percent,
+    Pixel, Point, Position, Prop, ReadSignal, Rect, Size, Stretch, TextAlign, Transform, Val,
 };
 use std::borrow::Cow;
 use taffy::{ExpandedDimension, ExpandedLengthPercentage, ExpandedLengthPercentageAuto};
@@ -88,32 +87,6 @@ where
         Self {
             x: U::from(point.x),
             y: U::from(point.y),
-        }
-    }
-}
-
-impl<T, U> From<GridLine<T>> for taffy::Line<U>
-where
-    U: From<T>,
-{
-    #[inline]
-    fn from(line: GridLine<T>) -> Self {
-        Self {
-            start: U::from(line.start),
-            end: U::from(line.end),
-        }
-    }
-}
-
-impl<T, U> From<taffy::Line<T>> for GridLine<U>
-where
-    U: From<T>,
-{
-    #[inline]
-    fn from(line: taffy::Line<T>) -> Self {
-        Self {
-            start: U::from(line.start),
-            end: U::from(line.end),
         }
     }
 }
@@ -259,6 +232,9 @@ impl From<Position> for taffy::Position {
         match p {
             Position::Relative => Self::Relative,
             Position::Absolute => Self::Absolute,
+            Position::Static => Self::Static,
+            Position::Fixed => Self::Fixed,
+            Position::Sticky => Self::Sticky,
         }
     }
 }
@@ -269,6 +245,9 @@ impl From<taffy::Position> for Position {
         match t {
             taffy::Position::Relative => Self::Relative,
             taffy::Position::Absolute => Self::Absolute,
+            taffy::Position::Static => Self::Static,
+            taffy::Position::Fixed => Self::Fixed,
+            taffy::Position::Sticky => Self::Sticky,
         }
     }
 }
@@ -411,6 +390,7 @@ impl From<AlignItems> for taffy::AlignItems {
     #[inline]
     fn from(ai: AlignItems) -> Self {
         match ai {
+            AlignItems::Normal => Self::NORMAL,
             AlignItems::Start => Self::START,
             AlignItems::End => Self::END,
             AlignItems::FlexStart => Self::FLEX_START,
@@ -433,6 +413,7 @@ impl From<taffy::AlignItems> for AlignItems {
     #[inline]
     fn from(t: taffy::AlignItems) -> Self {
         match t {
+            taffy::AlignItems::NORMAL => Self::Normal,
             taffy::AlignItems::START => Self::Start,
             taffy::AlignItems::END => Self::End,
             taffy::AlignItems::FLEX_START => Self::FlexStart,
@@ -499,6 +480,7 @@ impl From<JustifyContent> for taffy::JustifyContent {
     #[inline]
     fn from(jc: JustifyContent) -> Self {
         match jc {
+            JustifyContent::Normal => Self::NORMAL,
             JustifyContent::Start => Self::START,
             JustifyContent::End => Self::END,
             JustifyContent::Center => Self::CENTER,
@@ -521,6 +503,7 @@ impl From<taffy::JustifyContent> for JustifyContent {
     #[inline]
     fn from(t: taffy::JustifyContent) -> Self {
         match t {
+            taffy::JustifyContent::NORMAL => Self::Normal,
             taffy::JustifyContent::START => Self::Start,
             taffy::JustifyContent::END => Self::End,
             taffy::JustifyContent::CENTER => Self::Center,
@@ -543,6 +526,7 @@ impl From<AlignContent> for taffy::AlignContent {
     #[inline]
     fn from(ac: AlignContent) -> Self {
         match ac {
+            AlignContent::Normal => Self::NORMAL,
             AlignContent::Start => Self::START,
             AlignContent::End => Self::END,
             AlignContent::Center => Self::CENTER,
@@ -565,6 +549,7 @@ impl From<taffy::AlignContent> for AlignContent {
     #[inline]
     fn from(t: taffy::AlignContent) -> Self {
         match t {
+            taffy::AlignContent::NORMAL => Self::Normal,
             taffy::AlignContent::START => Self::Start,
             taffy::AlignContent::END => Self::End,
             taffy::AlignContent::CENTER => Self::Center,
@@ -603,73 +588,6 @@ impl From<taffy::TextAlign> for TextAlign {
             taffy::TextAlign::LegacyLeft => Self::Left,
             taffy::TextAlign::LegacyRight => Self::Right,
             taffy::TextAlign::LegacyCenter => Self::Center,
-        }
-    }
-}
-
-impl From<GridAutoFlow> for taffy::GridAutoFlow {
-    #[inline]
-    fn from(gaf: GridAutoFlow) -> Self {
-        match gaf {
-            GridAutoFlow::Row => Self::Row,
-            GridAutoFlow::Column => Self::Column,
-            GridAutoFlow::RowDense => Self::RowDense,
-            GridAutoFlow::ColumnDense => Self::ColumnDense,
-        }
-    }
-}
-
-impl From<taffy::GridAutoFlow> for GridAutoFlow {
-    #[inline]
-    fn from(t: taffy::GridAutoFlow) -> Self {
-        match t {
-            taffy::GridAutoFlow::Row => Self::Row,
-            taffy::GridAutoFlow::Column => Self::Column,
-            taffy::GridAutoFlow::RowDense => Self::RowDense,
-            taffy::GridAutoFlow::ColumnDense => Self::ColumnDense,
-        }
-    }
-}
-
-impl<S> From<GridPlacement<S>> for taffy::GridPlacement<String>
-where
-    S: ToString,
-{
-    #[inline]
-    fn from(gp: GridPlacement<S>) -> Self {
-        match gp {
-            GridPlacement::Auto => Self::Auto,
-            GridPlacement::Line(s) => {
-                let s_str = s.to_string();
-                if let Ok(val) = s_str.parse::<i16>() {
-                    Self::Line(val.into())
-                } else {
-                    Self::NamedLine(s_str, 1)
-                }
-            }
-            GridPlacement::NamedLine(s) => Self::NamedLine(s.to_string(), 1),
-            GridPlacement::Span(s) => {
-                let s_str = s.to_string();
-                if let Ok(val) = s_str.parse::<u16>() {
-                    Self::Span(val)
-                } else {
-                    Self::Auto
-                }
-            }
-            GridPlacement::NamedSpan(s) => Self::NamedSpan(s.to_string(), 1),
-        }
-    }
-}
-
-impl From<taffy::GridPlacement<String>> for GridPlacement<String> {
-    #[inline]
-    fn from(t: taffy::GridPlacement<String>) -> Self {
-        match t {
-            taffy::GridPlacement::Auto => Self::Auto,
-            taffy::GridPlacement::Line(grid_line) => Self::Line(grid_line.as_i16().to_string()),
-            taffy::GridPlacement::NamedLine(s, _val) => Self::NamedLine(s),
-            taffy::GridPlacement::Span(val) => Self::Span(val.to_string()),
-            taffy::GridPlacement::NamedSpan(s, _val) => Self::NamedSpan(s),
         }
     }
 }

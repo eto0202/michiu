@@ -63,4 +63,5 @@ pub enum ComponentType {
     Accessibility,
     Size,
     Transform,
+    Position,
 }

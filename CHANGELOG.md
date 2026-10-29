@@ -1,3 +1,8 @@
+## [unreleased]
+
+### ⚙️ Miscellaneous Tasks
+
+- Fix the translation of `LANGUAGE_POLICY.md`
 ## [0.0.5] - 2026-10-29
 
 ### Breaking Changes

@@ -1,10 +1,10 @@
 use crate::{
     AlignContent, AlignItems, AlignSelf, Backdrop, BaseVisualPropertiesSecondary, BorderAlignment,
     BorderStyle, BoxShadow, BoxSizing, Color, ComponentMask, CornerRadius, CursorIcon, Direction,
-    Display, EdgeInsets, Entity, FlexDirection, FlexWrap, Focusable, FontDate, GridAutoFlow,
-    GridLine, GridPlacement, IDENTITY_MATRIX, JustifyContent, KeyframeAnimation, LayoutOverflow,
-    Length, LinearGradient, MichiuSoA, ModTarget, Modifier, Point, PointerEvents, Position, Rect,
-    Size, TextAlign, Transition, UserSelect, Val, VisualPropertiesSecondary,
+    Display, EdgeInsets, Entity, FlexDirection, FlexWrap, Focusable, FontDate, IDENTITY_MATRIX,
+    JustifyContent, KeyframeAnimation, LayoutOverflow, Length, LinearGradient, MichiuSoA,
+    ModTarget, Modifier, Point, PointerEvents, Position, Rect, Size, TextAlign, Transition,
+    UserSelect, Val, VisualPropertiesSecondary,
 };
 use std::{
     borrow::Cow,
@@ -40,7 +40,7 @@ pub(crate) static DEFAULT_BASIC: LazyLock<BasicLayout> = LazyLock::new(|| {
         display: default_style.display.into(),
         box_sizing: default_style.box_sizing.into(),
         direction: default_style.direction.into(),
-        position: default_style.position.into(),
+        position: Position::default(),
         overflow: default_style.overflow.into(),
         item_is_table: default_style.item_is_table,
         item_is_replaced: default_style.item_is_replaced,
@@ -126,12 +126,12 @@ pub struct FlexLayout {
     pub flex_basis: Val,  // 8バイト (タグ1 + パディング3 + f32 4)
     pub gap: Size<Val>,   // 16バイト (Val 8バイト * 2)
 
-    pub align_items: Option<AlignItems>,
+    pub align_items: AlignItems,
     pub align_self: Option<AlignSelf>,
-    pub justify_items: Option<AlignItems>,
+    pub justify_items: AlignItems,
     pub justify_self: Option<AlignSelf>,
-    pub align_content: Option<AlignContent>,
-    pub justify_content: Option<JustifyContent>,
+    pub align_content: AlignContent,
+    pub justify_content: JustifyContent,
 
     pub text_align: TextAlign,
     pub flex_direction: FlexDirection,
@@ -191,12 +191,12 @@ pub(crate) static DEFAULT_FLEX: LazyLock<FlexLayout> = LazyLock::new(|| {
         flex_shrink: default_style.flex_shrink,
         flex_basis: default_style.flex_basis.into(),
         gap: default_style.gap.into(),
-        align_items: default_style.align_items.map(std::convert::Into::into),
+        align_items: default_style.align_items.into(),
         align_self: default_style.align_self.map(std::convert::Into::into),
-        justify_items: default_style.justify_items.map(std::convert::Into::into),
+        justify_items: default_style.justify_items.into(),
         justify_self: default_style.justify_self.map(std::convert::Into::into),
-        align_content: default_style.align_content.map(std::convert::Into::into),
-        justify_content: default_style.justify_content.map(std::convert::Into::into),
+        align_content: default_style.align_content.into(),
+        justify_content: default_style.justify_content.into(),
         text_align: default_style.text_align.into(),
         flex_direction: default_style.flex_direction.into(),
         flex_wrap: default_style.flex_wrap.into(),
@@ -206,51 +206,6 @@ pub(crate) static DEFAULT_FLEX: LazyLock<FlexLayout> = LazyLock::new(|| {
 impl Default for FlexLayout {
     fn default() -> Self {
         *DEFAULT_FLEX
-    }
-}
-
-// 3. GridLayout (Gridレイアウト：10プロパティ) - コールドデータ
-/// Gridコンテナ、およびGrid子要素に適用される複雑な情報。
-/// `Vec`（動的配列）を多数含み、メモリ上で重いため `Copy` は不可能（`Clone` のみ）。
-/// 滅多に使われないため、`SparseSecondaryMap` で隔離し、未使用の要素には一切メモリを消費させない。
-#[derive(Debug, Clone, PartialEq)]
-pub struct GridLayout {
-    pub grid_template_rows: Vec<taffy::GridTemplateComponent<String>>,
-    pub grid_template_columns: Vec<taffy::GridTemplateComponent<String>>,
-    pub grid_auto_rows: Vec<taffy::TrackSizingFunction>,
-    pub grid_auto_columns: Vec<taffy::TrackSizingFunction>,
-    pub grid_auto_flow: GridAutoFlow,
-    pub grid_template_areas: Option<taffy::GridTemplateAreas<String>>,
-    pub grid_template_column_names: Vec<Vec<String>>,
-    pub grid_template_row_names: Vec<Vec<String>>,
-    pub grid_row: GridLine<GridPlacement<String>>,
-    pub grid_column: GridLine<GridPlacement<String>>,
-}
-
-unsafe impl Send for GridLayout {}
-unsafe impl Sync for GridLayout {}
-
-impl Default for GridLayout {
-    fn default() -> Self {
-        // Taffyデフォルト値と完全に一致するように空のVecで初期化
-        Self {
-            grid_template_rows: Vec::new(),
-            grid_template_columns: Vec::new(),
-            grid_auto_rows: Vec::new(),
-            grid_auto_columns: Vec::new(),
-            grid_auto_flow: GridAutoFlow::Row,
-            grid_template_areas: None,
-            grid_template_column_names: Vec::new(),
-            grid_template_row_names: Vec::new(),
-            grid_row: GridLine {
-                start: GridPlacement::Auto,
-                end: GridPlacement::Auto,
-            },
-            grid_column: GridLine {
-                start: GridPlacement::Auto,
-                end: GridPlacement::Auto,
-            },
-        }
     }
 }
 
@@ -760,11 +715,6 @@ impl InteractionStyles {
                         .visual_property
                         .override_with(&src_inner.visual_property, src_inner.mask);
 
-                    if src_inner.mask.has_grid_layout()
-                        && let Some(ref g) = src_inner.grid_layout
-                    {
-                        dst_inner.grid_layout = Some(g.clone());
-                    }
                     dst_inner
                         .dynamic_setters
                         .extend(src_inner.dynamic_setters.clone());

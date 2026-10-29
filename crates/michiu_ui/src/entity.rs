@@ -267,7 +267,7 @@ pub fn build_ui(cx: &mut Context, f: impl FnOnce() -> Entity) -> Entity {
     trace_lifecycle!(None, &mut cx.debug, || MichiuTrace::BuildEntity {
         old: old.map(<*mut Context>::addr),
         current: <*mut Context>::addr(current),
-        root: result.id,
+        root: result,
         add: None,
     });
 
@@ -301,7 +301,7 @@ pub(crate) fn with_context<R>(f: impl FnOnce(&mut Context) -> R) -> R {
 }
 
 // コンテキストを復元するための一時的なガード構造体
-#[expect(unused)]
+#[allow(unused)]
 pub(crate) struct ContextGuard {
     // drop 時にログを出すために自身がバインドしたポインタを保持
     current: *mut Context,
@@ -663,13 +663,6 @@ impl Entity {
             } else {
                 cx.layouts.lay_flex.insert(id, inner.flex_layout);
             }
-            need_push_dirty = true;
-        }
-
-        if mask.has_grid_layout()
-            && let Some(ref grid) = inner.grid_layout
-        {
-            cx.layouts.lay_grid.insert(id, grid.clone());
             need_push_dirty = true;
         }
 
