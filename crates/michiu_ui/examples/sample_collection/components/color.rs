@@ -158,10 +158,10 @@ fn rgb_item(store: &ColorStore) -> Entity {
 
 fn rgba_item(store: &ColorStore) -> Entity {
     base_item(
-        "RGB",
+        "RGBA",
         |c| {
-            let (r, g, b, _) = c.to_rgba8();
-            rgb(r, g, b)
+            let (r, g, b, a) = c.to_rgba8();
+            rgba(r, g, b, a)
         },
         [
             common_text("R"),
