@@ -1,11 +1,10 @@
 use crate::{
     AlignContent, AlignItems, AlignSelf, Backdrop, BaseVisualPropertiesSecondary, BorderAlignment,
     BorderStyle, BoxShadow, BoxSizing, Color, ComponentMask, CornerRadius, CursorIcon, Direction,
-    Display, EdgeInsets, Entity, FlexDirection, FlexWrap, Focusable, FontDate,
-    GridAutoFlow, GridLine, GridPlacement, IDENTITY_MATRIX, JustifyContent, KeyframeAnimation,
-    LayoutOverflow, Length, LinearGradient, MichiuSoA, ModTarget, Modifier,
-    Point, PointerEvents, Position, Rect, Size, TextAlign, Transition, UserSelect, Val,
-    VisualPropertiesSecondary,
+    Display, EdgeInsets, Entity, FlexDirection, FlexWrap, Focusable, FontDate, GridAutoFlow,
+    GridLine, GridPlacement, IDENTITY_MATRIX, JustifyContent, KeyframeAnimation, LayoutOverflow,
+    Length, LinearGradient, MichiuSoA, ModTarget, Modifier, Point, PointerEvents, Position, Rect,
+    Size, TextAlign, Transition, UserSelect, Val, VisualPropertiesSecondary,
 };
 use std::{
     borrow::Cow,

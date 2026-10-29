@@ -1,5 +1,5 @@
-use michiu_ui::{LinearGradient, prelude::*};
 use crate::app::theme::Theme;
+use michiu_ui::{LinearGradient, prelude::*};
 
 pub fn container() -> Entity {
     v_flex(ii().p(16.0).gap(16.0)).children([section_1()])

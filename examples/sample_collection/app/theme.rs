@@ -19,7 +19,7 @@ pub struct Theme {
     // Layout Colors (Header > Sidebar > Main)
     pub header: Color,
     pub header_hover: Color,
-    pub sidebar: Color, 
+    pub sidebar: Color,
     pub sidebar_hover: Color,
     pub background: Color,
     pub background_hover: Color,

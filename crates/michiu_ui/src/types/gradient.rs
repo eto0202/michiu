@@ -41,6 +41,7 @@ impl Default for LinearGradientInner {
 ///
 /// # Examples
 /// ```
+/// # use michiu_ui::{prelude::*, LinearGradient, GradientCorner};
 /// // Two-color linear gradient (from left to right)
 /// let grad = LinearGradient::two_stops(Color::WHITE, Color::BLACK, 90.0);
 ///

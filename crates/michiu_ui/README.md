@@ -8,6 +8,10 @@ This crate handles UI rendering for the `michiu` crate.
 - [michiu_window](https://crates.io/crates/michiu_window)
 - [michiu_guard](https://crates.io/crates/michiu_guard)
 
+## Examples
+
+[michiu_ui examples](https://github.com/eto0202/michiu/tree/main/crates/michiu_ui/examples)
+
 ## Basic Initialization
 
 ```rust

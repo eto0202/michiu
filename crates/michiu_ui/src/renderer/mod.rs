@@ -334,7 +334,7 @@ pub struct QuadInstance {
     pub uv_min: [f32; 2], // 8B
     pub uv_max: [f32; 2], // 8B
 
-    pub gradient: LinearGradientInner,       // 96B
+    pub gradient: LinearGradientInner,   // 96B
     pub transform_origin: [f32; 2],      // 8B
     pub _transform_origin_pad: [f32; 2], // 8B (次が16B境界になるよう揃える)
 
