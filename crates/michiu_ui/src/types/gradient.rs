@@ -30,8 +30,8 @@ impl Default for LinearGradientInner {
 
 /// A struct that represents linear gradients and four-corner gradients.
 ///
-/// - Linear gradient ([`GradientType::Linear`]): Complies with the CSS `linear-gradient` specification (0° = top, clockwise).
-/// - Four-corner gradient ([`GradientType::FourCorners`]): Bilinear interpolation with colors placed at the four corners.
+/// - Linear gradient (`GradientType::Linear`): Complies with the CSS `linear-gradient` specification (0° = top, clockwise).
+/// - Four-corner gradient (`GradientType::FourCorners`): Bilinear interpolation with colors placed at the four corners.
 ///
 /// # Angle Specifications (clockwise)
 /// - `0°`: From bottom to top

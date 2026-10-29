@@ -113,7 +113,7 @@ unsafe impl Sync for ModInner {}
 impl Modifier {
     /// Creates a new modifier.
     ///
-    /// Prefer using [`crate::ts`] functions for a cleaner syntax.
+    /// Prefer using [`crate::ii`] or [`crate::m!`] functions for a cleaner syntax.
     #[inline]
     #[must_use]
     pub fn new() -> Self {

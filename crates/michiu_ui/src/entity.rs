@@ -24,7 +24,7 @@
 //! * **`.draggable(...)`**: Registers the ID into the DnD SoA, granting the entity drag-and-drop capability.
 //!
 //! ### Why is Style (`Modifier`) Separated?
-//! Rather than exposing styling methods like `.bg_color(...)` directly on `Entity`, passing an independent [`Modifier`] ([`ii()`](crate::ts)) as an argument serves two primary purposes:
+//! Rather than exposing styling methods like `.bg_color(...)` directly on `Entity`, passing an independent [`Modifier`] ([`ii()`](crate::ii)) as an argument serves two primary purposes:
 //!
 //! 1. **Architectural Consistency via DOD**:
 //!    `Entity` does not own color or layout fields; it merely holds a key into the internal style SoA tables. Passing styles externally aligns with the unified mental model of injecting definitions from the outside.

@@ -466,7 +466,7 @@ impl MichiuApp {
     }
 
     /// Register the root entity.
-    /// From this point on, you can retrieve the root entity using [`MichiuApp::root_id`].
+    /// From this point on, you can retrieve the root entity using [`MichiuApp::root`].
     #[inline]
     pub fn set_root(&mut self, root_id: Entity) {
         self.root = Some(root_id);
@@ -474,7 +474,7 @@ impl MichiuApp {
 
     /// Retrieves the `Entity` of the root entity.
     ///
-    /// To avoid a panic, use [`MichiuApp::try_root_id`] instead.
+    /// To avoid a panic, use [`MichiuApp::try_root`] instead.
     ///
     /// # Panics
     ///
@@ -1168,7 +1168,7 @@ impl MichiuAppBuilder {
     /// 3. Only after everything is ready should you call **`handle.set_visible(true)`** to display the app.
     ///
     /// # Regarding the State of the Root Entity
-    /// At the time this method is called, the root entity ([`root_id`](MichiuApp::try_root_id)) remains `None`.
+    /// At the time this method is called, the root entity ([`root_id`](MichiuApp::try_root)) remains `None`.
     ///
     /// Be sure to register the UI using [`MichiuApp::build_ui`] or [`MichiuApp::set_root`] before starting the event loop.
     ///
