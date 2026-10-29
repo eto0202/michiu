@@ -4,10 +4,10 @@ use crate::{
     DirtyLayoutEntitiesVec, DirtyRenderEntitiesVec, Entity, InputContents, InputContentsSparse,
     LayoutPoint, LayoutRect, LayoutSize, MichiuSoA, MichiuString, ParentsSecondary, RectsSecondary,
     RenderStore, ResolvedBasicSecondary, ResolvedFlexSecondary, ResolvedGeometry,
-    ResolvedGridSparse, ScrollOffsetsSecondary, ScrollSizesSecondary, ScrollStore,
-    ScrollbarStylesSparse, SystemStore, TaffyNodesSecondary, TaffyTreeEntity, TextBufferSparse,
-    TextContentsSparse, TextEngine, TextLayoutSize, TextSpansSparse, TopologyStore, UserSelect,
-    VisualPropertiesSecondary, define_sparse_secondary,
+    ScrollOffsetsSecondary, ScrollSizesSecondary, ScrollStore, ScrollbarStylesSparse, SystemStore,
+    TaffyNodesSecondary, TaffyTreeEntity, TextBufferSparse, TextContentsSparse, TextEngine,
+    TextLayoutSize, TextSpansSparse, TopologyStore, UserSelect, VisualPropertiesSecondary,
+    define_sparse_secondary,
 };
 use cosmic_text::Buffer;
 use slotmap::SparseSecondaryMap;
@@ -431,7 +431,6 @@ impl TextEditStore {
         lay_taffy_nodes: &TaffyNodesSecondary,
         lay_resolved_basic: &ResolvedBasicSecondary,
         lay_resolved_flex: &ResolvedFlexSecondary,
-        lay_resolved_grid: &ResolvedGridSparse,
         rnd_dirty_entities: &mut DirtyRenderEntitiesVec,
         rnd_visual: &mut VisualPropertiesSecondary,
         rnd_base_visual: &BaseVisualPropertiesSecondary,
@@ -499,7 +498,6 @@ impl TextEditStore {
                 lay_taffy_nodes,
                 lay_resolved_basic,
                 lay_resolved_flex,
-                lay_resolved_grid,
                 rnd_dirty_entities,
                 rnd_visual,
                 rnd_base_visual,
@@ -534,7 +532,6 @@ impl TextEditStore {
         lay_taffy_nodes: &TaffyNodesSecondary,
         lay_resolved_basic: &ResolvedBasicSecondary,
         lay_resolved_flex: &ResolvedFlexSecondary,
-        lay_resolved_grid: &ResolvedGridSparse,
         rnd_dirty_entities: &mut DirtyRenderEntitiesVec,
         rnd_visual: &mut VisualPropertiesSecondary,
         rnd_base_visual: &BaseVisualPropertiesSecondary,
@@ -609,7 +606,6 @@ impl TextEditStore {
                 lay_taffy_nodes,
                 lay_resolved_basic,
                 lay_resolved_flex,
-                lay_resolved_grid,
                 rnd_dirty_entities,
                 rnd_visual,
                 rnd_base_visual,
@@ -654,7 +650,6 @@ impl TextEditStore {
         lay_taffy_nodes: &TaffyNodesSecondary,
         lay_resolved_basic: &ResolvedBasicSecondary,
         lay_resolved_flex: &ResolvedFlexSecondary,
-        lay_resolved_grid: &ResolvedGridSparse,
         rnd_dirty_entities: &mut DirtyRenderEntitiesVec,
         rnd_visual: &mut VisualPropertiesSecondary,
         rnd_base_visual: &BaseVisualPropertiesSecondary,
@@ -728,7 +723,6 @@ impl TextEditStore {
                     lay_taffy_nodes,
                     lay_resolved_basic,
                     lay_resolved_flex,
-                    lay_resolved_grid,
                     rnd_visual,
                     rnd_base_visual,
                     sc_offsets,
@@ -762,7 +756,6 @@ impl TextEditStore {
                     lay_taffy_nodes,
                     lay_resolved_basic,
                     lay_resolved_flex,
-                    lay_resolved_grid,
                     rnd_visual,
                     rnd_base_visual,
                     sc_offsets,
@@ -827,7 +820,6 @@ impl TextEditStore {
         lay_taffy_nodes: &TaffyNodesSecondary,
         lay_resolved_basic: &ResolvedBasicSecondary,
         lay_resolved_flex: &ResolvedFlexSecondary,
-        lay_resolved_grid: &ResolvedGridSparse,
         rnd_visual: &mut VisualPropertiesSecondary,
         rnd_base_visual: &BaseVisualPropertiesSecondary,
         sc_offsets: &mut ScrollOffsetsSecondary,
@@ -857,7 +849,6 @@ impl TextEditStore {
             return;
         };
         let flex = lay_resolved_flex.find_or(id, &DEFAULT_FLEX, debug);
-        let _grid = lay_resolved_grid.find_or_default(id, debug);
 
         let resolved_geom =
             ResolvedGeometry::resolved(id, sc_offsets, lay_resolved_basic, out_rects, debug);
@@ -1140,7 +1131,6 @@ impl Context {
             &self.layouts.lay_taffy_nodes,
             &self.layouts.lay_resolved_basic,
             &self.layouts.lay_resolved_flex,
-            &self.layouts.lay_resolved_grid,
             &mut self.renders.rnd_dirty_entities,
             &mut self.renders.rnd_visual,
             &self.renders.rnd_base_visual,

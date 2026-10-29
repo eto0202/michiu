@@ -442,7 +442,7 @@ fn test_resolve_taffy_style_and_scrollbar() {
     let mut bar_styles = ScrollbarStylesSparse::default();
 
     // スクロールバーなし
-    let style1 = LayoutStore::resolve_taffy_style(e, &basic, &flex, None, &bar_styles);
+    let style1 = LayoutStore::resolve_taffy_style(e, &basic, &flex, &bar_styles);
     assert_eq!(style1.aspect_ratio, Some(16.0 / 9.0));
     assert_eq!(style1.scrollbar_width, 0.0);
 
@@ -459,7 +459,7 @@ fn test_resolve_taffy_style_and_scrollbar() {
     };
     bar_styles.insert(e, s_state);
 
-    let style2 = LayoutStore::resolve_taffy_style(e, &basic, &flex, None, &bar_styles);
+    let style2 = LayoutStore::resolve_taffy_style(e, &basic, &flex, &bar_styles);
     assert_eq!(style2.scrollbar_width, 14.0);
 }
 
@@ -486,7 +486,6 @@ fn test_set_taffy_style_and_local_rect() {
         e,
         &basic,
         &flex,
-        None,
         &mut tree,
         &taffy_nodes,
         &bar_styles,
@@ -532,23 +531,19 @@ fn test_layout_despawn() {
 
     store.lay_basic.insert(e, BasicLayout::default());
     store.lay_flex.insert(e, FlexLayout::default());
-    store.lay_grid.insert(e, GridLayout::default());
     store.lay_base_basic.insert(e, BasicLayout::default());
     store.lay_base_flex.insert(e, FlexLayout::default());
     store.lay_resolved_basic.insert(e, BasicLayout::default());
     store.lay_resolved_flex.insert(e, FlexLayout::default());
-    store.lay_resolved_grid.insert(e, GridLayout::default());
     store.lay_dirty_entities.push(e);
 
     store.despawn(e);
 
     assert!(!store.lay_basic.contains(e));
     assert!(!store.lay_flex.contains(e));
-    assert!(!store.lay_grid.contains(e));
     assert!(!store.lay_base_basic.contains(e));
     assert!(!store.lay_base_flex.contains(e));
     assert!(!store.lay_resolved_basic.contains(e));
     assert!(!store.lay_resolved_flex.contains(e));
-    assert!(!store.lay_resolved_grid.contains(e));
     assert!(!store.lay_dirty_entities.contains(&e));
 }

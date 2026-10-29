@@ -286,7 +286,6 @@ impl RenderStore {
         // 基本レイアウト、Flexレイアウト、またはGridレイアウト変更が含まれていれば true
         mask.has_basic_layout()
             || mask.has_flex_layout()
-            || mask.has_grid_layout()
             || mask.has(ComponentMask::STYLE_FONT_SIZE)
             || mask.has(ComponentMask::STYLE_AUTO_WRAP)
     }

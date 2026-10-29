@@ -46,12 +46,6 @@ impl ComponentMask {
 
     #[inline]
     #[must_use]
-    pub(crate) fn has_grid_layout(&self) -> bool {
-        self.has(Self::STYLE_GRID_LAYOUT)
-    }
-
-    #[inline]
-    #[must_use]
     pub(crate) fn has_visual_property(&self) -> bool {
         self.has(Self::STYLE_VISUAL_PROPERTY)
     }
@@ -253,7 +247,7 @@ impl ComponentMask {
     // =========================================================================
     // 削除予定・レガシー (最後尾)
     // =========================================================================
-    pub(crate) const STYLE_GRID_LAYOUT: u128 = 1 << 78;
+
     // =========================================================================
     // 複合フラグ
     // =========================================================================
@@ -418,7 +412,6 @@ mod tests {
         ComponentMask::STYLE_SCROLLBAR,
         ComponentMask::STYLE_DND_DRAGGABLE,
         ComponentMask::STYLE_DND_DROPPABLE,
-        ComponentMask::STYLE_GRID_LAYOUT,
     ];
 
     #[test]

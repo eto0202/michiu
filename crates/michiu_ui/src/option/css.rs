@@ -563,7 +563,14 @@ fn apply_declarations_to_style(
                     lightningcss::properties::position::Position::Absolute => {
                         crate::Position::Absolute
                     }
-                    _ => crate::Position::Relative,
+                    lightningcss::properties::position::Position::Fixed => crate::Position::Fixed,
+                    lightningcss::properties::position::Position::Static => crate::Position::Static,
+                    lightningcss::properties::position::Position::Sticky(_) => {
+                        crate::Position::Sticky
+                    }
+                    lightningcss::properties::position::Position::Relative => {
+                        crate::Position::Relative
+                    }
                 };
                 style = map_style_prop(style, target, |s| s.position(val));
             }
@@ -595,28 +602,28 @@ fn apply_declarations_to_style(
             Property::AlignItems(a, _) => {
                 use lightningcss::properties::align::{AlignItems, OverflowPosition, SelfPosition};
                 let align = match a {
-                    AlignItems::BaselinePosition(_) => Some(crate::AlignItems::Baseline),
+                    AlignItems::BaselinePosition(_) => crate::AlignItems::Baseline,
                     AlignItems::SelfPosition { overflow, value } => match overflow {
                         Some(OverflowPosition::Safe) => match value {
-                            SelfPosition::Center => Some(crate::AlignItems::SafeCenter),
-                            SelfPosition::Start => Some(crate::AlignItems::Start),
-                            SelfPosition::SelfStart => Some(crate::AlignItems::SelfStart),
-                            SelfPosition::End => Some(crate::AlignItems::End),
-                            SelfPosition::SelfEnd => Some(crate::AlignItems::SelfEnd),
-                            SelfPosition::FlexStart => Some(crate::AlignItems::SafeFlexStart),
-                            SelfPosition::FlexEnd => Some(crate::AlignItems::SafeFlexEnd),
+                            SelfPosition::Center => crate::AlignItems::SafeCenter,
+                            SelfPosition::Start => crate::AlignItems::Start,
+                            SelfPosition::SelfStart => crate::AlignItems::SelfStart,
+                            SelfPosition::End => crate::AlignItems::End,
+                            SelfPosition::SelfEnd => crate::AlignItems::SelfEnd,
+                            SelfPosition::FlexStart => crate::AlignItems::SafeFlexStart,
+                            SelfPosition::FlexEnd => crate::AlignItems::SafeFlexEnd,
                         },
                         _ => match value {
-                            SelfPosition::Center => Some(crate::AlignItems::Center),
-                            SelfPosition::Start => Some(crate::AlignItems::Start),
-                            SelfPosition::SelfStart => Some(crate::AlignItems::SafeStart),
-                            SelfPosition::End => Some(crate::AlignItems::End),
-                            SelfPosition::SelfEnd => Some(crate::AlignItems::SelfEnd),
-                            SelfPosition::FlexStart => Some(crate::AlignItems::FlexStart),
-                            SelfPosition::FlexEnd => Some(crate::AlignItems::FlexEnd),
+                            SelfPosition::Center => crate::AlignItems::Center,
+                            SelfPosition::Start => crate::AlignItems::Start,
+                            SelfPosition::SelfStart => crate::AlignItems::SafeStart,
+                            SelfPosition::End => crate::AlignItems::End,
+                            SelfPosition::SelfEnd => crate::AlignItems::SelfEnd,
+                            SelfPosition::FlexStart => crate::AlignItems::FlexStart,
+                            SelfPosition::FlexEnd => crate::AlignItems::FlexEnd,
                         },
                     },
-                    _ => Some(crate::AlignItems::Stretch),
+                    _ => crate::AlignItems::Stretch,
                 };
                 style = map_style_prop(style, target, |s| s.align_items(align));
             }
@@ -656,44 +663,36 @@ fn apply_declarations_to_style(
                 };
                 let jus = match j {
                     JustifyContent::ContentDistribution(c) => match c {
-                        ContentDistribution::SpaceBetween => {
-                            Some(crate::JustifyContent::SpaceBetween)
-                        }
-                        ContentDistribution::SpaceAround => {
-                            Some(crate::JustifyContent::SpaceAround)
-                        }
-                        ContentDistribution::SpaceEvenly => {
-                            Some(crate::JustifyContent::SpaceEvenly)
-                        }
-                        ContentDistribution::Stretch => Some(crate::JustifyContent::Stretch),
+                        ContentDistribution::SpaceBetween => crate::JustifyContent::SpaceBetween,
+                        ContentDistribution::SpaceAround => crate::JustifyContent::SpaceAround,
+                        ContentDistribution::SpaceEvenly => crate::JustifyContent::SpaceEvenly,
+                        ContentDistribution::Stretch => crate::JustifyContent::Stretch,
                     },
                     JustifyContent::ContentPosition { value, overflow } => match overflow {
                         Some(OverflowPosition::Safe) => match value {
-                            ContentPosition::Center => Some(crate::JustifyContent::SafeCenter),
-                            ContentPosition::Start => Some(crate::JustifyContent::SafeStart),
-                            ContentPosition::End => Some(crate::JustifyContent::SafeEnd),
-                            ContentPosition::FlexStart => {
-                                Some(crate::JustifyContent::SafeFlexStart)
-                            }
-                            ContentPosition::FlexEnd => Some(crate::JustifyContent::SafeFlexEnd),
+                            ContentPosition::Center => crate::JustifyContent::SafeCenter,
+                            ContentPosition::Start => crate::JustifyContent::SafeStart,
+                            ContentPosition::End => crate::JustifyContent::SafeEnd,
+                            ContentPosition::FlexStart => crate::JustifyContent::SafeFlexStart,
+                            ContentPosition::FlexEnd => crate::JustifyContent::SafeFlexEnd,
                         },
                         _ => match value {
-                            ContentPosition::Center => Some(crate::JustifyContent::Center),
-                            ContentPosition::Start => Some(crate::JustifyContent::Start),
-                            ContentPosition::End => Some(crate::JustifyContent::End),
-                            ContentPosition::FlexStart => Some(crate::JustifyContent::FlexStart),
-                            ContentPosition::FlexEnd => Some(crate::JustifyContent::FlexEnd),
+                            ContentPosition::Center => crate::JustifyContent::Center,
+                            ContentPosition::Start => crate::JustifyContent::Start,
+                            ContentPosition::End => crate::JustifyContent::End,
+                            ContentPosition::FlexStart => crate::JustifyContent::FlexStart,
+                            ContentPosition::FlexEnd => crate::JustifyContent::FlexEnd,
                         },
                     },
                     JustifyContent::Left { overflow } => match overflow {
-                        Some(OverflowPosition::Safe) => Some(crate::JustifyContent::SafeStart),
-                        _ => Some(crate::JustifyContent::Start),
+                        Some(OverflowPosition::Safe) => crate::JustifyContent::SafeStart,
+                        _ => crate::JustifyContent::Start,
                     },
                     JustifyContent::Right { overflow } => match overflow {
-                        Some(OverflowPosition::Safe) => Some(crate::JustifyContent::SafeEnd),
-                        _ => Some(crate::JustifyContent::End),
+                        Some(OverflowPosition::Safe) => crate::JustifyContent::SafeEnd,
+                        _ => crate::JustifyContent::End,
                     },
-                    JustifyContent::Normal => Some(crate::JustifyContent::Stretch),
+                    JustifyContent::Normal => crate::JustifyContent::Stretch,
                 };
                 style = map_style_prop(style, target, |s| s.justify_content(jus));
             }
@@ -703,30 +702,28 @@ fn apply_declarations_to_style(
                 };
                 let align = match a {
                     AlignContent::Normal | AlignContent::BaselinePosition(_) => {
-                        Some(crate::AlignContent::Stretch)
+                        crate::AlignContent::Stretch
                     }
                     AlignContent::ContentDistribution(c) => match c {
-                        ContentDistribution::SpaceBetween => {
-                            Some(crate::AlignContent::SpaceBetween)
-                        }
-                        ContentDistribution::SpaceAround => Some(crate::AlignContent::SpaceAround),
-                        ContentDistribution::SpaceEvenly => Some(crate::AlignContent::SpaceEvenly),
-                        ContentDistribution::Stretch => Some(crate::AlignContent::Stretch),
+                        ContentDistribution::SpaceBetween => crate::AlignContent::SpaceBetween,
+                        ContentDistribution::SpaceAround => crate::AlignContent::SpaceAround,
+                        ContentDistribution::SpaceEvenly => crate::AlignContent::SpaceEvenly,
+                        ContentDistribution::Stretch => crate::AlignContent::Stretch,
                     },
                     AlignContent::ContentPosition { overflow, value } => match overflow {
                         Some(OverflowPosition::Safe) => match value {
-                            ContentPosition::Center => Some(crate::AlignContent::SafeCenter),
-                            ContentPosition::Start => Some(crate::AlignContent::SafeStart),
-                            ContentPosition::End => Some(crate::AlignContent::SafeEnd),
-                            ContentPosition::FlexStart => Some(crate::AlignContent::SafeFlexStart),
-                            ContentPosition::FlexEnd => Some(crate::AlignContent::SafeFlexEnd),
+                            ContentPosition::Center => crate::AlignContent::SafeCenter,
+                            ContentPosition::Start => crate::AlignContent::SafeStart,
+                            ContentPosition::End => crate::AlignContent::SafeEnd,
+                            ContentPosition::FlexStart => crate::AlignContent::SafeFlexStart,
+                            ContentPosition::FlexEnd => crate::AlignContent::SafeFlexEnd,
                         },
                         _ => match value {
-                            ContentPosition::Center => Some(crate::AlignContent::Center),
-                            ContentPosition::Start => Some(crate::AlignContent::Start),
-                            ContentPosition::End => Some(crate::AlignContent::End),
-                            ContentPosition::FlexStart => Some(crate::AlignContent::FlexStart),
-                            ContentPosition::FlexEnd => Some(crate::AlignContent::FlexEnd),
+                            ContentPosition::Center => crate::AlignContent::Center,
+                            ContentPosition::Start => crate::AlignContent::Start,
+                            ContentPosition::End => crate::AlignContent::End,
+                            ContentPosition::FlexStart => crate::AlignContent::FlexStart,
+                            ContentPosition::FlexEnd => crate::AlignContent::FlexEnd,
                         },
                     },
                 };

@@ -197,13 +197,12 @@ use crate::{
     LayoutSize, LayoutStore, LinearGradientInner, MichiuError, MichiuSoA, Modifiers, MouseButton,
     OptionTraceExt, OutputStore, ParentsSecondary, PrevClipRectsSecondary, PrevRectsSecondary,
     QuadInstance, ReactiveStore, RectsSecondary, RenderData, RenderStore, RendererView,
-    ResolvedBasicSecondary, ResolvedFlexSecondary, ResolvedGeometry, ResolvedGridSparse,
-    ScrollBarState, ScrollOffsetsSecondary, ScrollStore, ScrollbarStore, ScrollbarStylesSparse,
-    StrikethroughStyle, SystemStore, TaffyNodesSecondary, TaffyResultTraceExt, TaffyTreeEntity,
-    TextEditStore, TextEngine, TextLayoutSize, TextSpan, TopologyStore, TraceEventList,
-    UnderlineStyle, VirtualKey, VisualProperty, bind_context, handle_on_active,
-    handle_on_char_input, handle_on_disable, handle_on_file_dropped, handle_on_ime,
-    handle_on_select,
+    ResolvedBasicSecondary, ResolvedFlexSecondary, ResolvedGeometry, ScrollBarState,
+    ScrollOffsetsSecondary, ScrollStore, ScrollbarStore, ScrollbarStylesSparse, StrikethroughStyle,
+    SystemStore, TaffyNodesSecondary, TaffyResultTraceExt, TaffyTreeEntity, TextEditStore,
+    TextEngine, TextLayoutSize, TextSpan, TopologyStore, TraceEventList, UnderlineStyle,
+    VirtualKey, VisualProperty, bind_context, handle_on_active, handle_on_char_input,
+    handle_on_disable, handle_on_file_dropped, handle_on_ime, handle_on_select,
 };
 #[cfg(feature = "trace-lifecycle")]
 use crate::{
@@ -310,7 +309,7 @@ impl Pipeline {
     }
 
     #[track_caller]
-    #[expect(unused)]
+    #[allow(unused)]
     pub(crate) fn begin_frame(cx: &mut Context) {
         let _context_guard = bind_context(cx);
 
@@ -531,10 +530,8 @@ impl Pipeline {
                 &cx.topology.topo_parents,
                 &mut cx.layouts.lay_resolved_basic,
                 &mut cx.layouts.lay_resolved_flex,
-                &mut cx.layouts.lay_resolved_grid,
                 &cx.layouts.lay_basic,
                 &cx.layouts.lay_flex,
-                &cx.layouts.lay_grid,
                 &cx.renders.rnd_visual,
                 &cx.renders.rnd_interaction,
                 &cx.renders.rnd_active_transitions,
@@ -725,7 +722,6 @@ impl Pipeline {
         // 全アクティブ要素のアクティブレイアウトを一度に解決してキャッシュ
         cx.layouts.lay_resolved_basic.clear();
         cx.layouts.lay_resolved_flex.clear();
-        cx.layouts.lay_resolved_grid.clear();
 
         for &id in &cx.topology.topo_flat_dfs_sequence {
             LayoutStore::update_resolved_active_layout_cache(
@@ -734,10 +730,8 @@ impl Pipeline {
                 &cx.topology.topo_parents,
                 &mut cx.layouts.lay_resolved_basic,
                 &mut cx.layouts.lay_resolved_flex,
-                &mut cx.layouts.lay_resolved_grid,
                 &cx.layouts.lay_basic,
                 &cx.layouts.lay_flex,
-                &cx.layouts.lay_grid,
                 &cx.renders.rnd_visual,
                 &cx.renders.rnd_interaction,
                 &cx.renders.rnd_active_transitions,
@@ -762,7 +756,6 @@ impl Pipeline {
             &cx.layouts.lay_taffy_nodes,
             &cx.layouts.lay_resolved_basic,
             &cx.layouts.lay_resolved_flex,
-            &cx.layouts.lay_resolved_grid,
             &cx.layouts.scrollbar.bar_styles,
             &mut cx.debug,
         );
@@ -919,10 +912,8 @@ impl Pipeline {
             &mut cx.layouts.lay_base_basic,
             &mut cx.layouts.lay_resolved_basic,
             &mut cx.layouts.lay_resolved_flex,
-            &mut cx.layouts.lay_resolved_grid,
             &cx.layouts.lay_taffy_nodes,
             &cx.layouts.lay_flex,
-            &cx.layouts.lay_grid,
             &cx.layouts.scrollbar.bar_styles,
             &mut cx.renders.rnd_visual,
             &mut cx.renders.rnd_base_visual,
@@ -1039,7 +1030,6 @@ impl Pipeline {
                     &cx.layouts.lay_taffy_nodes,
                     &cx.layouts.lay_resolved_basic,
                     &cx.layouts.lay_resolved_flex,
-                    &cx.layouts.lay_resolved_grid,
                     &mut cx.renders.rnd_visual,
                     &cx.renders.rnd_base_visual,
                     &mut cx.states.scroll.sc_offsets,
@@ -1184,7 +1174,7 @@ impl Pipeline {
         }
     }
 
-    #[expect(unused)]
+    #[allow(unused)]
     #[track_caller]
     #[inline]
     pub(crate) fn collect_render_data(cx: &mut Context, view: &mut RendererView) {
@@ -1323,12 +1313,6 @@ impl Pipeline {
                 .layouts
                 .lay_resolved_flex
                 .find_or(id, &DEFAULT_FLEX, &mut cx.debug);
-            let _grid = cx
-                .layouts
-                .lay_resolved_grid
-                .find(id)
-                .cloned()
-                .unwrap_or_default();
             let visual = cx
                 .renders
                 .rnd_visual
@@ -1492,13 +1476,6 @@ impl Pipeline {
                 || visual.border_color.is_some()
                 || visual.shadow_params.is_some();
 
-            #[cfg(feature = "trace-lifecycle")]
-            {
-                has_background = has_bg;
-                has_text = is_text;
-                has_fallback_border = !is_text && !has_bg;
-            }
-
             if has_bg {
                 #[cfg(feature = "trace-lifecycle")]
                 {
@@ -1559,6 +1536,11 @@ impl Pipeline {
             // テキスト
             let is_text = cx.topology.topo_active_masks.at(id).has_text_content();
             if is_text {
+                #[cfg(feature = "trace-lifecycle")]
+                {
+                    has_text = is_text;
+                }
+
                 let auto_wrap = cx.renders.rnd_visual.auto_wrap(id);
                 let content_width =
                     rect.width - border.right - border.left - padding.right - padding.left;
@@ -1652,6 +1634,10 @@ impl Pipeline {
             // 通常要素（テキスト以外）の背景マウントは親ループですでに has_bg が完了しているため不要
             // 背景指定がない場合でもボーダー単体描画等が必要な場合はフォールバック
             if !is_text && !has_bg {
+                #[cfg(feature = "trace-lifecycle")]
+                {
+                    has_fallback_border = !is_text && !has_bg;
+                }
                 Pipeline::push_fallback_border_instance(id, view.render_data, &params);
             }
         }
@@ -1870,7 +1856,6 @@ impl Pipeline {
         lay_taffy_nodes: &TaffyNodesSecondary,
         lay_resolved_basic: &ResolvedBasicSecondary,
         lay_resolved_flex: &ResolvedFlexSecondary,
-        lay_resolved_grid: &ResolvedGridSparse,
         bar_styles: &ScrollbarStylesSparse,
         debug: &mut DebugStore,
     ) {
@@ -1881,14 +1866,12 @@ impl Pipeline {
 
             let basic = lay_resolved_basic.find_or(id, &DEFAULT_BASIC, debug);
             let flex = lay_resolved_flex.find_or(id, &DEFAULT_FLEX, debug);
-            let grid = lay_resolved_grid.find(id).cloned();
 
             // トランジション（アニメーション）中プロパティの現在値による上書き
             // 削除：resolve_active_layouts の段階でアニメーション中のサイズが正しく反映されたレイアウト）が返ってくるため
             // if let Some(active_list) = rnd_active_transitions.get(id) {}
 
-            let taffy_style =
-                LayoutStore::resolve_taffy_style(id, basic, flex, grid.as_ref(), bar_styles);
+            let taffy_style = LayoutStore::resolve_taffy_style(id, basic, flex, bar_styles);
 
             let taffy_node = *lay_taffy_nodes.at(id);
             lay_taffy_tree

@@ -4,12 +4,12 @@ pub use scrollbar::*;
 
 use crate::{
     ActiveMasksSecondary, ActiveTransitionsSparse, BasicLayout, CapacityConfig, ChildrenSecondary,
-    ComponentMask, Context, DebugStore, EdgeInsets, Entity, FlexDirection, FlexLayout, GridLayout,
+    ComponentMask, Context, DebugStore, EdgeInsets, Entity, FlexDirection, FlexLayout,
     InteractionPropertiesSecondary, InteractionStyles, LayoutRect, Length, MichiuSoA, ModTarget,
     Modifier, ParentsSecondary, PropertyList, Rect, RenderStore, TaffyResultTraceExt, TextAlign,
-    VisualPropertiesSecondary, define_secondary, define_sparse_secondary, define_vec,
+    VisualPropertiesSecondary, define_secondary, define_vec,
 };
-use slotmap::{SecondaryMap, SparseSecondaryMap};
+use slotmap::SecondaryMap;
 use std::sync::Arc;
 use taffy::TaffyTree;
 
@@ -35,9 +35,6 @@ impl ResolvedFlexSecondary {
     }
 }
 
-define_sparse_secondary!(pub struct GridLayoutsSparse(GridLayout));
-define_sparse_secondary!(pub struct ResolvedGridSparse(GridLayout));
-
 define_vec!(pub struct DirtyLayoutEntitiesVec(Entity));
 
 pub type TaffyTreeEntity = taffy::TaffyTree<Entity>;
@@ -49,12 +46,10 @@ pub struct LayoutStore {
     pub(crate) lay_taffy_nodes: TaffyNodesSecondary,
     pub(crate) lay_basic: BasicLayoutsSecondary,
     pub(crate) lay_flex: FlexLayoutsSecondary,
-    pub(crate) lay_grid: GridLayoutsSparse,
     pub(crate) lay_base_basic: BaseBasicLayoutsSecondary,
     pub(crate) lay_base_flex: BaseFlexLayoutsSecondary,
     pub(crate) lay_resolved_basic: ResolvedBasicSecondary,
     pub(crate) lay_resolved_flex: ResolvedFlexSecondary,
-    pub(crate) lay_resolved_grid: ResolvedGridSparse,
 }
 
 impl Default for LayoutStore {
@@ -74,12 +69,10 @@ impl LayoutStore {
             lay_taffy_nodes: TaffyNodesSecondary(SecondaryMap::new()),
             lay_basic: BasicLayoutsSecondary(SecondaryMap::new()),
             lay_flex: FlexLayoutsSecondary(SecondaryMap::new()),
-            lay_grid: GridLayoutsSparse(SparseSecondaryMap::new()),
             lay_base_basic: BaseBasicLayoutsSecondary(SecondaryMap::new()),
             lay_base_flex: BaseFlexLayoutsSecondary(SecondaryMap::new()),
             lay_resolved_basic: ResolvedBasicSecondary(SecondaryMap::new()),
             lay_resolved_flex: ResolvedFlexSecondary(SecondaryMap::new()),
-            lay_resolved_grid: ResolvedGridSparse(SparseSecondaryMap::new()),
         }
     }
 
@@ -93,7 +86,6 @@ impl LayoutStore {
             lay_taffy_nodes: TaffyNodesSecondary(SecondaryMap::with_capacity(c.lay_taffy_nodes)),
             lay_basic: BasicLayoutsSecondary(SecondaryMap::with_capacity(c.lay_basic)),
             lay_flex: FlexLayoutsSecondary(SecondaryMap::with_capacity(c.lay_flex)),
-            lay_grid: GridLayoutsSparse(SparseSecondaryMap::with_capacity(c.lay_grid)),
             lay_base_basic: BaseBasicLayoutsSecondary(SecondaryMap::with_capacity(
                 c.lay_base_basic,
             )),
@@ -103,9 +95,6 @@ impl LayoutStore {
             )),
             lay_resolved_flex: ResolvedFlexSecondary(SecondaryMap::with_capacity(
                 c.lay_resolved_flex,
-            )),
-            lay_resolved_grid: ResolvedGridSparse(SparseSecondaryMap::with_capacity(
-                c.lay_resolved_grid,
             )),
         }
     }
@@ -118,12 +107,10 @@ impl LayoutStore {
         self.lay_taffy_nodes.clear();
         self.lay_basic.clear();
         self.lay_flex.clear();
-        self.lay_grid.clear();
         self.lay_base_basic.clear();
         self.lay_base_flex.clear();
         self.lay_resolved_basic.clear();
         self.lay_resolved_flex.clear();
-        self.lay_resolved_grid.clear();
     }
 
     #[inline]
@@ -133,12 +120,10 @@ impl LayoutStore {
         self.lay_taffy_nodes.remove(id);
         self.lay_basic.remove(id);
         self.lay_flex.remove(id);
-        self.lay_grid.remove(id);
         self.lay_base_basic.remove(id);
         self.lay_base_flex.remove(id);
         self.lay_resolved_basic.remove(id);
         self.lay_resolved_flex.remove(id);
-        self.lay_resolved_grid.remove(id);
     }
 }
 
@@ -152,15 +137,13 @@ impl LayoutStore {
         topo_parents: &ParentsSecondary,
         lay_basic: &BasicLayoutsSecondary,
         lay_flex: &FlexLayoutsSecondary,
-        lay_grid: &GridLayoutsSparse,
         rnd_visual: &VisualPropertiesSecondary,
         rnd_interaction: &InteractionPropertiesSecondary,
         rnd_active_transitions: &ActiveTransitionsSparse,
         debug: &mut DebugStore,
-    ) -> (BasicLayout, FlexLayout, Option<GridLayout>) {
+    ) -> (BasicLayout, FlexLayout) {
         let mut basic = lay_basic.find_or_default(id, debug);
         let mut flex = lay_flex.find_or_default(id, debug);
-        let mut grid = lay_grid.find(id).cloned();
 
         let active_mask = topo_active_masks.at(id);
 
@@ -190,13 +173,12 @@ impl LayoutStore {
             active_mask,
             &mut basic,
             &mut flex,
-            &mut grid,
             &[focused_style_resolved, focused_visible_style_resolved],
             is_transitioning,
             rnd_interaction,
         );
 
-        (basic, flex, grid)
+        (basic, flex)
     }
 
     #[inline]
@@ -206,22 +188,19 @@ impl LayoutStore {
         topo_parents: &ParentsSecondary,
         lay_resolved_basic: &mut ResolvedBasicSecondary,
         lay_resolved_flex: &mut ResolvedFlexSecondary,
-        lay_resolved_grid: &mut ResolvedGridSparse,
         lay_basic: &BasicLayoutsSecondary,
         lay_flex: &FlexLayoutsSecondary,
-        lay_grid: &GridLayoutsSparse,
         rnd_visual: &VisualPropertiesSecondary,
         rnd_interaction: &InteractionPropertiesSecondary,
         rnd_active_transitions: &ActiveTransitionsSparse,
         debug: &mut DebugStore,
     ) {
-        let (basic, flex, grid) = LayoutStore::resolve_active_layouts(
+        let (basic, flex) = LayoutStore::resolve_active_layouts(
             id,
             topo_active_masks,
             topo_parents,
             lay_basic,
             lay_flex,
-            lay_grid,
             rnd_visual,
             rnd_interaction,
             rnd_active_transitions,
@@ -230,11 +209,6 @@ impl LayoutStore {
 
         lay_resolved_basic.insert(id, basic);
         lay_resolved_flex.insert(id, flex);
-        if let Some(g) = grid {
-            lay_resolved_grid.insert(id, g);
-        } else {
-            lay_resolved_grid.remove(id);
-        }
     }
     /// ターゲット状態に応じた `BasicLayout` の可変参照を引き出す
     pub(crate) fn get_basic_layout_mut<'a>(
@@ -307,7 +281,6 @@ impl LayoutStore {
         active_mask: &ComponentMask,
         basic: &mut BasicLayout,
         flex: &mut FlexLayout,
-        grid: &mut Option<GridLayout>,
         focused_resolved: &[Option<Modifier>; 2],
         is_transitioning: (bool, bool),
         rnd_interaction: &InteractionPropertiesSecondary,
@@ -344,12 +317,6 @@ impl LayoutStore {
 
             basic.override_with(&style.inner.basic_layout, mask);
             flex.override_with(&style.inner.flex_layout, mask);
-
-            if mask.has_grid_layout()
-                && let Some(ref hover_grid) = style.inner.grid_layout
-            {
-                *grid = Some(hover_grid.clone());
-            }
         }
     }
 
@@ -358,12 +325,11 @@ impl LayoutStore {
         id: Entity,
         basic: &BasicLayout,
         flex: &FlexLayout,
-        grid: Option<&GridLayout>,
         bar_styles: &ScrollbarStylesSparse,
     ) -> taffy::Style {
         let sb_style = bar_styles.find(id).map(|s| &s.style);
 
-        let mut style: taffy::Style = taffy::Style {
+        let style: taffy::Style = taffy::Style {
             display: basic.display.into(),
             box_sizing: basic.box_sizing.into(),
             direction: basic.direction.into(),
@@ -377,12 +343,12 @@ impl LayoutStore {
             margin: basic.margin.into(),
             padding: basic.padding.into(),
             border: basic.border.into(),
-            align_items: flex.align_items.map(taffy::AlignItems::from),
+            align_items: flex.align_items.into(),
             align_self: flex.align_self.map(taffy::AlignItems::from),
-            justify_items: flex.justify_items.map(taffy::AlignItems::from),
+            justify_items: flex.justify_items.into(),
             justify_self: flex.justify_self.map(taffy::AlignItems::from),
-            align_content: flex.align_content.map(taffy::AlignContent::from),
-            justify_content: flex.justify_content.map(taffy::AlignContent::from),
+            align_content: flex.align_content.into(),
+            justify_content: flex.justify_content.into(),
             gap: flex.gap.into(),
             flex_direction: flex.flex_direction.into(),
             flex_wrap: flex.flex_wrap.into(),
@@ -400,24 +366,6 @@ impl LayoutStore {
 
             ..Default::default()
         };
-        if let Some(g) = grid {
-            style.grid_template_rows.clone_from(&g.grid_template_rows);
-            style
-                .grid_template_columns
-                .clone_from(&g.grid_template_columns);
-            style.grid_auto_rows.clone_from(&g.grid_auto_rows);
-            style.grid_auto_columns.clone_from(&g.grid_auto_columns);
-            style.grid_auto_flow = g.grid_auto_flow.into();
-            style.grid_template_areas.clone_from(&g.grid_template_areas);
-            style
-                .grid_template_column_names
-                .clone_from(&g.grid_template_column_names);
-            style
-                .grid_template_row_names
-                .clone_from(&g.grid_template_row_names);
-            style.grid_row = g.grid_row.clone().into();
-            style.grid_column = g.grid_column.clone().into();
-        }
         style
     }
 
@@ -470,13 +418,12 @@ impl LayoutStore {
         id: Entity,
         basic: &BasicLayout,
         flex: &FlexLayout,
-        grid: Option<&GridLayout>,
         lay_taffy_tree: &mut TaffyTreeEntity,
         lay_taffy_nodes: &TaffyNodesSecondary,
         bar_styles: &ScrollbarStylesSparse,
         debug: &mut DebugStore,
     ) {
-        let taffy_style = LayoutStore::resolve_taffy_style(id, basic, flex, grid, bar_styles);
+        let taffy_style = LayoutStore::resolve_taffy_style(id, basic, flex, bar_styles);
         let nodes = *lay_taffy_nodes.at(id);
         lay_taffy_tree
             .set_style(nodes, taffy_style)
@@ -611,10 +558,6 @@ impl LayoutStore {
     }
 
     #[inline]
-    pub fn grid_mut(&mut self) -> &mut GridLayoutsSparse {
-        &mut self.lay_grid
-    }
-    #[inline]
     pub fn resolved_basic_mut(&mut self) -> &mut ResolvedBasicSecondary {
         &mut self.lay_resolved_basic
     }
@@ -622,11 +565,6 @@ impl LayoutStore {
     #[inline]
     pub fn resolved_flex_mut(&mut self) -> &mut ResolvedFlexSecondary {
         &mut self.lay_resolved_flex
-    }
-
-    #[inline]
-    pub fn resolved_grid_mut(&mut self) -> &mut ResolvedGridSparse {
-        &mut self.lay_resolved_grid
     }
 
     #[inline]

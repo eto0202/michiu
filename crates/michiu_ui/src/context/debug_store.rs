@@ -10,17 +10,16 @@ use crate::{
     DirtyLayoutEntitiesVec, DirtyRenderEntitiesVec, DndDragPropertiesSparse,
     DndDropPropertiesSparse, EffectId, EffectToEntitySecondary, EffectiveZindicesSecondary,
     ElementState, EntitiesSlot, Entity, EntityEffectsSecondary, ExternalTextureSparse,
-    ExternalVisualSparse, FlatDfsSequenceVec, FlexLayoutsSecondary, GridLayoutsSparse,
-    InputContentsSparse, InteractionPropertiesSecondary, LayoutPoint, LayoutRect, LayoutSize,
-    MichiuRenderer, MichiuString, MichiuTagRegistry, Modifiers, MouseButton, ParentsSecondary,
-    PendingActions, PendingDcompRelease, PendingEntityEffectsVec, PrevClipRectsSecondary,
-    PrevRectsSecondary, ProvidersSparseSecondary, QuadInstance, RectsSecondary, RenderData,
-    ResizingState, ResolvedBasicSecondary, ResolvedFlexSecondary, ResolvedGridSparse,
-    ScrollOffsetsSecondary, ScrollSizesSecondary, ScrollbarStylesSparse, SelectedRectsSparse,
-    SelectionStartIndexSparse, SessionRootsVec, SessionSpawnedVec, SignalId, SortCacheVec,
-    SortedEntitiesVec, SubscribersSecondary, TaffyNodesSecondary, TextCacheKey, TextCacheValue,
-    TextContentsSparse, TextSelectionsSparse, TextSpansSparse, TextureAtlas, VirtualKey,
-    VisualPropertiesSecondary, WebviewEntitiesVec,
+    ExternalVisualSparse, FlatDfsSequenceVec, FlexLayoutsSecondary, InputContentsSparse,
+    InteractionPropertiesSecondary, LayoutPoint, LayoutRect, LayoutSize, MichiuRenderer,
+    MichiuString, MichiuTagRegistry, Modifiers, MouseButton, ParentsSecondary, PendingActions,
+    PendingDcompRelease, PendingEntityEffectsVec, PrevClipRectsSecondary, PrevRectsSecondary,
+    ProvidersSparseSecondary, QuadInstance, RectsSecondary, RenderData, ResizingState,
+    ResolvedBasicSecondary, ResolvedFlexSecondary, ScrollOffsetsSecondary, ScrollSizesSecondary,
+    ScrollbarStylesSparse, SelectedRectsSparse, SelectionStartIndexSparse, SessionRootsVec,
+    SessionSpawnedVec, SignalId, SortCacheVec, SortedEntitiesVec, SubscribersSecondary,
+    TaffyNodesSecondary, TextCacheKey, TextCacheValue, TextContentsSparse, TextSelectionsSparse,
+    TextSpansSparse, TextureAtlas, VirtualKey, VisualPropertiesSecondary, WebviewEntitiesVec,
 };
 use cosmic_text::Buffer;
 use rustc_hash::FxHashMap;
@@ -1179,12 +1178,10 @@ pub struct LayoutStoreSnapshot {
     pub lay_taffy_nodes: TaffyNodesSecondary,
     pub lay_basic: BasicLayoutsSecondary,
     pub lay_flex: FlexLayoutsSecondary,
-    pub lay_grid: GridLayoutsSparse,
     pub lay_base_basic: BaseBasicLayoutsSecondary,
     pub lay_base_flex: BaseFlexLayoutsSecondary,
     pub lay_resolved_basic: ResolvedBasicSecondary,
     pub lay_resolved_flex: ResolvedFlexSecondary,
-    pub lay_resolved_grid: ResolvedGridSparse,
 }
 
 #[derive(Clone, derive_more::Deref, derive_more::DerefMut)]

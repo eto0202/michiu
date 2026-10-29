@@ -3,15 +3,14 @@ use crate::{
     BorderStyle, BoxShadow, BoxSizing, Color, ComponentMask, Context, Convert, CornerRadius,
     CursorIcon, Direction, Display, DndDragMode, DndDragPlaceholderParent, DndDragProperty,
     DndDropProperty, DndDropTarget, EdgeInsets, Entity, FlexDirection, FlexLayout, FlexWrap,
-    FocusTrigger, Focusable, GlobalCursorIcon, GridAutoFlow, GridLayout, GridLine, GridPlacement,
-    InteractionName, InteractionStyles, IntoModConvert, IntoModCornerRadius, IntoModPoint,
-    IntoModRect, IntoModResizable, IntoModSize, IntoModValue, JustifyContent, KeyframeAnimation,
-    LayoutOverflow, LayoutPoint, Length, LinearGradient, MichiuSoA, Overflow, PointerEvents,
-    Position, PropertyList, Rect, ScrollbarDisplay, ScrollbarMode, ScrollbarStyle, TargetStyle,
-    TextAlign, Transform, Transition, UserSelect, Val, VisualProperty, auto, fill, pct,
+    FocusTrigger, Focusable, GlobalCursorIcon, InteractionName, InteractionStyles, IntoModConvert,
+    IntoModCornerRadius, IntoModPoint, IntoModRect, IntoModResizable, IntoModSize, IntoModValue,
+    JustifyContent, KeyframeAnimation, LayoutOverflow, LayoutPoint, Length, LinearGradient,
+    MichiuSoA, Overflow, PointerEvents, Position, PropertyList, Rect, ScrollbarDisplay,
+    ScrollbarMode, ScrollbarStyle, TargetStyle, TextAlign, Transform, Transition, UserSelect, Val,
+    VisualProperty, auto, fill, pct,
 };
 use std::{borrow::Cow, sync::Arc, time::Duration};
-use taffy::{GridTemplateAreas, GridTemplateComponent, TrackSizingFunction};
 
 // スレッド安全な動的クロージャをサポートする `ModValue` の定義
 pub enum ModValue<T> {
@@ -31,7 +30,6 @@ pub struct ModInner {
     pub mask: ComponentMask,
     pub basic_layout: BasicLayout,
     pub flex_layout: FlexLayout,
-    pub grid_layout: Option<GridLayout>,
     pub visual_property: VisualProperty,
     pub interaction_styles: InteractionStyles,
     pub scrollbar_style: Option<ScrollbarStyle>,
@@ -95,7 +93,6 @@ impl std::fmt::Debug for ModInner {
             .field("mask", &self.mask)
             .field("basic_layout", &self.basic_layout)
             .field("flex_layout", &self.flex_layout)
-            .field("grid_layout", &self.grid_layout)
             .field("visual_property", &self.visual_property)
             .field("interaction_styles", &self.interaction_styles)
             .field("scrollbar_style", &self.scrollbar_style)
@@ -116,7 +113,7 @@ unsafe impl Sync for ModInner {}
 impl Modifier {
     /// Creates a new modifier.
     ///
-    /// Prefer using [`crate::ts`] functions for a cleaner syntax.
+    /// Prefer using [`crate::ii`] or [`crate::m!`] functions for a cleaner syntax.
     #[inline]
     #[must_use]
     pub fn new() -> Self {
@@ -695,9 +692,20 @@ impl Modifier {
         self.overflow_y(Overflow::Clip)
     }
 
-    /// Sets the position (Relative, Absolute) for entities.
+    /// Sets the element's positioning mode.
     ///
-    /// Default is [`Position::Relative`]
+    /// # Default
+    /// Unlike the default in web standards and Taffy (`Position::Static`),
+    /// this library sets `Position::Relative` as the default for the sake of intuitiveness.
+    ///
+    /// When developing application UIs,
+    /// it is more natural and intuitive for child elements with absolute positioning (`Position::Absolute`) to behave relative to the bounds of their immediate parent element.
+    ///
+    /// When the Web-compliant `Position::Static` is the default,
+    /// developers unfamiliar with the layout engine (Taffy) specifications are more likely to encounter layout breaks—such as elements extending beyond their parents—that are difficult to diagnose.
+    ///
+    /// - Default (`Relative`): Uses the immediate parent as the reference frame, providing a safe and intuitive layout.
+    /// - `Static`: Specify this explicitly when you want to avoid the computational overhead of the containing block and optimize performance.
     #[inline]
     #[must_use]
     pub fn position(mut self, value: impl IntoModValue<Position>) -> Self {
@@ -734,6 +742,29 @@ impl Modifier {
     #[must_use]
     pub fn relative(self) -> Self {
         self.position(Position::Relative)
+    }
+
+    /// Set the position to a [`Position::Static`].
+    #[inline]
+    #[must_use]
+    pub fn static_(self) -> Self {
+        self.position(Position::Static)
+    }
+
+    /// Set the position to a [`Position::Fixed`].
+    #[inline]
+    #[must_use]
+    pub fn fixed(self) -> Self {
+        self.position(Position::Fixed)
+    }
+
+    /// Set the position to a [`Position::Sticky`].
+    ///
+    /// Not implement.
+    #[inline]
+    #[must_use]
+    pub fn sticky(self) -> Self {
+        self.position(Position::Sticky)
     }
 
     /// Sets the positioning inset (top, right, bottom, left).
@@ -2719,7 +2750,7 @@ impl Modifier {
     /// Default is [`AlignItems::Stretch`]
     #[inline]
     #[must_use]
-    pub fn align_items(mut self, value: impl IntoModValue<Option<AlignItems>>) -> Self {
+    pub fn align_items(mut self, value: impl IntoModValue<AlignItems>) -> Self {
         match value.into_mod_value() {
             ModValue::Static(v) => {
                 let inner = Arc::make_mut(&mut self.inner);
@@ -2737,6 +2768,13 @@ impl Modifier {
             }
         }
         self
+    }
+
+    /// Sets the arrangement of cross axes within the container to a [`AlignItems::Normal`].
+    #[inline]
+    #[must_use]
+    pub fn items_normal(self) -> Self {
+        self.align_items(AlignItems::Normal)
     }
 
     /// Sets the arrangement of cross axes within the container to a [`AlignItems::Start`].
@@ -2972,7 +3010,7 @@ impl Modifier {
     /// Default is [`AlignItems::Stretch`]
     #[inline]
     #[must_use]
-    pub fn justify_items(mut self, value: impl IntoModValue<Option<AlignItems>>) -> Self {
+    pub fn justify_items(mut self, value: impl IntoModValue<AlignItems>) -> Self {
         match value.into_mod_value() {
             ModValue::Static(v) => {
                 let inner = Arc::make_mut(&mut self.inner);
@@ -2990,6 +3028,13 @@ impl Modifier {
             }
         }
         self
+    }
+
+    /// Sets the central axis placement within the container to a [`AlignItems::Normal`].
+    #[inline]
+    #[must_use]
+    pub fn justify_items_normal(self) -> Self {
+        self.justify_items(AlignItems::Normal)
     }
 
     /// Sets the central axis placement within the container to a [`AlignItems::Center`].
@@ -3197,7 +3242,7 @@ impl Modifier {
     /// Default is [`AlignContent::Stretch`]
     #[inline]
     #[must_use]
-    pub fn align_content(mut self, value: impl IntoModValue<Option<AlignContent>>) -> Self {
+    pub fn align_content(mut self, value: impl IntoModValue<AlignContent>) -> Self {
         match value.into_mod_value() {
             ModValue::Static(v) => {
                 let inner = Arc::make_mut(&mut self.inner);
@@ -3215,6 +3260,13 @@ impl Modifier {
             }
         }
         self
+    }
+
+    /// Sets the bulk placement of content spanning multiple lines to a [`AlignContent::Normal`].
+    #[inline]
+    #[must_use]
+    pub fn content_normal(self) -> Self {
+        self.align_content(AlignContent::Normal)
     }
 
     /// Sets the bulk placement of content spanning multiple lines to a [`AlignContent::SpaceAround`].
@@ -3320,7 +3372,7 @@ impl Modifier {
     /// Default is [`JustifyContent::Stretch`]
     #[inline]
     #[must_use]
-    pub fn justify_content(mut self, value: impl IntoModValue<Option<JustifyContent>>) -> Self {
+    pub fn justify_content(mut self, value: impl IntoModValue<JustifyContent>) -> Self {
         match value.into_mod_value() {
             ModValue::Static(v) => {
                 let inner = Arc::make_mut(&mut self.inner);
@@ -3338,6 +3390,13 @@ impl Modifier {
             }
         }
         self
+    }
+
+    /// Set the content placement along the main axis to a [`JustifyContent::Normal`].
+    #[inline]
+    #[must_use]
+    pub fn justify_normal(self) -> Self {
+        self.justify_content(JustifyContent::Normal)
     }
 
     /// Set the content placement along the main axis to a [`JustifyContent::SpaceAround`].
@@ -4446,311 +4505,6 @@ impl Modifier {
                     let val = getter();
                     cx.get_visual_property_mut(id, target).text_color = Some(val);
                     cx.mark_render_dirty(id);
-                }));
-            }
-        }
-        self
-    }
-
-    /// Not implemented
-    #[inline]
-    #[must_use]
-    pub fn grid_template_rows(
-        mut self,
-        value: impl IntoModValue<Vec<GridTemplateComponent<String>>>,
-    ) -> Self {
-        match value.into_mod_value() {
-            ModValue::Static(v) => {
-                let inner = Arc::make_mut(&mut self.inner);
-                let grid = inner.grid_layout.get_or_insert_with(GridLayout::default);
-                grid.grid_template_rows = v;
-                inner.mask.set(ComponentMask::STYLE_GRID_LAYOUT);
-            }
-            ModValue::Dynamic(getter) => {
-                let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(ComponentMask::STYLE_GRID_LAYOUT);
-                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
-                    if target == ModTarget::Base {
-                        let val = getter();
-                        if !cx.layouts.lay_grid.contains_key(id) {
-                            cx.layouts.lay_grid.insert(id, GridLayout::default());
-                        }
-                        cx.layouts.lay_grid.at_mut(id).grid_template_rows = val;
-                        cx.mark_layout_dirty(id);
-                    }
-                }));
-            }
-        }
-        self
-    }
-
-    /// Not implemented
-    #[inline]
-    #[must_use]
-    pub fn grid_template_columns(
-        mut self,
-        value: impl IntoModValue<Vec<GridTemplateComponent<String>>>,
-    ) -> Self {
-        match value.into_mod_value() {
-            ModValue::Static(v) => {
-                let inner = Arc::make_mut(&mut self.inner);
-                let grid = inner.grid_layout.get_or_insert_with(GridLayout::default);
-                grid.grid_template_columns = v;
-                inner.mask.set(ComponentMask::STYLE_GRID_LAYOUT);
-            }
-            ModValue::Dynamic(getter) => {
-                let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(ComponentMask::STYLE_GRID_LAYOUT);
-                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
-                    if target == ModTarget::Base {
-                        let val = getter();
-                        if !cx.layouts.lay_grid.contains_key(id) {
-                            cx.layouts.lay_grid.insert(id, GridLayout::default());
-                        }
-                        cx.layouts.lay_grid.at_mut(id).grid_template_columns = val;
-                        cx.mark_layout_dirty(id);
-                    }
-                }));
-            }
-        }
-        self
-    }
-
-    /// Not implemented
-    #[inline]
-    #[must_use]
-    pub fn grid_auto_rows(mut self, value: impl IntoModValue<Vec<TrackSizingFunction>>) -> Self {
-        match value.into_mod_value() {
-            ModValue::Static(v) => {
-                let inner = Arc::make_mut(&mut self.inner);
-                let grid = inner.grid_layout.get_or_insert_with(GridLayout::default);
-                grid.grid_auto_rows = v;
-                inner.mask.set(ComponentMask::STYLE_GRID_LAYOUT);
-            }
-            ModValue::Dynamic(getter) => {
-                let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(ComponentMask::STYLE_GRID_LAYOUT);
-                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
-                    if target == ModTarget::Base {
-                        let val = getter();
-                        if !cx.layouts.lay_grid.contains_key(id) {
-                            cx.layouts.lay_grid.insert(id, GridLayout::default());
-                        }
-                        cx.layouts.lay_grid.at_mut(id).grid_auto_rows = val;
-                        cx.mark_layout_dirty(id);
-                    }
-                }));
-            }
-        }
-        self
-    }
-
-    /// Not implemented
-    #[inline]
-    #[must_use]
-    pub fn grid_auto_columns(mut self, value: impl IntoModValue<Vec<TrackSizingFunction>>) -> Self {
-        match value.into_mod_value() {
-            ModValue::Static(v) => {
-                let inner = Arc::make_mut(&mut self.inner);
-                let grid = inner.grid_layout.get_or_insert_with(GridLayout::default);
-                grid.grid_auto_columns = v;
-                inner.mask.set(ComponentMask::STYLE_GRID_LAYOUT);
-            }
-            ModValue::Dynamic(getter) => {
-                let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(ComponentMask::STYLE_GRID_LAYOUT);
-                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
-                    if target == ModTarget::Base {
-                        let val = getter();
-                        if !cx.layouts.lay_grid.contains_key(id) {
-                            cx.layouts.lay_grid.insert(id, GridLayout::default());
-                        }
-                        cx.layouts.lay_grid.at_mut(id).grid_auto_columns = val;
-                        cx.mark_layout_dirty(id);
-                    }
-                }));
-            }
-        }
-        self
-    }
-
-    /// Not implemented
-    #[inline]
-    #[must_use]
-    pub fn grid_auto_flow(mut self, value: impl IntoModValue<GridAutoFlow>) -> Self {
-        match value.into_mod_value() {
-            ModValue::Static(v) => {
-                let inner = Arc::make_mut(&mut self.inner);
-                let grid = inner.grid_layout.get_or_insert_with(GridLayout::default);
-                grid.grid_auto_flow = v;
-                inner.mask.set(ComponentMask::STYLE_GRID_LAYOUT);
-            }
-            ModValue::Dynamic(getter) => {
-                let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(ComponentMask::STYLE_GRID_LAYOUT);
-                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
-                    if target == ModTarget::Base {
-                        let val = getter();
-                        if !cx.layouts.lay_grid.contains_key(id) {
-                            cx.layouts.lay_grid.insert(id, GridLayout::default());
-                        }
-                        cx.layouts.lay_grid.at_mut(id).grid_auto_flow = val;
-                        cx.mark_layout_dirty(id);
-                    }
-                }));
-            }
-        }
-        self
-    }
-
-    /// Not implemented
-    #[inline]
-    #[must_use]
-    pub fn grid_template_areas(
-        mut self,
-        value: impl IntoModValue<Option<GridTemplateAreas<String>>>,
-    ) -> Self {
-        match value.into_mod_value() {
-            ModValue::Static(v) => {
-                let inner = Arc::make_mut(&mut self.inner);
-                let grid = inner.grid_layout.get_or_insert_with(GridLayout::default);
-                grid.grid_template_areas = v;
-                inner.mask.set(ComponentMask::STYLE_GRID_LAYOUT);
-            }
-            ModValue::Dynamic(getter) => {
-                let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(ComponentMask::STYLE_GRID_LAYOUT);
-                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
-                    if target == ModTarget::Base {
-                        let val = getter();
-                        if !cx.layouts.lay_grid.contains_key(id) {
-                            cx.layouts.lay_grid.insert(id, GridLayout::default());
-                        }
-                        cx.layouts.lay_grid.at_mut(id).grid_template_areas = val;
-                        cx.mark_layout_dirty(id);
-                    }
-                }));
-            }
-        }
-        self
-    }
-
-    /// Not implemented
-    #[inline]
-    #[must_use]
-    pub fn grid_template_column_names(
-        mut self,
-        value: impl IntoModValue<Vec<Vec<String>>>,
-    ) -> Self {
-        match value.into_mod_value() {
-            ModValue::Static(v) => {
-                let inner = Arc::make_mut(&mut self.inner);
-                let grid = inner.grid_layout.get_or_insert_with(GridLayout::default);
-                grid.grid_template_column_names = v;
-                inner.mask.set(ComponentMask::STYLE_GRID_LAYOUT);
-            }
-            ModValue::Dynamic(getter) => {
-                let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(ComponentMask::STYLE_GRID_LAYOUT);
-                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
-                    if target == ModTarget::Base {
-                        let val = getter();
-                        if !cx.layouts.lay_grid.contains_key(id) {
-                            cx.layouts.lay_grid.insert(id, GridLayout::default());
-                        }
-                        cx.layouts.lay_grid.at_mut(id).grid_template_column_names = val;
-                        cx.mark_layout_dirty(id);
-                    }
-                }));
-            }
-        }
-        self
-    }
-
-    /// Not implemented
-    #[inline]
-    #[must_use]
-    pub fn grid_template_row_names(mut self, value: impl IntoModValue<Vec<Vec<String>>>) -> Self {
-        match value.into_mod_value() {
-            ModValue::Static(v) => {
-                let inner = Arc::make_mut(&mut self.inner);
-                let grid = inner.grid_layout.get_or_insert_with(GridLayout::default);
-                grid.grid_template_row_names = v;
-                inner.mask.set(ComponentMask::STYLE_GRID_LAYOUT);
-            }
-            ModValue::Dynamic(getter) => {
-                let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(ComponentMask::STYLE_GRID_LAYOUT);
-                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
-                    if target == ModTarget::Base {
-                        let val = getter();
-                        if !cx.layouts.lay_grid.contains_key(id) {
-                            cx.layouts.lay_grid.insert(id, GridLayout::default());
-                        }
-                        cx.layouts.lay_grid.at_mut(id).grid_template_row_names = val;
-                        cx.mark_layout_dirty(id);
-                    }
-                }));
-            }
-        }
-        self
-    }
-
-    /// Not implemented
-    #[inline]
-    #[must_use]
-    pub fn grid_row(mut self, value: impl IntoModValue<GridLine<GridPlacement<String>>>) -> Self {
-        match value.into_mod_value() {
-            ModValue::Static(v) => {
-                let inner = Arc::make_mut(&mut self.inner);
-                let grid = inner.grid_layout.get_or_insert_with(GridLayout::default);
-                grid.grid_row = v;
-                inner.mask.set(ComponentMask::STYLE_GRID_LAYOUT);
-            }
-            ModValue::Dynamic(getter) => {
-                let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(ComponentMask::STYLE_GRID_LAYOUT);
-                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
-                    if target == ModTarget::Base {
-                        let val = getter();
-                        if !cx.layouts.lay_grid.contains_key(id) {
-                            cx.layouts.lay_grid.insert(id, GridLayout::default());
-                        }
-                        cx.layouts.lay_grid.at_mut(id).grid_row = val;
-                        cx.mark_layout_dirty(id);
-                    }
-                }));
-            }
-        }
-        self
-    }
-
-    /// Not implemented
-    #[inline]
-    #[must_use]
-    pub fn grid_column(
-        mut self,
-        value: impl IntoModValue<GridLine<GridPlacement<String>>>,
-    ) -> Self {
-        match value.into_mod_value() {
-            ModValue::Static(v) => {
-                let inner = Arc::make_mut(&mut self.inner);
-                let grid = inner.grid_layout.get_or_insert_with(GridLayout::default);
-                grid.grid_column = v;
-                inner.mask.set(ComponentMask::STYLE_GRID_LAYOUT);
-            }
-            ModValue::Dynamic(getter) => {
-                let inner = Arc::make_mut(&mut self.inner);
-                inner.mask.set(ComponentMask::STYLE_GRID_LAYOUT);
-                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
-                    if target == ModTarget::Base {
-                        let val = getter();
-                        if !cx.layouts.lay_grid.contains_key(id) {
-                            cx.layouts.lay_grid.insert(id, GridLayout::default());
-                        }
-                        cx.layouts.lay_grid.at_mut(id).grid_column = val;
-                        cx.mark_layout_dirty(id);
-                    }
                 }));
             }
         }
@@ -6294,11 +6048,6 @@ impl Modifier {
         }
 
         // コールドデータのコピー
-        if other_inner.mask.has_grid_layout()
-            && let Some(ref g) = other_inner.grid_layout
-        {
-            inner_mut.grid_layout = Some(g.clone());
-        }
         if let Some(ref sb) = other_inner.scrollbar_style {
             inner_mut.scrollbar_style = Some(sb.clone());
         }

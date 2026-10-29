@@ -156,8 +156,8 @@ pub use window_store::*;
 #[cfg(feature = "trace-lifecycle")]
 use crate::trace_lifecycle;
 use crate::{
-    BasicLayout, ComponentMask, CursorIcon, Entity, FlexLayout, GridLayout, InteractionState,
-    LayoutPoint, LayoutRect, LayoutSize, MichiuSoA, ReadSignal, VisualProperty, WriteSignal,
+    BasicLayout, ComponentMask, CursorIcon, Entity, FlexLayout, InteractionState, LayoutPoint,
+    LayoutRect, LayoutSize, MichiuSoA, ReadSignal, VisualProperty, WriteSignal,
     a11y::A11yInferenceTag, bind_context, handle_on_click,
 };
 use std::{borrow::Cow, sync::Arc};
@@ -395,13 +395,6 @@ impl Context {
     #[must_use]
     pub fn get_flex_layout(&self, e: Entity) -> Option<FlexLayout> {
         self.layouts.lay_flex.find(e).copied()
-    }
-
-    /// Get the [`GridLayout`] currently set for the specified entity.
-    #[inline]
-    #[must_use]
-    pub fn get_grid_layout(&self, e: Entity) -> Option<GridLayout> {
-        self.layouts.lay_grid.find(e).cloned()
     }
 
     /// Get the [`VisualProperty`] currently set for the specified entity.

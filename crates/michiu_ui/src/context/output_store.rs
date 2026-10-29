@@ -103,6 +103,15 @@ impl OutputStore {
         let initial_clip = LayoutRect::new(0.0, 0.0, window_size.width, window_size.height);
         let local_rect = LayoutStore::local_rect_from_taffy(id, lay_taffy_tree, lay_taffy_nodes);
 
+        let position = lay_basic
+            .find(id)
+            .map_or(Position::default(), |l| l.position);
+
+        // Fixed の場合は親を一切無視し、ウィンドウ原点・ウィンドウクリップを即座に返す
+        if position == Position::Fixed {
+            return (local_rect, initial_clip);
+        }
+
         let Some(parent_id) = *topo_parents.at(id) else {
             return (local_rect, initial_clip);
         };
@@ -114,10 +123,7 @@ impl OutputStore {
         };
 
         let s_offsets = sc_offsets.find_or_default(parent_id, debug);
-        // データが無い要素が Absolute になることは絶対にない
-        let is_absolute = lay_basic
-            .find(id)
-            .is_some_and(|l| l.position == Position::Absolute);
+        let is_absolute = position == Position::Absolute;
 
         let parent_scroll = if is_absolute {
             LayoutPoint::ZERO
@@ -376,7 +382,7 @@ impl ResolvedGeometry {
         &self,
         logical_pos: LayoutPoint,
         text_align: TextAlign,
-        align_items: Option<AlignItems>,
+        align_items: AlignItems,
         text_size: TextLayoutSize,
     ) -> LayoutPoint {
         let align_offset = self.calc_align_offset(text_size, text_align, align_items);
@@ -411,7 +417,7 @@ impl ResolvedGeometry {
         &self,
         text_size: TextLayoutSize,
         text_align: TextAlign,
-        align_items: Option<AlignItems>,
+        align_items: AlignItems,
     ) -> LayoutPoint {
         let rect = self.rect;
         let border = self.border;
@@ -429,16 +435,11 @@ impl ResolvedGeometry {
             (rect.height - border.top - border.bottom - padding.top - padding.bottom).max(0.0);
 
         // 複数行入力時は標準で上端揃え、単一行は標準で中央揃えにフォールバック
-        let resolved_multiline = if let Some(is_multiline) = text_size.is_multiline {
-            if is_multiline {
-                AlignItems::Start
-            } else {
-                AlignItems::Center
-            }
-        } else {
-            AlignItems::Center
+        let align_items_resolved = match align_items {
+            AlignItems::Normal if text_size.is_multiline.unwrap_or(false) => AlignItems::Start,
+            AlignItems::Normal => AlignItems::Center,
+            other => other,
         };
-        let align_items_resolved = align_items.unwrap_or(resolved_multiline);
 
         let align_offset_y = match align_items_resolved {
             AlignItems::Start

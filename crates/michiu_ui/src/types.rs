@@ -38,6 +38,9 @@ pub enum Position {
     #[default]
     Relative,
     Absolute,
+    Static,
+    Fixed,
+    Sticky,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
@@ -103,6 +106,7 @@ pub enum FlexWrap {
 
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum AlignItems {
+    Normal,
     Start,
     End,
     FlexStart,
@@ -141,6 +145,7 @@ pub enum AlignSelf {
 
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum JustifyContent {
+    Normal,
     Start,
     End,
     Center,
@@ -160,6 +165,7 @@ pub enum JustifyContent {
 
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum AlignContent {
+    Normal,
     Start,
     End,
     Center,
@@ -184,34 +190,6 @@ pub enum TextAlign {
     Left,
     Right,
     Center,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
-pub enum GridAutoFlow {
-    #[default]
-    Row,
-    Column,
-    RowDense,
-    ColumnDense,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
-pub enum GridPlacement<S>
-where
-    S: ToString,
-{
-    #[default]
-    Auto,
-    Line(S),
-    NamedLine(S),
-    Span(S),
-    NamedSpan(S),
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct GridLine<T> {
-    pub start: T,
-    pub end: T,
 }
 
 /// Windows 11's Native System Background Blur Effect

@@ -461,11 +461,12 @@ impl ScrollStore {
                 continue;
             }
 
-            // 絶対配置要素（スクロールバーのサムなど）もスクロール領域サイズ計算から除外
-            let is_absolute = lay_resolved_basic
+            // フロー外要素はスクロール領域サイズ計算から除外
+            let is_out_of_flow = lay_resolved_basic
                 .find(child_id)
-                .is_some_and(|l| l.position == Position::Absolute);
-            if is_absolute {
+                .is_some_and(|l| matches!(l.position, Position::Absolute | Position::Fixed));
+
+            if is_out_of_flow {
                 continue;
             }
 

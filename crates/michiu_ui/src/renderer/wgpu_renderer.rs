@@ -823,10 +823,6 @@ impl WgpuRenderer {
             .layouts
             .lay_resolved_flex
             .find_or(entity_id, &DEFAULT_FLEX, &mut cx.debug);
-        let _grid = &cx
-            .layouts
-            .lay_resolved_grid
-            .find_or_default(entity_id, &mut cx.debug);
         let default_visual = VisualProperty::default();
         let visual = cx
             .renders

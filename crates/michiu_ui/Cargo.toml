@@ -14,17 +14,17 @@ workspace = true
 
 [dev-dependencies]
 pollster = "1.0.1"
-tiff-reader = "0.8.1"
+tiff-reader = "0.9.0"
 strum = { version = "0.28.0", features = ["derive"] }
 
 [dependencies]
-accesskit = "=0.25.1"
-accesskit_windows = "0.35.1"
+accesskit = "=0.25.2"
+accesskit_windows = "0.35.2"
 bytemuck = { version = "1.25.0", features = ["derive"] }
 serde = { workspace = true, optional = true }
 slotmap = "1.1.1"
 smallvec = "1.15.2"
-taffy = {version = "0.14.0", features = ["grid", "block_layout", "flexbox"] }
+taffy = {version = "0.15.1", features = ["block_layout", "flexbox"] }
 wgpu = {version= "30.0.1", default-features = false, features = ["dx12", "wgsl"]}
 webview2-com = "0.39.1"
 windows-result = "0.4.1"
@@ -39,7 +39,7 @@ bytecount = "0.6.9"
 thiserror = "2.0.20"
 image = "0.25.10"
 derive_more = { version = "2.1.1", features = ["std", "debug", "deref", "deref_mut", "into_iterator"] }
-parking_lot = "0.12.5"
+parking_lot = "0.13.0"
 
 [dependencies.windows]
 version = "0.62.2"

@@ -61,6 +61,7 @@ fn create_component_entity(comp_type: ComponentType) -> Entity {
         ComponentType::Accessibility => wrapper(accessibility::container()),
         ComponentType::Size => text("Size"),
         ComponentType::Transform => wrapper(transform::container()),
+        ComponentType::Position => text("Position"),
         ComponentType::StressTest => {
             if ALLOW_STRESS_TEST {
                 wrapper(stress_test::container())

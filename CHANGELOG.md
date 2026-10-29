@@ -1,3 +1,30 @@
+## [unreleased]
+
+## [0.1.0] - 2026-10-30
+
+### Breaking Changes
+
+- Upgrade taffy to 0.15:
+  - Remove Grid layout
+  - Adapt alignment handling to `AlignItems::Normal` (remove Option wrapping)
+  - Add `Fixed`, `Static`, and `Sticky` to `Position` enum
+  - Maintain `Position::Relative` as library default
+  - Update resize dragging and scrollable bounds calculation for Fixed position
+
+### ⚙️ Miscellaneous Tasks
+
+- Fix the translation of `LANGUAGE_POLICY.md`
+- _(security)_ Add security policy and restrict workflow permissions
+- Add `pull_request_template`.
+
+### 💼 Other
+
+- [**breaking**] Update dependencies and adapt to taffy 0.15
+
+### ⚙️ Miscellaneous Tasks
+
+- Fix the translation of `LANGUAGE_POLICY.md`
+
 ## [0.0.5] - 2026-10-29
 
 ### Breaking Changes
@@ -65,7 +92,8 @@
 
 ### ⚙️ Miscellaneous Tasks
 
-- *(michiu_ui)* Modify `README.md`
+- _(michiu_ui)_ Modify `README.md`
+
 ## [0.0.4] - 2026-10-17
 
 ### Breaking Changes
@@ -215,7 +243,8 @@
 
 - Initial release
 
-[unreleased]: https://github.com/eto0202/michiu/compare/v0.0.5...HEAD
+[unreleased]: https://github.com/eto0202/michiu/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/eto0202/michiu/compare/v0.0.5...v0.1.0
 [0.0.5]: https://github.com/eto0202/michiu/compare/v0.0.4...v0.0.5
 [0.0.4]: https://github.com/eto0202/michiu/compare/v0.0.3...v0.0.4
 [0.0.3]: https://github.com/eto0202/michiu/compare/v0.0.2...v0.0.3

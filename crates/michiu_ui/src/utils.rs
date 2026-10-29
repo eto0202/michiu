@@ -27,7 +27,7 @@ use std::borrow::Cow;
 /// - Because it’s faster to type.
 /// - Because `michiu_ui` contains a lot of `i`s.
 ///
-/// For those who don't like `ii()` -> [`m!`] , [`Modifier::new()`]
+/// For those who don't like `ii()` -> [`crate::m!`] , [`Modifier::new()`]
 #[inline]
 #[must_use]
 pub fn ii() -> Modifier {

@@ -528,7 +528,7 @@ impl TopologyStore {
     }
 
     /// DFS配列の高速再構築
-    #[expect(unused)]
+    #[allow(unused)]
     #[track_caller]
     #[inline]
     pub(crate) fn rebuild_dfs_sequence(
