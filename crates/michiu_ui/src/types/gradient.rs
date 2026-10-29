@@ -102,7 +102,7 @@ impl LinearGradient {
     /// # Arguments
     /// * `c0` - Start color (offset 0.0)
     /// * `c1` - End color (offset 1.0)
-    /// * `angle_degrees` - Gradient angle (degrees)
+    /// * `angle_degrees` - Gradient angle (degrees 0.0..=360.0)
     #[inline]
     #[must_use]
     pub fn two_stops(c0: Color, c1: Color, angle_degrees: f32) -> Self {
@@ -119,7 +119,7 @@ impl LinearGradient {
     ///    - Only 1 color: To prevent division by zero, this results in a solid-color gradient using that single color.
     ///    - 2–4 colors: Interpolated according to the specified stop positions.
     ///    - 5 or more colors: Only the first 4 colors are used; the 5th and subsequent colors are ignored.
-    /// - `angle_degrees` - The gradient angle (in degrees)
+    /// - `angle_degrees` - The gradient angle (degrees 0.0..=360.0)
     #[inline]
     #[must_use]
     #[expect(clippy::cast_possible_truncation)]
@@ -150,7 +150,7 @@ impl LinearGradient {
     /// Changes the angle of the gradient (for linear gradients).
     ///
     /// # Arguments
-    /// * `angle_degrees` - New angle (in degrees)
+    /// * `angle_degrees` - New angle (degrees 0.0..=360.0)
     #[inline]
     #[must_use]
     pub fn with_angle(mut self, angle_degrees: f32) -> Self {
@@ -175,7 +175,7 @@ impl LinearGradient {
     /// Creates a linear gradient extending toward the four corners, based on the rectangle's dimensions (aspect ratio).
     ///
     /// # Arguments
-    /// * `stops_slice` - A slice of tuples of the form `(color, position 0.0–1.0)`
+    /// * `stops_slice` - A slice of tuples of the form `(color, position 0.0..=1.0)`
     /// * `corner` - The direction of the corner toward which the gradient points
     /// * `width` - The width of the rectangle
     /// * `height` - The height of the rectangle
