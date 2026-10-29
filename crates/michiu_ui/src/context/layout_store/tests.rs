@@ -1,4 +1,4 @@
-#![expect(clippy::unwrap_used, clippy::float_cmp)]
+#![allow(clippy::unwrap_used, clippy::float_cmp)]
 
 use super::*;
 use slotmap::SlotMap;

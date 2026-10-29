@@ -1049,7 +1049,7 @@ fn test_topology_tag_and_query_global() {
 
     let all_unregistered: Vec<Entity> =
         TopologyStore::query_all::<TestTagUnregistered>(&registry).collect();
-    assert!(all_unregistered.is_empty());
+    assert_eq!(all_unregistered, [] as [Entity; 0]);
 }
 
 #[test]

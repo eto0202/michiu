@@ -358,13 +358,13 @@ mod tests {
         let result: Vec<Entity> = registry
             .query_descendants_of_type::<TagA>(outside, &parents, &dfs_seq)
             .collect();
-        assert!(result.is_empty());
+        assert_eq!(result, [] as [Entity; 0]);
 
         // 一致するタグを持つ子孫が存在しない場合は空イテレータ
         let result_no_tag: Vec<Entity> = registry
             .query_descendants_of_type::<TagC>(root, &parents, &dfs_seq)
             .collect();
-        assert!(result_no_tag.is_empty());
+        assert_eq!(result_no_tag, [] as [Entity; 0]);
     }
 
     #[test]

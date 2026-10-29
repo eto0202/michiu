@@ -238,7 +238,7 @@ impl LinearGradient {
 }
 
 #[cfg(test)]
-#[expect(clippy::float_cmp)]
+#[allow(clippy::float_cmp)]
 mod tests {
     use super::*;
     use std::f32::consts::PI;

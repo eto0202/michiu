@@ -636,7 +636,7 @@ fn parse_u32_to_color(num: u32, is_8digit: bool) -> Color {
 }
 
 #[cfg(test)]
-#[expect(clippy::float_cmp)]
+#[allow(clippy::float_cmp)]
 mod tests {
     use super::*;
 
