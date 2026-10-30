@@ -1,4 +1,8 @@
-## [unreleased]
+## [0.1.1]
+
+### 🚀 Features
+
+- *(a11y_catalog)* Introduce accessible component catalog and preview (#57)
 
 ## [0.1.0] - 2026-10-30
 
@@ -243,7 +247,8 @@
 
 - Initial release
 
-[unreleased]: https://github.com/eto0202/michiu/compare/v0.1.0...HEAD
+[unreleased]: https://github.com/eto0202/michiu/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/eto0202/michiu/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/eto0202/michiu/compare/v0.0.5...v0.1.0
 [0.0.5]: https://github.com/eto0202/michiu/compare/v0.0.4...v0.0.5
 [0.0.4]: https://github.com/eto0202/michiu/compare/v0.0.3...v0.0.4
