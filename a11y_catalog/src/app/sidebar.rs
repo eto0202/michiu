@@ -1,6 +1,6 @@
 use crate::app::{ComponentType, SearchText, SidebarSortOrder, theme::Theme};
-use michiu::prelude::*;
 use michiu::ui::a11y;
+use michiu::{accessibility::*, prelude::*};
 use strum::IntoEnumIterator;
 
 pub fn sidebar() -> Entity {
@@ -34,11 +34,16 @@ fn controll_header() -> Entity {
 }
 
 fn header_label() -> Entity {
-    text("Components").modify_d(|t: &Theme| {
-        ii().font_size(14.0)
-            .text_color(t.text_muted)
-            .font_family(t.font_family.clone())
-    })
+    text("Components")
+        .modify_d(|t: &Theme| {
+            ii().font_size(14.0)
+                .text_color(t.text_muted)
+                .font_family(t.font_family.clone())
+        })
+        .a11y_with(Node::new(Role::Heading), |n| {
+            n.set_label("List of Components");
+            n.set_level(3);
+        })
 }
 
 fn sort_toggle() -> Entity {
@@ -59,6 +64,7 @@ fn sort_toggle() -> Entity {
         };
         set_order.set(next);
     })
+    .a11y_label(Role::Button, "Sort Toggle")
     .child(toggle_label())
 }
 

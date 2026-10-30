@@ -103,6 +103,7 @@ fn toggle_btn() -> Entity {
                     .outline_color(dynamic(|t: &Theme| t.text)),
             ),
     )
+    .a11y_label(Role::Button, "Theme Toggle")
     .on_click(mode_change);
 
     let btn_inner = h_flex_d(|t: &Theme| {

@@ -144,7 +144,10 @@ pub fn modal(...) -> Entity { ... }
 /// - None (Self-contained within the component)
 ///
 /// # Feature Details
-/// -
+/// - **Keyboard**: (Control keys and behavior)
+/// - **Screen Reader**: (Role and read-aloud state)
+/// - **Visual / WCAG**: (Contrast ratio and “focus-visible” behavior)
+/// - **Customization**: (Any points to note when modifying)
 pub fn tabs(...) -> Entity { ... }
 
 /// Accessible button component with custom cursor.
@@ -159,7 +162,10 @@ pub fn tabs(...) -> Entity { ... }
 /// - None
 ///
 /// # Feature Details
-/// -
+/// - **Keyboard**: (Control keys and behavior)
+/// - **Screen Reader**: (Role and read-aloud state)
+/// - **Visual / WCAG**: (Contrast ratio and “focus-visible” behavior)
+/// - **Customization**: (Any points to note when modifying)
 pub fn custom_cursor_button(...) -> Entity { ... }
 
 /// Simple accessible button.
@@ -174,7 +180,10 @@ pub fn custom_cursor_button(...) -> Entity { ... }
 /// - None
 ///
 /// # Feature Details
-/// -
+/// - **Keyboard**: (Control keys and behavior)
+/// - **Screen Reader**: (Role and read-aloud state)
+/// - **Visual / WCAG**: (Contrast ratio and “focus-visible” behavior)
+/// - **Customization**: (Any points to note when modifying)
 pub fn simple_button(...) -> Entity { ... }
 ```
 
@@ -210,6 +219,29 @@ All source code and assets contained in this catalog are dual-licensed under the
 ### Attribution Waiver
 
 When copying, modifying, or integrating code and assets from this catalog (including `src/components/`, internal helpers, and assets) into your own projects, **no attribution, copyright notice, or inclusion of the license terms is required**, for both commercial and non-commercial use. Feel free to use and adapt them directly as part of your own codebase.
+
+---
+
+## Recommended Tools & Resources
+
+When authoring new components or accessible themes, the following tools are invaluable for WCAG verification and color calculation.
+
+### 1. Color Palette & Contrast Design
+
+- [Accessible Palette](https://accessiblepalette.com/)
+- [Leonardo](https://leonardocolor.io/)
+- [Huetone](https://huetone.ardov.me/)
+- [Radix Colors](https://www.radix-ui.com/colors)
+- [oklch.com](https://oklch.com/)
+
+### 2. Keyboard & Accessibility Specifications
+
+- [WAI-ARIA Authoring Practices Guide (APG)](https://www.w3.org/WAI/ARIA/apg/patterns/)
+- [Web Content Accessibility Guidelines (WCAG) 2.2](https://www.w3.org/TR/WCAG22/)
+- [Microsoft Accessibility best practices](https://learn.microsoft.com/en-us/windows/win32/winauto/accessibility-best-practices)
+- [UI Automation Control Types Overview](https://learn.microsoft.com/en-us/windows/win32/winauto/uiauto-controltypesoverview)
+- [UI Automation Control Patterns Overview](https://learn.microsoft.com/en-us/windows/win32/winauto/uiauto-controlpatternsoverview)
+- [Accessibility Insights for Windows](https://accessibilityinsights.io/docs/windows/overview/)
 
 ---
 
@@ -355,7 +387,10 @@ pub fn modal(...) -> Entity { ... }
 /// - None（コンポーネント内部で完結）
 ///
 /// # Feature Details
-/// -
+/// - **Keyboard**: (操作キーと挙動)
+/// - **Screen Reader**: (Role と 読み上げ状態)
+/// - **Visual / WCAG**: (コントラスト比や focus-visible の挙動)
+/// - **Customization**: (改造時のポイントがあれば)
 pub fn tabs(...) -> Entity { ... }
 
 /// Accessible button component with custom cursor.
@@ -370,7 +405,10 @@ pub fn tabs(...) -> Entity { ... }
 /// - None
 ///
 /// # Feature Details
-/// -
+/// - **Keyboard**: (操作キーと挙動)
+/// - **Screen Reader**: (Role と 読み上げ状態)
+/// - **Visual / WCAG**: (コントラスト比や focus-visible の挙動)
+/// - **Customization**: (改造時のポイントがあれば)
 pub fn custom_cursor_button(...) -> Entity { ... }
 
 /// Simple accessible button.
@@ -385,7 +423,10 @@ pub fn custom_cursor_button(...) -> Entity { ... }
 /// - None
 ///
 /// # Feature Details
-/// -
+/// - **Keyboard**: (操作キーと挙動)
+/// - **Screen Reader**: (Role と 読み上げ状態)
+/// - **Visual / WCAG**: (コントラスト比や focus-visible の挙動)
+/// - **Customization**: (改造時のポイントがあれば)
 pub fn simple_button(...) -> Entity { ... }
 ```
 
@@ -421,6 +462,30 @@ pub fn simple_button(...) -> Entity { ... }
 ### 著作権表示（クレジット）に関する特記事項
 
 当カタログ内のコード（`src/components/`、その他ヘルパー、アセットを含む）をご自身のプロジェクトにコピー＆ペースト、改変、または組み込んで利用する場合、**商用・非商用を問わず、著作権表示やライセンス条項の記載（クレジット表示義務）は不要**です。ご自身のコードベースの一部として自由にご利用いただけます。
+
+---
+
+## 支援ツール・リソース
+
+新しいコンポーネントやテーマを追加する際、WCAG 仕様の確認やカラー設計に以下のツールが役立ちます。
+
+### 1. 配色・コントラスト比設計
+
+- [Accessible Palette](https://accessiblepalette.com/)
+- [Leonardo](https://leonardocolor.io/)
+- [Huetone](https://huetone.ardov.me/)
+- [Radix Colors](https://www.radix-ui.com/colors)
+- [oklch.com](https://oklch.com/)
+
+### 2. キーボード操作・a11y 仕様確認
+
+- [WAI-ARIA Authoring Practices Guide (APG)](https://www.w3.org/WAI/ARIA/apg/patterns/)
+- [Web Content Accessibility Guidelines (WCAG) 2.2](https://www.w3.org/TR/WCAG22/)
+- [Microsoft Accessibility best practices](https://learn.microsoft.com/ja-jp/windows/win32/winauto/accessibility-best-practices)
+- [UI Automation Control Types Overview](https://learn.microsoft.com/ja-jp/windows/win32/winauto/uiauto-controltypesoverview)
+- [UI Automation Control Patterns Overview](https://learn.microsoft.com/ja-jp/windows/win32/winauto/uiauto-controlpatternsoverview)
+- [Accessibility Insights for Windows](https://accessibilityinsights.io/docs/windows/overview/)
+- [JIS X 8341-3:2016 達成基準 早見表（レベルA & AA）](https://waic.jp/resource/jis-x-8341-3-2016/)
 
 ---
 
