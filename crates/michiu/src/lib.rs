@@ -982,11 +982,11 @@ impl MichiuApp {
             .sync_layout(root_id, self.renderer.layout_size());
         self.renderer.update_composition_tree(&mut self.context);
 
+        self.renderer.draw(&mut self.context);
+
         if self.config.accessibility_support {
             self.context.update_accessibility();
         }
-
-        self.renderer.draw(&mut self.context);
 
         if self.context.has_active_frame() {
             if self.config.sync_mode == AutoSyncMode::DwmFlush {

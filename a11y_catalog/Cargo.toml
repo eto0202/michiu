@@ -1,0 +1,26 @@
+[package]
+name = "a11y_catalog"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+publish = false
+
+[[bin]]
+name = "a11y_catalog"
+path = "src/main.rs"
+
+[dependencies]
+michiu = { workspace = true }
+pollster = "1.0.1"
+strum = {version = "0.28.0", features = ["derive"] }
+
+[dependencies.windows]
+version = "0.62.2"
+features = [
+    "Win32_Foundation",
+    "Win32_UI_WindowsAndMessaging",
+]

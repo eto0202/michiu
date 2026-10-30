@@ -48,4 +48,4 @@ jobs:
         run: cargo nextest run --profile ci --no-tests warn
 
       - name: Run doctests
-        run: cargo test --doc --workspace --exclude sample_collection
+        run: cargo test --doc --workspace --exclude sample_collection --exclude a11y_catalog

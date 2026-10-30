@@ -1,0 +1,38 @@
+pub mod header;
+pub mod main_area;
+pub mod sidebar;
+pub mod theme;
+
+use crate::{app::theme::Theme, components::ComponentType};
+use michiu::prelude::*;
+
+pub fn create_root() -> Entity {
+    let (theme, _) = create_signal(Theme::dark());
+    let (comp_type, _) = create_signal(ComponentType::Button);
+    let (search_text, _) = create_signal(SearchText(String::new()));
+    let (sort_order, _) = create_signal(SidebarSortOrder::Ascending);
+
+    v_flex(move || {
+        ii().size_full()
+            .bg_color(theme.get().background)
+            .backdrop_acrylic()
+    })
+    .provide(theme)
+    .provide(comp_type)
+    .provide(search_text)
+    .provide(sort_order)
+    .children([
+        header::header(),
+        h_flex(ii().grow().size_full().overflow_hidden())
+            .children([sidebar::sidebar(), main_area::main_area()]),
+    ])
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SearchText(String);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SidebarSortOrder {
+    Ascending,
+    Descending,
+}
