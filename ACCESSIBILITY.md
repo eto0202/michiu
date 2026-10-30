@@ -114,6 +114,7 @@ We are currently working on expanding the following features in the library:
 - [ ] Refining `ACCESSIBILITY.md`.
 - [ ] Refining issue templates.
 - [ ] Providing more detailed explanations of API usage (`accessibility.rs`) and expanding the documentation.
+- [ ] Expansion of `a11y_catalog`
 
 ---
 
@@ -237,6 +238,7 @@ Microsoft 製のツールを使って、AccessKit 経由で UIA に正しくノ�
 - [ ] `ACCESSIBILITY.md` のブラッシュアップ。
 - [ ] Issue テンプレートのブラッシュアップ。
 - [ ] API のより具体的な使用方法の解説 (`accessibility.rs`) とドキュメントの拡充。
+- [ ] `a11y_catalog` の拡充
 
 ---
 
@@ -252,4 +254,4 @@ Microsoft 製のツールを使って、AccessKit 経由で UIA に正しくノ�
 
 Created: [2026/10/14]
 
-Last Updated: [2026/10/14]
+Last Updated: [2026/10/30]

@@ -3,9 +3,10 @@ name = "michiu_guard"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+authors.workspace = true
+repository.workspace = true
 keywords.workspace = true
 categories.workspace = true
-repository.workspace = true
 description = "Enforces validation in the michiu library."
 readme = "README.md"
 

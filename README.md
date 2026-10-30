@@ -169,3 +169,7 @@ at your option.
 Unless you explicitly state otherwise, any contribution intentionally submitted
 for inclusion in the work by you, as defined in the Apache-2.0 license, shall be
 dual licensed as above, without any additional terms or conditions.
+
+### Attribution Waiver for `examples/`
+
+When copying, adapting, or referencing the example code located in the `examples/` directory in your own projects, **no attribution, copyright notice, or inclusion of the license terms is required**, for both commercial and non-commercial use. Feel free to use them freely as templates or boilerplate.
