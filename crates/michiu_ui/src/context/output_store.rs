@@ -112,7 +112,33 @@ impl OutputStore {
             return (local_rect, initial_clip);
         }
 
-        let Some(parent_id) = *topo_parents.at(id) else {
+        let is_absolute = position == Position::Absolute;
+
+        // 基準となる親を決定
+        let target_parent_id = if is_absolute {
+            // Absolute の場合、Static 以外の直近の祖先を遡って探す
+            let mut curr = *topo_parents.at(id);
+            loop {
+                match curr {
+                    Some(p_id) => {
+                        let pos = lay_basic
+                            .find(p_id)
+                            .map_or(Position::default(), |l| l.position);
+                        if pos != Position::Static {
+                            break Some(p_id);
+                        }
+                        curr = *topo_parents.at(p_id);
+                    }
+                    None => break None,
+                }
+            }
+        } else {
+            // 通常フローは直近の親
+            *topo_parents.at(id)
+        };
+
+        // ルート要素、または Absolute で祖先に Static 以外がない場合
+        let Some(parent_id) = target_parent_id else {
             return (local_rect, initial_clip);
         };
 
@@ -122,13 +148,11 @@ impl OutputStore {
             return (local_rect, initial_clip);
         };
 
-        let s_offsets = sc_offsets.find_or_default(parent_id, debug);
-        let is_absolute = position == Position::Absolute;
-
+        // Absolute の場合はスクロールオフセットを直近親から引かない
         let parent_scroll = if is_absolute {
             LayoutPoint::ZERO
         } else {
-            s_offsets
+            sc_offsets.find_or_default(parent_id, debug)
         };
 
         let abs_x = parent_rect.x + local_rect.x - parent_scroll.x;
