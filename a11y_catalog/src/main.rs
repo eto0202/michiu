@@ -1,10 +1,4 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
-#![allow(
-    clippy::pedantic,
-    clippy::print_stdout,
-    clippy::unwrap_used,
-    clippy::expect_used
-)]
 
 use crate::logger::logger;
 use michiu::{prelude::*, ui::CapacityConfig};
@@ -33,13 +27,16 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
 
     let scale_factor = window.scale_factor() as f32;
     let handle = window.handle().assume_valid();
-    let hwnd = handle.hwnd();
 
     let client_rect = handle.client_rect();
 
-    let renderer = pollster::block_on(MichiuRenderer::new(hwnd, client_rect.cast(), scale_factor))?;
+    let renderer = pollster::block_on(MichiuRenderer::new(
+        handle.hwnd(),
+        client_rect.cast(),
+        scale_factor,
+    ))?;
 
-    let inspector = MichiuInspector::new(); // It's fine even if it's not there
+    let inspector = MichiuInspector::new();
     let _sub = inspector.subscribe(None);
 
     logger(_sub);
@@ -58,8 +55,6 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         app::create_root().provide(read_handle)
     });
 
-    // ウィンドウを非表示で作成しているので、ここで表示に切り替える。
-    // Since the window was created in hidden mode, switch it to visible here.
     app.set_visible(true);
 
     event_loop(&mut app, &mut pump)?;

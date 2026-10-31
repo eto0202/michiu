@@ -4,7 +4,7 @@ use crate::{
     components::{
         accessibility, background, border, button, color, context_menu, css, cursor, div,
         draggable, external_texture, external_visual, flexbox, focusable, gradient, hover, input,
-        outline, resizable, scrollbar, stress_test, transform,
+        outline, position, resizable, scrollbar, stress_test, transform,
     },
 };
 use michiu_ui::a11y;
@@ -61,7 +61,7 @@ fn create_component_entity(comp_type: ComponentType) -> Entity {
         ComponentType::Accessibility => wrapper(accessibility::container()),
         ComponentType::Size => text("Size"),
         ComponentType::Transform => wrapper(transform::container()),
-        ComponentType::Position => text("Position"),
+        ComponentType::Position => wrapper(position::container()),
         ComponentType::StressTest => {
             if ALLOW_STRESS_TEST {
                 wrapper(stress_test::container())

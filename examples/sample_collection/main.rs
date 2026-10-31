@@ -1,10 +1,4 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
-#![expect(
-    clippy::pedantic,
-    clippy::print_stdout,
-    clippy::unwrap_used,
-    clippy::expect_used
-)]
 
 use crate::logger::logger;
 use michiu::{
