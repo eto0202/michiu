@@ -1,8 +1,18 @@
-## [0.1.1]
+## [0.1.2] - 2026-11-01
 
 ### 🚀 Features
 
-- *(a11y_catalog)* Introduce accessible component catalog and preview (#57)
+- _(a11y_catalog)_ Add samples and updated `README.md`
+
+### 🐛 Bug Fixes
+
+- Fix absolute positioning by resolving containing block (#58) (#59)
+
+## [0.1.1] - 2026-10-30
+
+### 🚀 Features
+
+- _(a11y_catalog)_ Introduce accessible component catalog and preview (#57)
 
 ## [0.1.0] - 2026-10-30
 
@@ -247,7 +257,8 @@
 
 - Initial release
 
-[unreleased]: https://github.com/eto0202/michiu/compare/v0.1.1...HEAD
+[unreleased]: https://github.com/eto0202/michiu/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/eto0202/michiu/compare/v0.1.0...v0.1.2
 [0.1.1]: https://github.com/eto0202/michiu/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/eto0202/michiu/compare/v0.0.5...v0.1.0
 [0.0.5]: https://github.com/eto0202/michiu/compare/v0.0.4...v0.0.5
