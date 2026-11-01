@@ -69,6 +69,7 @@
 //!         handle.hwnd(),
 //!         rect.cast(),
 //!         scale_factor,
+//!         None,
 //!     ))?;
 //!
 //!     // 3. Build UI and application host

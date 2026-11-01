@@ -51,6 +51,7 @@
 //!     hwnd,
 //!     LayoutSize::new(600.0, 500.0),
 //!     scale_factor,
+//!     None,
 //! ))?;
 //!
 //! // 3. Initialize `Context`
@@ -434,6 +435,13 @@ pub mod accessibility {
     pub const NO_A11Y_NODE: crate::Prop<Option<accesskit::Node>> = crate::Prop::None;
     pub use crate::a11y::{self, A11yInferenceTag};
     pub use accesskit::{Action, Node, NodeId, Role};
+}
+
+#[doc(hidden)]
+pub mod config {
+    pub use crate::CapacityConfig;
+    pub use crate::RendererUserConfig;
+    pub use wgpu::{MemoryHints, PresentMode};
 }
 
 #[doc(hidden)]

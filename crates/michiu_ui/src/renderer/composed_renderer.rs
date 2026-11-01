@@ -138,7 +138,8 @@
 use crate::{
     Backdrop, ComponentMask, Context, Entity, ExternalVisual, ExternalVisualMetadata,
     InteractionState, LayoutPoint, LayoutSize, MichiuError, MichiuSoA, PropertyList,
-    RawWgpuRenderer, VisualUpdateContext, WgpuRenderer, WindowsResultTraceExt, flush_trace,
+    RawWgpuRenderer, RendererUserConfig, VisualUpdateContext, WgpuRenderer, WindowsResultTraceExt,
+    flush_trace,
 };
 use std::sync::{Arc, OnceLock};
 use windows::{
@@ -225,7 +226,9 @@ impl MichiuRenderer {
         hwnd: HWND,
         layout_size: LayoutSize,
         scale_factor: f32,
+        user_config: Option<RendererUserConfig>,
     ) -> crate::Result<Self> {
+        let user_config = user_config.unwrap_or_default();
         // DirectComposition の構築
         let (d3d11_device, desktop_device, target, root_visual, wgpu_visual) =
             MichiuRenderer::setup_direct_composition(hwnd)?;
@@ -233,7 +236,8 @@ impl MichiuRenderer {
         // wgpu レンダラーの初期化
         let raw_visual_ptr = wgpu_visual.as_raw();
         let wgpu_renderer =
-            unsafe { WgpuRenderer::new(raw_visual_ptr, layout_size, scale_factor) }.await?;
+            unsafe { WgpuRenderer::new(raw_visual_ptr, layout_size, scale_factor, user_config) }
+                .await?;
 
         unsafe {
             desktop_device.Commit()?;

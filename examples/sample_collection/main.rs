@@ -70,7 +70,12 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     // レンダラーを作成
     // Create a Renderer
     // `cargo add pollster`
-    let renderer = pollster::block_on(MichiuRenderer::new(hwnd, client_rect.cast(), scale_factor))?;
+    let renderer = pollster::block_on(MichiuRenderer::new(
+        hwnd,
+        client_rect.cast(),
+        scale_factor,
+        None,
+    ))?;
 
     let inspector = MichiuInspector::new(); // It's fine even if it's not there
     let _sub = inspector.subscribe(None);

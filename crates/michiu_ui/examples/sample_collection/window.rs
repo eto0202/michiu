@@ -762,8 +762,12 @@ pub fn create_renderer(
 ) -> Result<MichiuRenderer, Box<dyn std::error::Error>> {
     let initial_layout_size = LayoutSize::new(900.0, 700.0);
     // レンダラーを作成
-    let renderer =
-        pollster::block_on(MichiuRenderer::new(hwnd, initial_layout_size, scale_factor))?;
+    let renderer = pollster::block_on(MichiuRenderer::new(
+        hwnd,
+        initial_layout_size,
+        scale_factor,
+        None,
+    ))?;
 
     Ok(renderer)
 }
