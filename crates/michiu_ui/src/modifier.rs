@@ -3,12 +3,12 @@ use crate::{
     BorderStyle, BoxShadow, BoxSizing, Color, ComponentMask, Context, Convert, CornerRadius,
     CursorIcon, Direction, Display, DndDragMode, DndDragPlaceholderParent, DndDragProperty,
     DndDropProperty, DndDropTarget, EdgeInsets, Entity, FlexDirection, FlexLayout, FlexWrap,
-    FocusTrigger, Focusable, GlobalCursorIcon, InteractionName, InteractionStyles, IntoModConvert,
-    IntoModCornerRadius, IntoModPoint, IntoModRect, IntoModResizable, IntoModSize, IntoModValue,
-    JustifyContent, KeyframeAnimation, LayoutOverflow, LayoutPoint, Length, LinearGradient,
-    MichiuSoA, Overflow, PointerEvents, Position, PropertyList, Rect, ScrollbarDisplay,
-    ScrollbarMode, ScrollbarStyle, TargetStyle, TextAlign, Transform, Transition, UserSelect, Val,
-    VisualProperty, auto, fill, pct,
+    FocusTrigger, Focusable, FontStyle, GlobalCursorIcon, InteractionName, InteractionStyles,
+    IntoModConvert, IntoModCornerRadius, IntoModPoint, IntoModRect, IntoModResizable, IntoModSize,
+    IntoModValue, JustifyContent, KeyframeAnimation, LayoutOverflow, LayoutPoint, Length,
+    LinearGradient, MichiuSoA, Overflow, PointerEvents, Position, PropertyList, Rect,
+    ScrollbarDisplay, ScrollbarMode, ScrollbarStyle, TargetStyle, TextAlign, Transform, Transition,
+    UserSelect, Val, VisualProperty, auto, fill, pct,
 };
 use std::{borrow::Cow, sync::Arc, time::Duration};
 
@@ -5537,14 +5537,10 @@ impl Modifier {
 
     /// Sets the font style.
     ///
-    /// 1: [`cosmic_text::Style::Italic`]
-    ///
-    /// 2: [`cosmic_text::Style::Oblique`]
-    ///
-    /// other (default): [`cosmic_text::Style::Normal`]
+    /// Default: [`FontStyle::Normal`]
     #[inline]
     #[must_use]
-    pub fn font_style(mut self, style: impl IntoModValue<u32>) -> Self {
+    pub fn font_style(mut self, style: impl IntoModValue<FontStyle>) -> Self {
         match style.into_mod_value() {
             ModValue::Static(v) => {
                 let inner = Arc::make_mut(&mut self.inner);
