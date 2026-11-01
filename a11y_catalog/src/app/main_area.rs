@@ -1,9 +1,5 @@
-use crate::{
-    app::{ComponentType, theme::Theme},
-    components::button,
-};
-use michiu::prelude::*;
-use michiu::ui::a11y;
+use crate::{app::ComponentType, catalog::create_component_entity};
+use michiu::{prelude::*, ui::a11y};
 use strum::IntoEnumIterator;
 
 pub fn main_area() -> Entity {
@@ -26,35 +22,4 @@ pub fn main_area() -> Entity {
     }
 
     main_contents.children(children)
-}
-
-fn create_component_entity(comp_type: ComponentType) -> Entity {
-    match comp_type {
-        ComponentType::Button => {
-            wrapper([section([button::button_1_light(), button::button_1_dark()])])
-        }
-    }
-}
-
-fn wrapper<I>(e: I) -> Entity
-where
-    I: IntoIterator<Item = Entity>,
-{
-    v_flex(
-        ii().size_full()
-            .gap(20.0)
-            .p(20.0)
-            .r(4.0)
-            .overflow_hidden()
-            .border_dashed(1.0)
-            .border_color(dynamic(|t: &Theme| t.border)),
-    )
-    .children(e)
-}
-
-fn section<I>(e: I) -> Entity
-where
-    I: IntoIterator<Item = Entity>,
-{
-    h_flex(ii().gap(20.0)).children(e)
 }

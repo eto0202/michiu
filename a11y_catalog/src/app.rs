@@ -3,7 +3,7 @@ pub mod main_area;
 pub mod sidebar;
 pub mod theme;
 
-use crate::{app::theme::Theme, components::ComponentType};
+use crate::{app::theme::Theme, catalog::ComponentType};
 use michiu::prelude::*;
 
 pub fn create_root() -> Entity {

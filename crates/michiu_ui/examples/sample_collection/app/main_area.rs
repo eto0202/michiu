@@ -1,12 +1,4 @@
-use crate::{
-    ALLOW_STRESS_TEST,
-    app::{ComponentType, theme::Theme},
-    components::{
-        accessibility, background, border, button, color, context_menu, css, cursor, div,
-        draggable, external_texture, external_visual, flexbox, focusable, gradient, hover, input,
-        outline, position, resizable, scrollbar, stress_test, transform,
-    },
-};
+use crate::{app::ComponentType, components::create_component_entity};
 use michiu_ui::a11y;
 use michiu_ui::prelude::*;
 use strum::IntoEnumIterator;
@@ -35,50 +27,4 @@ pub fn main_area() -> Entity {
     }
 
     main_contents.children(children)
-}
-
-fn create_component_entity(comp_type: ComponentType) -> Entity {
-    match comp_type {
-        ComponentType::Button => wrapper(button::container()),
-        ComponentType::Input => wrapper(input::container()),
-        ComponentType::Background => wrapper(background::container()),
-        ComponentType::Div => wrapper(div::container()),
-        ComponentType::Flexbox => wrapper(flexbox::container()),
-        ComponentType::Border => wrapper(border::container()),
-        ComponentType::ContextMenu => wrapper(context_menu::container()),
-        ComponentType::Scrollbar => wrapper(scrollbar::container()),
-        ComponentType::Hover => wrapper(hover::container()),
-        ComponentType::Color => wrapper(color::container()),
-        ComponentType::Resizable => wrapper(resizable::container()),
-        ComponentType::Draggable => wrapper(draggable::container()),
-        ComponentType::Css => wrapper(css::container()),
-        ComponentType::Gradient => wrapper(gradient::container()),
-        ComponentType::Cursor => wrapper(cursor::container()),
-        ComponentType::Outline => wrapper(outline::container()),
-        ComponentType::Focusable => wrapper(focusable::container()),
-        ComponentType::ExternalTexture => wrapper(external_texture::container()),
-        ComponentType::ExternalVisual => wrapper(external_visual::container()),
-        ComponentType::Accessibility => wrapper(accessibility::container()),
-        ComponentType::Size => text("Size"),
-        ComponentType::Transform => wrapper(transform::container()),
-        ComponentType::Position => wrapper(position::container()),
-        ComponentType::StressTest => {
-            if ALLOW_STRESS_TEST {
-                wrapper(stress_test::container())
-            } else {
-                text("StressTest")
-            }
-        }
-    }
-}
-
-fn wrapper(e: Entity) -> Entity {
-    v_flex_d(|t: &Theme| {
-        ii().size_full()
-            .r(4.0)
-            .overflow_hidden()
-            .border_dashed(1.0)
-            .border_color(t.border)
-    })
-    .child(e)
 }

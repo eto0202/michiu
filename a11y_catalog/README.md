@@ -33,7 +33,7 @@ a11y_catalog/
     ├── main.rs                  # Application entry point
     ├── app.rs                   # Application root setup
     ├── logger.rs                # Error logging
-    ├── components.rs            # Module declarations and catalog registry
+    ├── catalog.rs               # Module declarations
     │
     ├── app/                     # Internal catalog app UI
     │   ├── header.rs
@@ -43,15 +43,24 @@ a11y_catalog/
     │
     ├── assets/                  # Static assets such as cursor icons and images
     │
-    └── components/              # Exportable component collection
-        ├── button.rs            # [Single File] Lightweight components
-        ├── tabs/                # [Folder Module] Complex components split across files
-        │   ├── mod.rs
-        │   ├── item.rs
-        │   └── panel.rs
-        ├── a11y_theme/          # Accessible themes meeting contrast ratios
-        ├── inference_tag/       # Reusable inference tags (A11yInferenceTag implementations)
-        └── utils/               # Internal helpers and utilities
+    ├── catalog/                 # Exportable component, theme, tag...etc.
+    │   ├── a11y_theme.rs        # Module declarations
+    │   ├── components.rs        # Module declarations and components registry
+    │   ├── inference_tag.rs     # Module declarations
+    │   ├── utils.rs             # Module declarations
+    │   │
+    │   ├── a11y_theme/          # Accessible themes meeting contrast ratios
+    │   │
+    │   ├── inference_tag/       # Reusable inference tags (A11yInferenceTag implementations)
+    │   │
+    │   ├── utils/               # Internal helpers and utilities
+    │   │
+    │   ├── components/              # Exportable component collection
+    │   │   ├── button.rs            # [Single File] Lightweight components
+    │   │   ├── tabs/                # [Folder Module] Complex components split across files
+    │   │   │   ├── mod.rs
+    │   │   │   ├── item.rs
+    │   │   │   └── panel.rs
 ```
 
 ---
@@ -203,11 +212,11 @@ pub fn simple_button(...) -> Entity { ... }
 
 When introducing a new component, include preview displays in the catalog app (`main_area.rs`, etc.) to allow manual verification.
 
-- **UI Components (`components/`)**:
+- **UI Components (`catalog/components/`)**:
   - Implement previews where clicks, keyboard navigation, and screen reader announcements can be verified in real time.
-- **Themes (`components/a11y_theme/`)**:
+- **Themes (`catalog/a11y_theme/`)**:
   - Provide a contrast comparison display showing foreground/background colors and focus indicators.
-- **Inference Tags (`components/inference_tag/`)**:
+- **Inference Tags (`catalog/inference_tag/`)**:
   - Since inference tags are purely functional, **direct UI previews are not required**.
 
 ---
@@ -276,7 +285,7 @@ a11y_catalog/
     ├── main.rs                  # アプリエントリーポイント
     ├── app.rs                   # アプリケーションのルート構築
     ├── logger.rs                # エラーログ出力
-    ├── components.rs            # components 配下のモジュール宣言・カタログ一覧
+    ├── catalog.rs               # catalog 配下のモジュール宣言
     │
     ├── app/                     # カタログアプリ自身の UI 実装
     │   ├── header.rs
@@ -286,15 +295,24 @@ a11y_catalog/
     │
     ├── assets/                  # カーソルアイコンや画像などの静的リソース
     │
-    └── components/              # ユーザーが持ち帰るコンポーネント集
-        ├── button.rs            # [単一ファイル] 小規模なコンポーネント
-        ├── tabs/                # [フォルダモジュール] 肥大化・複数ファイルに分割されたコンポーネント
-        │   ├── mod.rs
-        │   ├── item.rs
-        │   └── panel.rs
-        ├── a11y_theme/          # コントラスト比等を満たしたアクセシブルなテーマ定義
-        ├── inference_tag/       # 再利用可能な推論タグ (A11yInferenceTag 実装)
-        └── utils/               # その他ヘルパー・ユーティリティ
+    ├── catalog/                 # ユーザーが持ち帰るコンポーネント・テーマ構造体など。
+    │   ├── a11y_theme.rs        # a11y_theme 配下のモジュール宣言
+    │   ├── components.rs        # components 配下のモジュール宣言・カタログ一覧
+    │   ├── inference_tag.rs     # inference_tag 配下のモジュール宣言
+    │   ├── utils.rs             # utils 配下のモジュール宣言
+    │   │
+    │   ├── a11y_theme/          # コントラスト比等を満たしたアクセシブルなテーマ定義
+    │   │
+    │   ├── inference_tag/       # 再利用可能な推論タグ (A11yInferenceTag 実装)
+    │   │
+    │   ├── utils/               # その他ヘルパー・ユーティリティ
+    │   │
+    │   ├── components/              # ユーザーが持ち帰るコンポーネント集
+    │   │   ├── button.rs            # [単一ファイル] 小規模なコンポーネント
+    │   │   ├── tabs/                # [フォルダモジュール] 肥大化・複数ファイルに分割されたコンポーネント
+    │   │   │   ├── mod.rs
+    │   │   │   ├── item.rs
+    │   │   │   └── panel.rs
 ```
 
 ---
@@ -446,11 +464,11 @@ pub fn simple_button(...) -> Entity { ... }
 
 コンポーネントを追加した際は、利用者が動作を確認できるようアプリ内（`main_area.rs` 等）にもプレビュー表示を追加することを推奨します。
 
-- **UI コンポーネント (`components/`)**:
+- **UI コンポーネント (`catalog/components/`)**:
   - アプリ内で実際にクリック・キーボード遷移・ナレーター読み上げがテストできるプレビューを実装してください。
-- **テーマ (`components/a11y_theme/`)**:
+- **テーマ (`catalog/a11y_theme/`)**:
   - 背景色と文字色、フォーカスリングの対比など、簡単な色比較（コントラスト確認）ができる表示を用意してください。
-- **推論タグ (`components/inference_tag/`)**:
+- **推論タグ (`catalog/inference_tag/`)**:
   - タグ単体での UI 表示は難しいため、**カタログアプリ内での無理なプレビュー実装は不要**です。
 
 ---

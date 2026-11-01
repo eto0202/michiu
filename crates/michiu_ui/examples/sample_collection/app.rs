@@ -3,7 +3,7 @@ pub mod main_area;
 pub mod sidebar;
 pub mod theme;
 
-use crate::app::theme::Theme;
+use crate::{app::theme::Theme, components::ComponentType};
 use michiu_ui::prelude::*;
 
 pub fn create_root() -> Entity {
@@ -36,32 +36,4 @@ pub struct SearchText(String);
 pub enum SidebarSortOrder {
     Ascending,
     Descending,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, strum::Display, strum::EnumIter)]
-pub enum ComponentType {
-    Button,
-    Input,
-    Scrollbar,
-    Border,
-    ContextMenu,
-    Background,
-    Div,
-    Flexbox,
-    Hover,
-    Color,
-    Resizable,
-    Draggable,
-    Css,
-    Gradient,
-    Cursor,
-    Outline,
-    Focusable,
-    StressTest,
-    ExternalVisual,
-    ExternalTexture,
-    Accessibility,
-    Size,
-    Transform,
-    Position,
 }

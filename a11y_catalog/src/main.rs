@@ -4,7 +4,7 @@ use crate::logger::logger;
 use michiu::{prelude::*, ui::CapacityConfig};
 
 mod app;
-mod components;
+mod catalog;
 mod logger;
 
 // cargo build --example a11y_catalog  --release
