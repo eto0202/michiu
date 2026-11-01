@@ -1602,6 +1602,9 @@ pub enum MichiuError {
     #[error("Failed to create D3D11 hardware device.")]
     D3d11DeviceCreationFailed,
 
+    #[error("Failed to create DispatcherQueueController.")]
+    DispatcherQueueControllerCreationFailed,
+
     #[error(
         "DCompDeviceManager has not been initialized.\n\
          Please perform the initialization process first."

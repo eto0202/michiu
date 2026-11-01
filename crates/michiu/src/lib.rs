@@ -264,6 +264,10 @@ pub mod prelude {
 pub mod accessibility {
     pub use crate::ui::accessibility::*;
 }
+#[doc(hidden)]
+pub mod config {
+    pub use crate::ui::config::*;
+}
 
 /// Integrated execution status of the Michiu GUI application.
 ///

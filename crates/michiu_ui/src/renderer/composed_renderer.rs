@@ -136,13 +136,15 @@
 //! For consumer applications, safe read access is provided through immutable getters such as [`d3d11_device(&self)`](MichiuRenderer::d3d11_device) and [`surface(&self)`](WgpuRenderer::surface).
 
 use crate::{
-    Backdrop, ComponentMask, Context, Entity, ExternalVisual, ExternalVisualMetadata,
-    InteractionState, LayoutPoint, LayoutSize, MichiuError, MichiuSoA, PropertyList,
-    RawWgpuRenderer, RendererUserConfig, VisualUpdateContext, WgpuRenderer, WindowsResultTraceExt,
-    flush_trace,
+    Backdrop, ComponentMask, CompositionTargetLayer, Context, Entity, ExternalVisual,
+    ExternalVisualMetadata, InteractionState, LayoutPoint, LayoutSize, MichiuError, MichiuSoA,
+    PropertyList, RawWgpuRenderer, RendererUserConfig, VisualUpdateContext, WgpuRenderer,
+    WindowsResultTraceExt, flush_trace,
 };
 use std::sync::{Arc, OnceLock};
 use windows::{
+    System::DispatcherQueueController,
+    UI::Composition::Compositor,
     Win32::{
         Foundation::{HMODULE, HWND, LPARAM, WPARAM},
         Graphics::{
@@ -157,7 +159,13 @@ use windows::{
             },
             Imaging::{CLSID_WICImagingFactory, IWICImagingFactory},
         },
-        System::Com::{CLSCTX_INPROC_SERVER, CoCreateInstance},
+        System::{
+            Com::{CLSCTX_INPROC_SERVER, CoCreateInstance},
+            WinRT::{
+                CreateDispatcherQueueController, DQTAT_COM_STA, DQTYPE_THREAD_CURRENT,
+                DispatcherQueueOptions,
+            },
+        },
     },
     core::Interface,
 };
@@ -172,6 +180,7 @@ pub struct MichiuRenderer {
 
     // `DirectComposition` リソース
     pub(crate) d3d11_device: ID3D11Device,
+
     pub(crate) desktop_device: IDCompositionDesktopDevice,
     pub(crate) target: IDCompositionTarget,
     pub(crate) root_visual: IDCompositionVisual2,
@@ -192,6 +201,9 @@ pub struct MichiuRenderer {
 
     // リサイズが完全に安定するまでキャプチャを保留するカウンター
     pub(crate) resize_cooldown_frames: u32,
+
+    pub(crate) controller: DispatcherQueueController,
+    pub(crate) compositor: Compositor,
 }
 
 #[derive(Debug, Clone)]
@@ -230,8 +242,8 @@ impl MichiuRenderer {
     ) -> crate::Result<Self> {
         let user_config = user_config.unwrap_or_default();
         // DirectComposition の構築
-        let (d3d11_device, desktop_device, target, root_visual, wgpu_visual) =
-            MichiuRenderer::setup_direct_composition(hwnd)?;
+        let (manager, target, root_visual, wgpu_visual) =
+            MichiuRenderer::setup_direct_composition(hwnd, user_config.target_layer)?;
 
         // wgpu レンダラーの初期化
         let raw_visual_ptr = wgpu_visual.as_raw();
@@ -240,19 +252,17 @@ impl MichiuRenderer {
                 .await?;
 
         unsafe {
-            desktop_device.Commit()?;
+            manager.desktop_device.Commit()?;
         }
 
         let wic_factory: IWICImagingFactory =
             unsafe { CoCreateInstance(&CLSID_WICImagingFactory, None, CLSCTX_INPROC_SERVER)? };
 
         Ok(Self {
-            hwnd,
             layout_size,
+            hwnd,
             scale_factor,
             wic_factory,
-            d3d11_device,
-            desktop_device,
             target,
             root_visual,
             wgpu_visual,
@@ -261,6 +271,10 @@ impl MichiuRenderer {
             pending_dcomp_releases: Vec::new(),
             current_backdrop: Backdrop::None,
             resize_cooldown_frames: 0,
+            d3d11_device: manager.d3d11_device,
+            desktop_device: manager.desktop_device,
+            controller: manager.controller,
+            compositor: manager.compositor,
         })
     }
 
@@ -644,37 +658,34 @@ impl MichiuRenderer {
     // ウィンドウハンドル (HWND) が手元にある状態からスタート
     pub(crate) fn setup_direct_composition(
         hwnd: HWND,
+        target_layer: CompositionTargetLayer,
     ) -> crate::Result<(
-        ID3D11Device,
-        IDCompositionDesktopDevice,
+        DCompDeviceManager,
         IDCompositionTarget,
         IDCompositionVisual2, // root_visual
         IDCompositionVisual2, // wgpu_visual
     )> {
         unsafe {
             // D3D11 デバイスを作成
-            let manager = DCompDeviceManager::global()?;
-            let d3d11_device = manager.d3d11_device.clone();
-            let desktop_device = manager.desktop_device.clone();
+            let manager = DCompDeviceManager::global()?.clone();
 
-            let target = desktop_device.CreateTargetForHwnd(hwnd, true)?;
-            let root_visual = desktop_device.CreateVisual()?;
+            let topmost = match target_layer {
+                CompositionTargetLayer::Topmost => true,
+                CompositionTargetLayer::NonTopmost => false,
+            };
+
+            let target = manager.desktop_device.CreateTargetForHwnd(hwnd, topmost)?;
+            let root_visual = manager.desktop_device.CreateVisual()?;
             target.SetRoot(&root_visual)?;
 
             // wgpu 用のメインビジュアルを1つだけ作成して登録
-            let wgpu_visual = desktop_device.CreateVisual()?;
+            let wgpu_visual = manager.desktop_device.CreateVisual()?;
             root_visual.AddVisual(&wgpu_visual, true, None)?;
 
             // 変更をコンポジターにコミットして反映
-            desktop_device.Commit()?;
+            manager.desktop_device.Commit()?;
 
-            Ok((
-                d3d11_device,
-                desktop_device,
-                target,
-                root_visual,
-                wgpu_visual,
-            ))
+            Ok((manager, target, root_visual, wgpu_visual))
         }
     }
 
@@ -735,6 +746,18 @@ impl MichiuRenderer {
     #[must_use]
     pub fn desktop_device(&self) -> &IDCompositionDesktopDevice {
         &self.desktop_device
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn dispatcher_queue_controller(&self) -> &DispatcherQueueController {
+        &self.controller
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn compositor(&self) -> &Compositor {
+        &self.compositor
     }
 
     /// # Errors
@@ -810,6 +833,8 @@ impl MichiuRenderer {
             wic_factory: &mut self.wic_factory,
             d3d11_device: &mut self.d3d11_device,
             desktop_device: &mut self.desktop_device,
+            controller: &mut self.controller,
+            compositor: &mut self.compositor,
             target: &mut self.target,
             root_visual: &mut self.root_visual,
             wgpu_visual: &mut self.wgpu_visual,
@@ -821,6 +846,21 @@ impl MichiuRenderer {
     }
 }
 
+#[allow(clippy::print_stderr)]
+impl Drop for MichiuRenderer {
+    fn drop(&mut self) {
+        if let Err(e) = self.controller.ShutdownQueueAsync() {
+            #[cfg(debug_assertions)]
+            eprintln!("Failed to request termination of the DispatcherQueue: {e:?}");
+        }
+    }
+}
+
+/// # Notes
+/// - `MichiuRenderer` does not manage the WinRT Composition visual tree.
+/// - The exposed `Compositor` and `DispatcherQueueController` are intended for user extension.
+/// - It is the user’s responsibility to create a Composition Target for an `HWND`.
+/// - michiu manages ownership and shutdown processing (`ShutdownQueueAsync`) for the `DispatcherQueueController`.
 pub struct RawMichiuRenderer<'a> {
     pub hwnd: &'a mut HWND,
     pub layout_size: &'a mut LayoutSize,
@@ -828,6 +868,8 @@ pub struct RawMichiuRenderer<'a> {
     pub wic_factory: &'a mut IWICImagingFactory,
     pub d3d11_device: &'a mut ID3D11Device,
     pub desktop_device: &'a mut IDCompositionDesktopDevice,
+    pub controller: &'a mut DispatcherQueueController,
+    pub compositor: &'a mut Compositor,
     pub target: &'a mut IDCompositionTarget,
     pub root_visual: &'a mut IDCompositionVisual2,
     pub wgpu_visual: &'a mut IDCompositionVisual2,
@@ -870,9 +912,12 @@ fn is_entity_transitioning(cx: &Context, id: Entity) -> bool {
             })
 }
 
+#[derive(Debug, Clone)]
 pub(crate) struct DCompDeviceManager {
     pub(crate) d3d11_device: ID3D11Device,
     pub(crate) desktop_device: IDCompositionDesktopDevice,
+    pub(crate) controller: DispatcherQueueController,
+    pub(crate) compositor: Compositor,
 }
 
 unsafe impl Send for DCompDeviceManager {}
@@ -903,6 +948,8 @@ impl DCompDeviceManager {
 
     /// デバイスの生成・クエリを試みる、失敗を許容する内部ヘルパー
     fn try_create_devices() -> crate::Result<Self> {
+        let controller = DCompDeviceManager::create_dispatcher_queue()?;
+
         // D3D11 デバイスを作成
         let mut d3d11_device: Option<ID3D11Device> = None;
         unsafe {
@@ -920,11 +967,8 @@ impl DCompDeviceManager {
         }
         let d3d11_device = d3d11_device.ok_or(MichiuError::D3d11DeviceCreationFailed)?;
 
-        // DXGI デバイスをクエリ
-        // let dxgi_device: IDXGIDevice = d3d11_device.cast()?;
-
-        // windows-rs の型ミスマッチを防ぐため、一度 IUnknown にキャスト
-        // let rendering_device: windows::core::IUnknown = dxgi_device.cast()?;
+        // WinRT の Compositor を作成 (STAスレッドと DispatcherQueue が必要)
+        let compositor = Compositor::new()?;
 
         // DCompositionCreateDevice ではなく DCompositionCreateDevice2 を使用。
         // これにより IDCompositionDesktopDevice の生成が正しくサポートされる。
@@ -934,7 +978,23 @@ impl DCompDeviceManager {
         Ok(DCompDeviceManager {
             d3d11_device,
             desktop_device,
+            controller,
+            compositor,
         })
+    }
+
+    fn create_dispatcher_queue() -> crate::Result<DispatcherQueueController> {
+        // DispatcherQueue を現在のスレッド（UIスレッド）に作成
+        #[expect(clippy::as_conversions, clippy::cast_possible_truncation)]
+        let options = DispatcherQueueOptions {
+            dwSize: std::mem::size_of::<DispatcherQueueOptions>() as u32,
+            threadType: DQTYPE_THREAD_CURRENT,
+            apartmentType: DQTAT_COM_STA,
+        };
+        unsafe {
+            CreateDispatcherQueueController(options)
+                .map_err(|_| MichiuError::DispatcherQueueControllerCreationFailed)
+        }
     }
 }
 

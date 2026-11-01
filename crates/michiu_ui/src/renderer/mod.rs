@@ -470,6 +470,19 @@ pub(crate) const INDICES: &[u16] = &[0, 1, 2, 2, 3, 0];
 pub struct RendererUserConfig {
     pub memory_hints: wgpu::MemoryHints,
     pub present_mode: wgpu::PresentMode,
+    pub target_layer: CompositionTargetLayer,
+}
+
+/// Changes the topmost `target: IDCompositionTarget` held by `MichiuRenderer` (Default: Topmost).
+///
+/// If you change this, the Target on the WinRT side must always use the opposite side.
+///
+/// # Notes
+/// Do not allow this setting to be changed at runtime.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CompositionTargetLayer {
+    Topmost,
+    NonTopmost,
 }
 
 impl Default for RendererUserConfig {
@@ -477,6 +490,7 @@ impl Default for RendererUserConfig {
         Self {
             memory_hints: wgpu::MemoryHints::MemoryUsage,
             present_mode: wgpu::PresentMode::Fifo,
+            target_layer: CompositionTargetLayer::Topmost,
         }
     }
 }

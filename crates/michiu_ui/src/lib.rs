@@ -440,7 +440,7 @@ pub mod accessibility {
 #[doc(hidden)]
 pub mod config {
     pub use crate::CapacityConfig;
-    pub use crate::RendererUserConfig;
+    pub use crate::{CompositionTargetLayer, RendererUserConfig};
     pub use wgpu::{MemoryHints, PresentMode};
 }
 
