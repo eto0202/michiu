@@ -5,7 +5,15 @@ pub struct FontDate {
     pub size: Option<f32>,
     pub family: Option<Cow<'static, str>>,
     pub weight: Option<u16>,
-    pub style: Option<u32>,
+    pub style: Option<FontStyle>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
+pub enum FontStyle {
+    #[default]
+    Normal,
+    Italic,
+    Oblique,
 }
 
 impl Default for FontDate {

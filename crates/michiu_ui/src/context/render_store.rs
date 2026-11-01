@@ -998,7 +998,7 @@ impl RenderStore {
         let target_font_size = target.font.size.unwrap_or(16.0);
         let target_font_family = target.font.family.clone();
         let target_font_weight = target.font.weight.unwrap_or(400);
-        let target_font_style = target.font.style.unwrap_or(0);
+        let target_font_style = target.font.style.unwrap_or_default();
         let target_auto_wrap = target.auto_wrap.unwrap_or(false);
 
         let font_changed = (current.font_size - target_font_size).abs() >= 0.01

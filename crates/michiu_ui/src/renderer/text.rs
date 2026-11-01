@@ -1,5 +1,5 @@
 use crate::{
-    ByteIndex, DebugStore, FontDate, LayoutPoint, LayoutRect, MichiuError, MichiuString,
+    ByteIndex, DebugStore, FontDate, FontStyle, LayoutPoint, LayoutRect, MichiuError, MichiuString,
     OptionTraceExt, RendererView, TextAlign, TextSpan,
 };
 use cosmic_text::{
@@ -100,9 +100,9 @@ impl TextEngine {
         }
         if let Some(style) = font.style {
             default_attrs = default_attrs.style(match style {
-                1 => Style::Italic,
-                2 => Style::Oblique,
-                _ => Style::Normal,
+                FontStyle::Italic => Style::Italic,
+                FontStyle::Oblique => Style::Oblique,
+                FontStyle::Normal => Style::Normal,
             });
         }
 
@@ -164,8 +164,9 @@ impl TextEngine {
                         }
                         if let Some(style) = span.font_style {
                             attrs = attrs.style(match style {
-                                2 => Style::Italic,
-                                _ => Style::Normal,
+                                FontStyle::Italic => Style::Italic,
+                                FontStyle::Oblique => Style::Oblique,
+                                FontStyle::Normal => Style::Normal,
                             });
                         }
                     }

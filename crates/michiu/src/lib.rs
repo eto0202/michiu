@@ -69,6 +69,7 @@
 //!         handle.hwnd(),
 //!         rect.cast(),
 //!         scale_factor,
+//!         None,
 //!     ))?;
 //!
 //!     // 3. Build UI and application host
@@ -262,6 +263,10 @@ pub mod prelude {
 #[doc(hidden)]
 pub mod accessibility {
     pub use crate::ui::accessibility::*;
+}
+#[doc(hidden)]
+pub mod config {
+    pub use crate::ui::config::*;
 }
 
 /// Integrated execution status of the Michiu GUI application.
@@ -979,7 +984,7 @@ impl MichiuApp {
 
         self.context.tick_system_frame(&TickType::All);
         self.context
-            .sync_layout(root_id, self.renderer.layout_size());
+            .sync_layout(root_id, self.renderer.window_size());
         self.renderer.update_composition_tree(&mut self.context);
 
         self.renderer.draw(&mut self.context);

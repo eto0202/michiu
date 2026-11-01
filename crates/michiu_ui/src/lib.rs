@@ -51,6 +51,7 @@
 //!     hwnd,
 //!     LayoutSize::new(600.0, 500.0),
 //!     scale_factor,
+//!     None,
 //! ))?;
 //!
 //! // 3. Initialize `Context`
@@ -115,7 +116,7 @@
 //!
 //!             // 3. Recalculate layout
 //!             // Executes a two-pass calculation to resolve scrollbar-induced container resizing
-//!             app.context.sync_layout(app.root_id, app.renderer.layout_size());
+//!             app.context.sync_layout(app.root_id, app.renderer.window_size());
 //!
 //!             // 4. Synchronize DirectComposition tree for backgrounds and external visuals
 //!             app.renderer.update_composition_tree(&mut app.context);
@@ -434,6 +435,13 @@ pub mod accessibility {
     pub const NO_A11Y_NODE: crate::Prop<Option<accesskit::Node>> = crate::Prop::None;
     pub use crate::a11y::{self, A11yInferenceTag};
     pub use accesskit::{Action, Node, NodeId, Role};
+}
+
+#[doc(hidden)]
+pub mod config {
+    pub use crate::CapacityConfig;
+    pub use crate::{CompositionTargetLayer, RendererUserConfig};
+    pub use wgpu::{MemoryHints, PresentMode};
 }
 
 #[doc(hidden)]

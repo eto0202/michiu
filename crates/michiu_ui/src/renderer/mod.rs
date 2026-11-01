@@ -245,11 +245,7 @@
 //!     self.wgpu_renderer.render(cx, self.scale_factor);
 //!
 //!     // 2. Commit atomic DirectComposition state to DWM
-//!     unsafe {
-//!         self.desktop_device
-//!             .Commit()
-//!             .unwrap_or_trace(None, &mut cx.debug);
-//!     };
+//!     self.platform.commit().unwrap_or_trace(None, &mut cx.debug);
 //!
 //!     // 3. Clear dirty flags across the Context upon successful GPU submission
 //!     cx.clear_dirty();
@@ -270,19 +266,16 @@
 //!
 //! ---
 //!
-//! ## Key Struct Fields
+//! ## Key Fields
 //!
 //! | Field | Type | Responsibility |
 //! | :--- | :--- | :--- |
 //! | **`hwnd`** | `HWND` | Target Win32 window handle |
-//! | **`layout_size` / `scale_factor`** | `LayoutSize` / `f32` | Viewport dimensions and DPI scaling multiplier |
-//! | **`d3d11_device` / `desktop_device`** | D3D11 / DComp types | Core Windows graphics infrastructure driving DirectComposition |
-//! | **`target` / `root_visual`** | `IDComposition...` | Root visual tree target bound to the window |
-//! | **`wgpu_visual`** | `IDCompositionVisual2` | Visual hosting the wgpu swap chain presentation surface |
+//! | **`sync`** | `WindowSynchronizer` | Window state synchronization (`window_size`, `scale_factor`, `resize_cooldown_frames`) |
+//! | **`platform`** | `PlatformContext` | Immutable graphics runtime and WinRT foundations: <br>• **`d3d11` / `dcomp`**: Core D3D11 & DirectComposition devices <br>• **`compositor` / `controller`**: WinRT Compositor and DispatcherQueue lifecycle <br>• **`wic`**: WIC imaging factory for texture loading |
+//! | **`workspace`** | `DCompWorkspace` | Visual tree and lifecycle management: <br>• **`target` / `root_visual`**: Root composition target and tree container <br>• **`wgpu_visual`**: Visual hosting the wgpu swapchain surface <br>• **`promoted_visuals`**: Active external visuals attached to the tree <br>• **`pending_releases`**: Deferred destruction queue preventing frame flickers during updates |
 //! | **`wgpu_renderer`** | [`WgpuRenderer`] | Subsystem driving instanced UI rendering and punch-out operations |
-//! | **`promoted_visuals`** | `Vec<PromotedVisual>` | Active external visuals mounted into the composition tree |
-//! | **`pending_dcomp_releases`** | `Vec<PendingDcompRelease>` | Release queue deferring Visual destruction to prevent frame flicker |
-//! | **`current_backdrop`** | `Backdrop` | Active system material configuration (Mica, Acrylic) |
+//! | **`current_backdrop`** | `Backdrop` | Active system material configuration |
 //!
 //! ---
 //!
@@ -307,10 +300,14 @@
 //! For consumer applications, safe read access is provided through immutable getters such as [`d3d11_device(&self)`](MichiuRenderer::d3d11_device) and [`surface(&self)`](WgpuRenderer::surface).
 
 mod composed_renderer;
+mod dcomp_workspace;
+mod platform;
+mod synchronizer;
 mod text;
 mod wgpu_renderer;
 
 pub use composed_renderer::*;
+pub use dcomp_workspace::*;
 pub use text::*;
 pub use wgpu_renderer::*;
 
@@ -464,3 +461,33 @@ pub(crate) const VERTICES: &[Vertex] = &[
 
 #[expect(unused)]
 pub(crate) const INDICES: &[u16] = &[0, 1, 2, 2, 3, 0];
+
+#[non_exhaustive]
+#[derive(Debug, Clone)]
+pub struct RendererUserConfig {
+    pub memory_hints: wgpu::MemoryHints,
+    pub present_mode: wgpu::PresentMode,
+    pub target_layer: CompositionTargetLayer,
+}
+
+/// Changes the topmost `target: IDCompositionTarget` held by `MichiuRenderer` (Default: Topmost).
+///
+/// If you change this, the Target on the WinRT side must always use the opposite side.
+///
+/// # Notes
+/// Do not allow this setting to be changed at runtime.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CompositionTargetLayer {
+    Topmost,
+    NonTopmost,
+}
+
+impl Default for RendererUserConfig {
+    fn default() -> Self {
+        Self {
+            memory_hints: wgpu::MemoryHints::MemoryUsage,
+            present_mode: wgpu::PresentMode::Fifo,
+            target_layer: CompositionTargetLayer::Topmost,
+        }
+    }
+}

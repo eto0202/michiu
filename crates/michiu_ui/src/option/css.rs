@@ -455,8 +455,9 @@ fn apply_declarations_to_style(
             Property::FontStyle(fs) => {
                 use lightningcss::properties::font::FontStyle;
                 let style_val = match fs {
-                    FontStyle::Italic => Some(2), // 2 = Italic
-                    _ => Some(0),                 // 0 = Normal
+                    FontStyle::Italic => Some(crate::FontStyle::Italic), // 2 = Italic
+                    FontStyle::Oblique(_) => Some(crate::FontStyle::Oblique),
+                    FontStyle::Normal => Some(crate::FontStyle::Normal), // 0 = Normal
                 };
                 if let Some(st) = style_val {
                     style = map_style_prop(style, target, |s| s.font_style(st));

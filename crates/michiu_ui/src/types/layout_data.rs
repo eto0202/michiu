@@ -1,10 +1,10 @@
 use crate::{
     AlignContent, AlignItems, AlignSelf, Backdrop, BaseVisualPropertiesSecondary, BorderAlignment,
     BorderStyle, BoxShadow, BoxSizing, Color, ComponentMask, CornerRadius, CursorIcon, Direction,
-    Display, EdgeInsets, Entity, FlexDirection, FlexWrap, Focusable, FontDate, IDENTITY_MATRIX,
-    JustifyContent, KeyframeAnimation, LayoutOverflow, Length, LinearGradient, MichiuSoA,
-    ModTarget, Modifier, Point, PointerEvents, Position, Rect, Size, TextAlign, Transition,
-    UserSelect, Val, VisualPropertiesSecondary,
+    Display, EdgeInsets, Entity, FlexDirection, FlexWrap, Focusable, FontDate, FontStyle,
+    IDENTITY_MATRIX, JustifyContent, KeyframeAnimation, LayoutOverflow, Length, LinearGradient,
+    MichiuSoA, ModTarget, Modifier, Point, PointerEvents, Position, Rect, Size, TextAlign,
+    Transition, UserSelect, Val, VisualPropertiesSecondary,
 };
 use std::{
     borrow::Cow,
@@ -267,7 +267,7 @@ pub(crate) struct CurrentStyle {
     pub(crate) font_size: f32,
     pub(crate) font_family: Option<Cow<'static, str>>,
     pub(crate) font_weight: u16,
-    pub(crate) font_style: u32,
+    pub(crate) font_style: FontStyle,
     pub(crate) auto_wrap: bool,
     pub(crate) pointer_events: PointerEvents,
 }
@@ -289,7 +289,7 @@ impl Default for CurrentStyle {
             font_size: 16.0,
             font_family: None,
             font_weight: 400,
-            font_style: 0,
+            font_style: FontStyle::default(),
             auto_wrap: false,
             pointer_events: PointerEvents::default(),
         }
@@ -450,7 +450,7 @@ impl VisualProperty {
                 font_size: v.font.size.unwrap_or(16.0),
                 font_family: v.font.family.clone(),
                 font_weight: v.font.weight.unwrap_or(400),
-                font_style: v.font.style.unwrap_or(0),
+                font_style: v.font.style.unwrap_or_default(),
                 auto_wrap: v.auto_wrap.unwrap_or(false),
                 pointer_events: v.pointer_events.unwrap_or_default(),
             })

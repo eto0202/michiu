@@ -1,3 +1,4 @@
+use crate::PendingDcompRelease;
 #[cfg(feature = "trace-entity")]
 use crate::{ActiveAnimation, ActiveTransition, BasicLayout, ModInner, VisualProperty};
 #[expect(unused)]
@@ -13,13 +14,13 @@ use crate::{
     ExternalVisualSparse, FlatDfsSequenceVec, FlexLayoutsSecondary, InputContentsSparse,
     InteractionPropertiesSecondary, LayoutPoint, LayoutRect, LayoutSize, MichiuRenderer,
     MichiuString, MichiuTagRegistry, Modifiers, MouseButton, ParentsSecondary, PendingActions,
-    PendingDcompRelease, PendingEntityEffectsVec, PrevClipRectsSecondary, PrevRectsSecondary,
-    ProvidersSparseSecondary, QuadInstance, RectsSecondary, RenderData, ResizingState,
-    ResolvedBasicSecondary, ResolvedFlexSecondary, ScrollOffsetsSecondary, ScrollSizesSecondary,
-    ScrollbarStylesSparse, SelectedRectsSparse, SelectionStartIndexSparse, SessionRootsVec,
-    SessionSpawnedVec, SignalId, SortCacheVec, SortedEntitiesVec, SubscribersSecondary,
-    TaffyNodesSecondary, TextCacheKey, TextCacheValue, TextContentsSparse, TextSelectionsSparse,
-    TextSpansSparse, TextureAtlas, VirtualKey, VisualPropertiesSecondary, WebviewEntitiesVec,
+    PendingEntityEffectsVec, PrevClipRectsSecondary, PrevRectsSecondary, ProvidersSparseSecondary,
+    QuadInstance, RectsSecondary, RenderData, ResizingState, ResolvedBasicSecondary,
+    ResolvedFlexSecondary, ScrollOffsetsSecondary, ScrollSizesSecondary, ScrollbarStylesSparse,
+    SelectedRectsSparse, SelectionStartIndexSparse, SessionRootsVec, SessionSpawnedVec, SignalId,
+    SortCacheVec, SortedEntitiesVec, SubscribersSecondary, TaffyNodesSecondary, TextCacheKey,
+    TextCacheValue, TextContentsSparse, TextSelectionsSparse, TextSpansSparse, TextureAtlas,
+    VirtualKey, VisualPropertiesSecondary, WebviewEntitiesVec,
 };
 use cosmic_text::Buffer;
 use rustc_hash::FxHashMap;
@@ -1601,6 +1602,9 @@ pub enum MichiuError {
 
     #[error("Failed to create D3D11 hardware device.")]
     D3d11DeviceCreationFailed,
+
+    #[error("Failed to create DispatcherQueueController.")]
+    DispatcherQueueControllerCreationFailed,
 
     #[error(
         "DCompDeviceManager has not been initialized.\n\

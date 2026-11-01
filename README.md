@@ -63,6 +63,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         handle.hwnd(),
         rect.cast(),
         scale_factor,
+        None,
     ))?;
 
     // 3. Build UI and application host

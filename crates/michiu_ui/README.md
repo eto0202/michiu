@@ -95,7 +95,7 @@ fn win32_message(app: &mut AppState, hwnd: HWND, event: YourWindowEvent) {
 
             // 3. Recalculate layout
             // Executes a two-pass calculation to resolve scrollbar-induced container resizing
-            app.context.sync_layout(app.root_id, app.renderer.layout_size());
+            app.context.sync_layout(app.root_id, app.renderer.window_size());
 
             // 4. Synchronize DirectComposition tree for backgrounds and external visuals
             app.renderer.update_composition_tree(&mut app.context);
