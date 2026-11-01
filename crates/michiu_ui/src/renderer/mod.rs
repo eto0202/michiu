@@ -307,10 +307,14 @@
 //! For consumer applications, safe read access is provided through immutable getters such as [`d3d11_device(&self)`](MichiuRenderer::d3d11_device) and [`surface(&self)`](WgpuRenderer::surface).
 
 mod composed_renderer;
+mod dcomp_workspace;
+mod platform;
+mod synchronizer;
 mod text;
 mod wgpu_renderer;
 
 pub use composed_renderer::*;
+pub use dcomp_workspace::*;
 pub use text::*;
 pub use wgpu_renderer::*;
 

@@ -984,7 +984,7 @@ impl MichiuApp {
 
         self.context.tick_system_frame(&TickType::All);
         self.context
-            .sync_layout(root_id, self.renderer.layout_size());
+            .sync_layout(root_id, self.renderer.window_size());
         self.renderer.update_composition_tree(&mut self.context);
 
         self.renderer.draw(&mut self.context);

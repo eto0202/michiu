@@ -136,92 +136,42 @@
 //! For consumer applications, safe read access is provided through immutable getters such as [`d3d11_device(&self)`](MichiuRenderer::d3d11_device) and [`surface(&self)`](WgpuRenderer::surface).
 
 use crate::{
-    Backdrop, ComponentMask, CompositionTargetLayer, Context, Entity, ExternalVisual,
-    ExternalVisualMetadata, InteractionState, LayoutPoint, LayoutSize, MichiuError, MichiuSoA,
-    PropertyList, RawWgpuRenderer, RendererUserConfig, VisualUpdateContext, WgpuRenderer,
-    WindowsResultTraceExt, flush_trace,
+    ActiveEntitiesVec, Backdrop, Context, Entity, ExternalVisual, InteractionState, LayoutPoint,
+    LayoutSize, MichiuSoA, PropertyList, RawWgpuRenderer, RendererUserConfig, ResultTraceExt,
+    VisualPropertiesSecondary, VisualUpdateContext, WgpuRenderer, flush_trace,
+    renderer::{
+        dcomp_workspace::{DCompWorkspace, PendingDcompRelease, PromotedVisual},
+        platform::PlatformContext,
+        synchronizer::WindowSynchronizer,
+    },
 };
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 use windows::{
     System::DispatcherQueueController,
     UI::Composition::Compositor,
     Win32::{
-        Foundation::{HMODULE, HWND, LPARAM, WPARAM},
+        Foundation::{HWND, LPARAM, WPARAM},
         Graphics::{
-            Direct3D::D3D_DRIVER_TYPE_HARDWARE,
-            Direct3D11::{
-                D3D11_CREATE_DEVICE_BGRA_SUPPORT, D3D11_SDK_VERSION, D3D11CreateDevice,
-                ID3D11Device,
-            },
+            Direct3D11::ID3D11Device,
             DirectComposition::{
-                DCompositionCreateDevice2, IDCompositionDesktopDevice, IDCompositionDevice,
-                IDCompositionTarget, IDCompositionVisual2,
+                IDCompositionDesktopDevice, IDCompositionDevice, IDCompositionTarget,
+                IDCompositionVisual2,
             },
-            Imaging::{CLSID_WICImagingFactory, IWICImagingFactory},
-        },
-        System::{
-            Com::{CLSCTX_INPROC_SERVER, CoCreateInstance},
-            WinRT::{
-                CreateDispatcherQueueController, DQTAT_COM_STA, DQTYPE_THREAD_CURRENT,
-                DispatcherQueueOptions,
-            },
+            Imaging::IWICImagingFactory,
         },
     },
     core::Interface,
 };
-use windows_numerics::Matrix3x2;
 
 pub struct MichiuRenderer {
     pub(crate) hwnd: HWND,
-    pub(crate) layout_size: LayoutSize,
-    pub(crate) scale_factor: f32,
-
-    pub(crate) wic_factory: IWICImagingFactory,
-
-    // `DirectComposition` リソース
-    pub(crate) d3d11_device: ID3D11Device,
-
-    pub(crate) desktop_device: IDCompositionDesktopDevice,
-    pub(crate) target: IDCompositionTarget,
-    pub(crate) root_visual: IDCompositionVisual2,
-    // wgpu 用のビジュアル
-    pub(crate) wgpu_visual: IDCompositionVisual2,
-
+    pub(crate) sync: WindowSynchronizer,
+    pub(crate) platform: PlatformContext,
+    pub(crate) workspace: DCompWorkspace,
     // wgpu レンダラー
     pub(crate) wgpu_renderer: WgpuRenderer,
-
-    // 動的に昇格されたレイヤーの一覧
-    pub(crate) promoted_visuals: Vec<PromotedVisual>,
-
-    // `DComp` 側の Visual 削除を wgpu のピクセル定着から数フレーム遅延させるためのキュー
-    pub(crate) pending_dcomp_releases: Vec<PendingDcompRelease>,
-
     // 現在ウィンドウに適用中のバックドロップ状態
     pub(crate) current_backdrop: Backdrop,
-
-    // リサイズが完全に安定するまでキャプチャを保留するカウンター
-    pub(crate) resize_cooldown_frames: u32,
-
-    pub(crate) controller: DispatcherQueueController,
-    pub(crate) compositor: Compositor,
-}
-
-#[derive(Debug, Clone)]
-pub struct PendingDcompRelease {
-    pub entity_id: Entity,
-    pub frames_left: u32,
-}
-
-#[derive(Debug, Clone)]
-pub struct PromotedVisual {
-    /// 昇格した要素の ID
-    pub entity_id: Entity,
-    /// `DirectComposition` 側の Visual オブジェクト
-    pub visual: IDCompositionVisual2,
-    /// 適用しているトランスフォームオブジェクト (COM参照を維持するために保持)
-    pub transform: Option<windows::core::IUnknown>,
-    // DCompツリーにマウントされており、コントローラーが可視状態であるか
-    pub is_visible: bool,
 }
 
 impl MichiuRenderer {
@@ -236,80 +186,50 @@ impl MichiuRenderer {
     #[inline]
     pub async fn new(
         hwnd: HWND,
-        layout_size: LayoutSize,
+        window_size: LayoutSize,
         scale_factor: f32,
         user_config: Option<RendererUserConfig>,
     ) -> crate::Result<Self> {
         let user_config = user_config.unwrap_or_default();
-        // DirectComposition の構築
-        let (manager, target, root_visual, wgpu_visual) =
-            MichiuRenderer::setup_direct_composition(hwnd, user_config.target_layer)?;
+        let sync = WindowSynchronizer::new(window_size, scale_factor);
+        let platform = PlatformContext::new()?;
+        let workspace = DCompWorkspace::new(hwnd, &platform.dcomp, user_config.target_layer)?;
 
         // wgpu レンダラーの初期化
-        let raw_visual_ptr = wgpu_visual.as_raw();
+        let raw_visual_ptr = workspace.wgpu_visual.as_raw();
         let wgpu_renderer =
-            unsafe { WgpuRenderer::new(raw_visual_ptr, layout_size, scale_factor, user_config) }
+            unsafe { WgpuRenderer::new(raw_visual_ptr, window_size, scale_factor, user_config) }
                 .await?;
 
-        unsafe {
-            manager.desktop_device.Commit()?;
-        }
-
-        let wic_factory: IWICImagingFactory =
-            unsafe { CoCreateInstance(&CLSID_WICImagingFactory, None, CLSCTX_INPROC_SERVER)? };
+        platform.commit()?;
 
         Ok(Self {
-            layout_size,
             hwnd,
-            scale_factor,
-            wic_factory,
-            target,
-            root_visual,
-            wgpu_visual,
-            wgpu_renderer,
-            promoted_visuals: Vec::new(),
-            pending_dcomp_releases: Vec::new(),
+            sync,
             current_backdrop: Backdrop::None,
-            resize_cooldown_frames: 0,
-            d3d11_device: manager.d3d11_device,
-            desktop_device: manager.desktop_device,
-            controller: manager.controller,
-            compositor: manager.compositor,
+            platform: platform.clone(),
+            workspace,
+            wgpu_renderer,
         })
     }
 
     /// Updates the overall settings and resizes wgpu when the window size changes.
     ///
     /// `new_physical_size`: (width, height)
-    #[expect(clippy::cast_precision_loss)]
     #[inline]
-    pub fn resize(&mut self, physical_width: u32, physical_height: u32, scale_factor: f32) {
-        self.scale_factor = scale_factor;
-        self.layout_size = LayoutSize::new(
-            physical_width as f32 / scale_factor,
-            physical_height as f32 / scale_factor,
-        );
-        self.wgpu_renderer
-            .resize(physical_width, physical_height, scale_factor);
-
-        // リサイズが発生したため、キャプチャクールダウンを 15 フレームに設定
-        // 拡大リサイズ中およびリサイズ直後の不安定なバッファへのキャプチャを遮断
-        self.resize_cooldown_frames = 15;
-
-        let _ = unsafe { self.desktop_device.Commit() };
+    pub fn resize(&mut self, p_width: u32, p_height: u32, scale_factor: f32) {
+        self.sync.resize(p_width, p_height, scale_factor);
+        self.wgpu_renderer.resize(p_width, p_height, scale_factor);
+        let _ = self.platform.commit();
     }
 
     /// Drawing Triggers
     #[track_caller]
     #[inline]
     pub fn draw(&mut self, cx: &mut Context) {
-        self.wgpu_renderer.render(cx, self.scale_factor);
+        self.wgpu_renderer.render(cx, self.sync.scale_factor);
 
-        unsafe {
-            self.desktop_device
-                .Commit()
-                .unwrap_or_trace(None, &mut cx.debug);
-        };
+        self.platform.commit().unwrap_or_trace(None, &mut cx.debug);
 
         #[cfg(feature = "trace-lifecycle")]
         crate::trace_lifecycle!(None, &mut cx.debug, || crate::MichiuTrace::Commit {
@@ -343,350 +263,119 @@ impl MichiuRenderer {
         flush_trace!(cx, self);
     }
 
+    #[inline]
+    fn update_backdrop(
+        &mut self,
+        topo_active_entities: &ActiveEntitiesVec,
+        rnd_visual: &VisualPropertiesSecondary,
+    ) {
+        // ルート要素（root_node）のスタイルから DWM アクリル効果を自動検出して同期
+        let Some(&root_id) = topo_active_entities.first() else {
+            return;
+        };
+        let Some(visual_prop) = rnd_visual.find(root_id) else {
+            return;
+        };
+
+        let target_backdrop = visual_prop.backdrop;
+
+        // スタイル変更があった場合のみ、拡張した apply_system_backdrop を即時更新
+        if self.current_backdrop != target_backdrop {
+            apply_system_backdrop(self.hwnd, target_backdrop);
+            self.current_backdrop = target_backdrop;
+        }
+    }
+
     #[track_caller]
     pub fn update_composition_tree(&mut self, cx: &mut Context) {
-        unsafe {
-            if self.resize_cooldown_frames > 0 {
-                self.resize_cooldown_frames -= 1;
-            }
-
-            // ルート要素（root_node）のスタイルから DWM アクリル効果を自動検出して同期
-            if let Some(&root_id) = cx.topology.topo_active_entities.first()
-                && let Some(visual_prop) = cx.renders.rnd_visual.find(root_id)
-            {
-                let target_backdrop = visual_prop.backdrop;
-
-                // スタイル変更があった場合のみ、拡張した apply_system_backdrop を即時更新
-                if self.current_backdrop != target_backdrop {
-                    apply_system_backdrop(self.hwnd, target_backdrop);
-                    self.current_backdrop = target_backdrop;
-                }
-            }
-
-            // 遅延キューの消化処理（1〜3フレーム目）
-            let mut idx = 0;
-            while idx < self.pending_dcomp_releases.len() {
-                if self.pending_dcomp_releases[idx].frames_left > 0 {
-                    self.pending_dcomp_releases[idx].frames_left -= 1;
-                    idx += 1;
-                } else {
-                    // ディレイ猶予が切れたため、安全に DComp から破棄を実行
-                    let release = self.pending_dcomp_releases.remove(idx);
-                    let target_id = release.entity_id;
-
-                    if let Some(pos) = self
-                        .promoted_visuals
-                        .iter()
-                        .position(|v| v.entity_id == target_id)
-                    {
-                        let promoted = &mut self.promoted_visuals[pos];
-                        // タイムアウトが切れたため（wgpuへのテクスチャ定着完了）、
-                        // 実体は破棄せず、DCompツリーから取り外して不可視にするのみ
-                        if promoted.is_visible {
-                            let _ = self.root_visual.RemoveVisual(&promoted.visual);
-                            promoted.is_visible = false;
-                        }
-                    }
-                }
-            }
-
-            // 外部 Visual の一括更新 ＆ アクティブ判定
-            let mut current_promoted_ids = Vec::new();
-
-            // ループの前にスナップショットを取得
-            let visual_entries: Vec<(Entity, Arc<dyn ExternalVisual>)> = cx
-                .contents
-                .cont_external_visual
-                .iter()
-                .map(|(id, v)| (id, Arc::clone(v)))
-                .collect();
-
-            for (id, visual_entry) in visual_entries {
-                let rect = cx.outputs.out_rects.find_or_default(id, &mut cx.debug);
-                let dcomp_visual = visual_entry.resolve_visual();
-                let metadata = visual_entry.metadata();
-
-                // 安定状態の判定
-                let is_interactive = is_entity_interactive(cx, id);
-                let is_transitioning = is_entity_transitioning(cx, id);
-                let prev_rect = cx.outputs.out_prev_rects.find_or_default(id, &mut cx.debug);
-                let is_size_changing = (rect.width - prev_rect.width).abs() > 0.01
-                    || (rect.height - prev_rect.height).abs() > 0.01;
-                let is_stable = !cx.window.win_is_resized
-                    && self.resize_cooldown_frames == 0
-                    && !is_transitioning
-                    && !is_size_changing;
-
-                // 各 Visual の状態更新フックを実行（WebView2 はここで Bounds 設定や自動キャプチャを行う）
-                visual_entry.update(&VisualUpdateContext {
-                    hwnd: self.hwnd,
-                    rect,
-                    scale_factor: self.scale_factor,
-                    is_interactive,
-                    is_stable,
-                    device: &self.wgpu_renderer.device,
-                    queue: &self.wgpu_renderer.queue,
-                    wic_factory: &self.wic_factory,
-                });
-
-                // DComp Visual のレイアウト（位置・クリップ・トランスフォーム）を同期
-                self.sync_visual_layout_and_clip(id, &dcomp_visual, metadata, cx);
-
-                // 静止画テクスチャがあるかどうかで分岐
-                if let Some(static_tex) = visual_entry.static_texture() {
-                    // 静止画
-                    cx.contents.cont_external_textures.insert(id, static_tex);
-                    cx.topology
-                        .topo_active_masks
-                        .at_mut(id)
-                        .set(ComponentMask::COMP_EXTERNAL_TEXTURE_CONTENT);
-                    cx.renders.rnd_active_external_visual.remove(&id);
-
-                    // wgpuの静止画描画と同時にDComp実体を外して二重描画を防止
-                    if let Some(pos) = self.promoted_visuals.iter().position(|v| v.entity_id == id)
-                    {
-                        let promoted = &mut self.promoted_visuals[pos];
-                        if promoted.is_visible {
-                            let _ = self.root_visual.RemoveVisual(&promoted.visual);
-                            promoted.is_visible = false;
-                        }
-                    }
-                    self.pending_dcomp_releases.retain(|r| r.entity_id != id);
-                } else {
-                    // 実体表示
-                    current_promoted_ids.push(id);
-                    cx.topology
-                        .topo_active_masks
-                        .at_mut(id)
-                        .unset(ComponentMask::COMP_EXTERNAL_TEXTURE_CONTENT);
-
-                    // 遅延解放待ちにあれば解除
-                    self.pending_dcomp_releases.retain(|r| r.entity_id != id);
-
-                    // DComp ツリーへのマウント
-                    if let Some(pos) = self.promoted_visuals.iter().position(|v| v.entity_id == id)
-                    {
-                        let promoted = &mut self.promoted_visuals[pos];
-                        if !promoted.is_visible {
-                            let _ = self.root_visual.AddVisual(
-                                &promoted.visual,
-                                false,
-                                &self.wgpu_visual,
-                            );
-                            promoted.is_visible = true;
-                        }
-                    } else {
-                        let _ = self
-                            .root_visual
-                            .AddVisual(&dcomp_visual, false, &self.wgpu_visual);
-                        self.promoted_visuals.push(PromotedVisual {
-                            entity_id: id,
-                            visual: dcomp_visual.clone(),
-                            transform: None,
-                            is_visible: true,
-                        });
-                    }
-
-                    // wgpu に穴あけ（Punchout）を指示
-                    cx.renders.rnd_active_external_visual.insert(id);
-                    cx.contents.cont_external_textures.remove(id);
-                }
-            }
-
-            // アクティブから消えた（要素がデスポーンした）Visual をクリーンアップ
-            let mut i = 0;
-            while i < self.promoted_visuals.len() {
-                let id = self.promoted_visuals[i].entity_id;
-
-                // 生存していない（despawn済みの）要素はクリーンアップ
-                if !cx.topology.topo_entities.contains_key(id) {
-                    let promoted = &self.promoted_visuals[i];
-                    if promoted.is_visible {
-                        let _ = self.root_visual.RemoveVisual(&promoted.visual);
-                    }
-                    self.promoted_visuals.remove(i);
-                    continue;
-                }
-
-                let is_pending_release = self
-                    .pending_dcomp_releases
-                    .iter()
-                    .any(|r| r.entity_id == id);
-
-                // 生きてはいるが、アクティブ維持対象外になった（静止画像へ移行した）もの
-                if !current_promoted_ids.contains(&id) && !is_pending_release {
-                    let promoted = &mut self.promoted_visuals[i];
-
-                    // すでにキャッシュが存在し、表示維持が不要になったため、即座に非表示常駐化
-                    if promoted.is_visible {
-                        let _ = self.root_visual.RemoveVisual(&promoted.visual);
-                        promoted.is_visible = false;
-                    }
-                }
-                i += 1;
-            }
+        if self.sync.resize_cooldown_frames > 0 {
+            self.sync.resize_cooldown_frames -= 1;
         }
-    }
 
-    /// あらゆる `ExternalVisual` に共通の同期ヘルパー
-    #[track_caller]
-    fn sync_visual_layout_and_clip(
-        &self,
-        id: Entity,
-        visual: &IDCompositionVisual2,
-        metadata: ExternalVisualMetadata,
-        cx: &mut Context,
-    ) {
-        unsafe {
+        self.update_backdrop(&cx.topology.topo_active_entities, &cx.renders.rnd_visual);
+
+        // 遅延キューの消化処理（1〜3フレーム目）
+        self.workspace.processing_delay_queue();
+
+        // 外部 Visual の一括更新 ＆ アクティブ判定
+        let mut current_promoted_ids = Vec::new();
+        // ループの前にスナップショットを取得
+        let visual_entries: Vec<(Entity, Arc<dyn ExternalVisual>)> = cx
+            .contents
+            .cont_external_visual
+            .iter()
+            .map(|(id, v)| (id, Arc::clone(v)))
+            .collect();
+
+        for (id, visual_entry) in visual_entries {
             let rect = cx.outputs.out_rects.find_or_default(id, &mut cx.debug);
-            let clip_rect = cx.outputs.out_clip_rects.find_or_default(id, &mut cx.debug);
+            let ex_visual = visual_entry.resolve_visual();
+            let metadata = visual_entry.metadata();
+
+            // 安定状態の判定
+            let is_interactive = is_entity_interactive(cx, id);
+            let is_transitioning = is_entity_transitioning(cx, id);
             let prev_rect = cx.outputs.out_prev_rects.find_or_default(id, &mut cx.debug);
-            let prev_clip = cx
-                .outputs
-                .out_prev_clip_rects
-                .find_or_default(id, &mut cx.debug);
+            let is_size_changing = (rect.width - prev_rect.width).abs() > 0.01
+                || (rect.height - prev_rect.height).abs() > 0.01;
+            let is_stable = !cx.window.win_is_resized
+                && self.sync.resize_cooldown_frames == 0
+                && !is_transitioning
+                && !is_size_changing;
 
-            let has_active_transform_anim =
-                cx.renders
-                    .rnd_active_transitions
-                    .find(id)
-                    .is_some_and(|list| {
-                        list.iter()
-                            .any(|t| t.property_list == PropertyList::Transform)
-                    });
-            let is_resizing = cx.window.win_is_resized;
+            // 各 Visual の状態更新フックを実行（WebView2 はここで Bounds 設定や自動キャプチャを行う）
+            visual_entry.update(&VisualUpdateContext {
+                hwnd: self.hwnd,
+                rect,
+                scale_factor: self.sync.scale_factor,
+                is_interactive,
+                is_stable,
+                device: &self.wgpu_renderer.device,
+                queue: &self.wgpu_renderer.queue,
+                wic_factory: &self.platform.wic,
+            });
 
-            // 変化がなければ早期リターン（点滅・CPU負荷防止）
-            // sync_layout で prev_rects が既にスワップされているケースを考慮し、
-            // 初回またはリサイズ時は確実に同期を通す
-            if !is_resizing
-                && rect == prev_rect
-                && clip_rect == prev_clip
-                && !has_active_transform_anim
-            {
-                return;
-            }
+            // DComp Visual のレイアウト（位置・クリップ・トランスフォーム）を同期
+            self.sync.sync_visual_layout_and_clip(
+                id,
+                &ex_visual,
+                metadata,
+                &self.platform.dcomp,
+                cx.window.win_is_resized,
+                &cx.renders.rnd_visual,
+                &cx.renders.rnd_active_transitions,
+                &cx.outputs.out_rects,
+                &cx.outputs.out_prev_rects,
+                &cx.outputs.out_clip_rects,
+                &cx.outputs.out_prev_clip_rects,
+                &mut cx.debug,
+            );
 
-            // 位置同期 (物理ピクセル)
-            let phys_x = rect.x * self.scale_factor;
-            let phys_y = rect.y * self.scale_factor;
-            let _ = visual.SetOffsetX2(phys_x);
-            let _ = visual.SetOffsetY2(phys_y);
-
-            // 2D アフィン変換 (Transform2) の同期
-            if metadata.auto_transform
-                && let Some(visual_prop) = cx.renders.rnd_visual.find(id)
-            {
-                if let Some(m) = visual_prop.transform {
-                    let m11 = m[0][0];
-                    let m12 = m[0][1];
-                    let m21 = m[1][0];
-                    let m22 = m[1][1];
-                    let tx = m[3][0] * self.scale_factor;
-                    let ty = m[3][1] * self.scale_factor;
-
-                    let origin = visual_prop
-                        .transform_origin
-                        .map_or([0.5, 0.5], |p| [p.x, p.y]);
-                    let origin_x = origin[0] * rect.width * self.scale_factor;
-                    let origin_y = origin[1] * rect.height * self.scale_factor;
-
-                    let m31 = (1.0 - m11) * origin_x - m21 * origin_y + tx;
-                    let m32 = -m12 * origin_x + (1.0 - m22) * origin_y + ty;
-
-                    let dcomp_matrix = Matrix3x2 {
-                        M11: m11,
-                        M12: m12,
-                        M21: m21,
-                        M22: m22,
-                        M31: m31,
-                        M32: m32,
-                    };
-                    let _ = visual.SetTransform2(&raw const dcomp_matrix);
-                } else {
-                    let identity = Matrix3x2 {
-                        M11: 1.0,
-                        M12: 0.0,
-                        M21: 0.0,
-                        M22: 1.0,
-                        M31: 0.0,
-                        M32: 0.0,
-                    };
-                    let _ = visual.SetTransform2(&raw const identity);
-                }
-            }
-
-            // 角丸・Scissor クリップ (RectangleClip) の同期
-            if metadata.auto_clip
-                && let Some(visual_prop) = cx.renders.rnd_visual.find(id)
-            {
-                let desktop_device = self.desktop_device.clone();
-                if let Ok(rectangle_clip) = desktop_device.CreateRectangleClip() {
-                    let clip_left = (clip_rect.x - rect.x).max(0.0) * self.scale_factor;
-                    let clip_top = (clip_rect.y - rect.y).max(0.0) * self.scale_factor;
-                    let clip_right = ((clip_rect.x + clip_rect.width) - rect.x).min(rect.width)
-                        * self.scale_factor;
-                    let clip_bottom = ((clip_rect.y + clip_rect.height) - rect.y).min(rect.height)
-                        * self.scale_factor;
-
-                    let _ = rectangle_clip.SetLeft2(clip_left);
-                    let _ = rectangle_clip.SetTop2(clip_top);
-                    let _ = rectangle_clip.SetRight2(clip_right);
-                    let _ = rectangle_clip.SetBottom2(clip_bottom);
-
-                    if let Some(radius) = visual_prop.corner_radius {
-                        let r = radius.top_left * self.scale_factor;
-                        let _ = rectangle_clip.SetTopLeftRadiusX2(r);
-                        let _ = rectangle_clip.SetTopLeftRadiusY2(r);
-                        let _ = rectangle_clip.SetTopRightRadiusX2(r);
-                        let _ = rectangle_clip.SetTopRightRadiusY2(r);
-                        let _ = rectangle_clip.SetBottomLeftRadiusX2(r);
-                        let _ = rectangle_clip.SetBottomLeftRadiusY2(r);
-                        let _ = rectangle_clip.SetBottomRightRadiusX2(r);
-                        let _ = rectangle_clip.SetBottomRightRadiusY2(r);
-                    } else {
-                        let _ = rectangle_clip.SetTopLeftRadiusX2(0.0);
-                        let _ = rectangle_clip.SetTopLeftRadiusY2(0.0);
-                    }
-
-                    let _ = visual.SetClip(&rectangle_clip);
-                }
+            // 静止画テクスチャがあるかどうかで分岐
+            if let Some(static_tex) = visual_entry.static_texture() {
+                self.workspace.processing_static_texture(
+                    id,
+                    static_tex,
+                    &mut cx.topology.topo_active_masks,
+                    &mut cx.contents.cont_external_textures,
+                    &mut cx.renders.rnd_active_external_visual,
+                );
+            } else {
+                // 実体表示
+                current_promoted_ids.push(id);
+                self.workspace.processing_punchout_visual(
+                    id,
+                    ex_visual,
+                    &mut cx.topology.topo_active_masks,
+                    &mut cx.contents.cont_external_textures,
+                    &mut cx.renders.rnd_active_external_visual,
+                );
             }
         }
-    }
 
-    // ウィンドウハンドル (HWND) が手元にある状態からスタート
-    pub(crate) fn setup_direct_composition(
-        hwnd: HWND,
-        target_layer: CompositionTargetLayer,
-    ) -> crate::Result<(
-        DCompDeviceManager,
-        IDCompositionTarget,
-        IDCompositionVisual2, // root_visual
-        IDCompositionVisual2, // wgpu_visual
-    )> {
-        unsafe {
-            // D3D11 デバイスを作成
-            let manager = DCompDeviceManager::global()?.clone();
-
-            let topmost = match target_layer {
-                CompositionTargetLayer::Topmost => true,
-                CompositionTargetLayer::NonTopmost => false,
-            };
-
-            let target = manager.desktop_device.CreateTargetForHwnd(hwnd, topmost)?;
-            let root_visual = manager.desktop_device.CreateVisual()?;
-            target.SetRoot(&root_visual)?;
-
-            // wgpu 用のメインビジュアルを1つだけ作成して登録
-            let wgpu_visual = manager.desktop_device.CreateVisual()?;
-            root_visual.AddVisual(&wgpu_visual, true, None)?;
-
-            // 変更をコンポジターにコミットして反映
-            manager.desktop_device.Commit()?;
-
-            Ok((manager, target, root_visual, wgpu_visual))
-        }
+        // アクティブから消えた（要素がデスポーンした）Visual をクリーンアップ
+        self.workspace
+            .cleanup_visuals(&current_promoted_ids, &cx.topology.topo_entities);
     }
 
     /// Identifies the topmost `ExternalVisual` based on physical pixel coordinates
@@ -720,44 +409,44 @@ impl MichiuRenderer {
 
     #[inline]
     #[must_use]
-    pub fn layout_size(&self) -> LayoutSize {
-        self.layout_size
+    pub fn window_size(&self) -> LayoutSize {
+        self.sync.window_size
     }
 
     #[inline]
     #[must_use]
     pub fn scale_factor(&self) -> f32 {
-        self.scale_factor
+        self.sync.scale_factor
     }
 
     #[inline]
     #[must_use]
     pub fn wic_factory(&self) -> &IWICImagingFactory {
-        &self.wic_factory
+        &self.platform.wic
     }
 
     #[inline]
     #[must_use]
     pub fn d3d11_device(&self) -> &ID3D11Device {
-        &self.d3d11_device
+        &self.platform.d3d11
     }
 
     #[inline]
     #[must_use]
     pub fn desktop_device(&self) -> &IDCompositionDesktopDevice {
-        &self.desktop_device
+        &self.platform.dcomp
     }
 
     #[inline]
     #[must_use]
     pub fn dispatcher_queue_controller(&self) -> &DispatcherQueueController {
-        &self.controller
+        &self.platform.controller
     }
 
     #[inline]
     #[must_use]
     pub fn compositor(&self) -> &Compositor {
-        &self.compositor
+        &self.platform.compositor
     }
 
     /// # Errors
@@ -765,38 +454,38 @@ impl MichiuRenderer {
     /// Failed to obtain the DirectComposition device.
     #[inline]
     pub fn composition_device(&self) -> windows_core::Result<IDCompositionDevice> {
-        let result: IDCompositionDevice = self.desktop_device.clone().cast()?;
+        let result: IDCompositionDevice = self.platform.dcomp.clone().cast()?;
         Ok(result)
     }
 
     #[inline]
     #[must_use]
     pub fn target(&self) -> &IDCompositionTarget {
-        &self.target
+        &self.workspace.target
     }
 
     #[inline]
     #[must_use]
     pub fn root_visual(&self) -> &IDCompositionVisual2 {
-        &self.root_visual
+        &self.workspace.root_visual
     }
 
     #[inline]
     #[must_use]
     pub fn wgpu_visual(&self) -> &IDCompositionVisual2 {
-        &self.wgpu_visual
+        &self.workspace.wgpu_visual
     }
 
     #[inline]
     #[must_use]
     pub fn promoted_visuals(&self) -> &[PromotedVisual] {
-        &self.promoted_visuals
+        &self.workspace.promoted_visuals
     }
 
     #[inline]
     #[must_use]
     pub fn pending_dcomp_releases(&self) -> &[PendingDcompRelease] {
-        &self.pending_dcomp_releases
+        &self.workspace.pending_releases
     }
 
     #[inline]
@@ -808,7 +497,7 @@ impl MichiuRenderer {
     #[inline]
     #[must_use]
     pub fn resize_cooldown_frames(&self) -> u32 {
-        self.resize_cooldown_frames
+        self.sync.resize_cooldown_frames
     }
 
     #[inline]
@@ -828,20 +517,20 @@ impl MichiuRenderer {
     pub fn raw_michiu_renderer_mut(&mut self) -> RawMichiuRenderer<'_> {
         RawMichiuRenderer {
             hwnd: &mut self.hwnd,
-            layout_size: &mut self.layout_size,
-            scale_factor: &mut self.scale_factor,
-            wic_factory: &mut self.wic_factory,
-            d3d11_device: &mut self.d3d11_device,
-            desktop_device: &mut self.desktop_device,
-            controller: &mut self.controller,
-            compositor: &mut self.compositor,
-            target: &mut self.target,
-            root_visual: &mut self.root_visual,
-            wgpu_visual: &mut self.wgpu_visual,
-            promoted_visuals: &mut self.promoted_visuals,
-            pending_dcomp_releases: &mut self.pending_dcomp_releases,
+            window_size: &mut self.sync.window_size,
+            scale_factor: &mut self.sync.scale_factor,
+            wic_factory: &mut self.platform.wic,
+            d3d11_device: &mut self.platform.d3d11,
+            desktop_device: &mut self.platform.dcomp,
+            controller: &mut self.platform.controller,
+            compositor: &mut self.platform.compositor,
+            target: &mut self.workspace.target,
+            root_visual: &mut self.workspace.root_visual,
+            wgpu_visual: &mut self.workspace.wgpu_visual,
+            promoted_visuals: &mut self.workspace.promoted_visuals,
+            pending_dcomp_releases: &mut self.workspace.pending_releases,
             current_backdrop: &mut self.current_backdrop,
-            resize_cooldown_frames: &mut self.resize_cooldown_frames,
+            resize_cooldown_frames: &mut self.sync.resize_cooldown_frames,
         }
     }
 }
@@ -849,7 +538,7 @@ impl MichiuRenderer {
 #[allow(clippy::print_stderr)]
 impl Drop for MichiuRenderer {
     fn drop(&mut self) {
-        if let Err(e) = self.controller.ShutdownQueueAsync() {
+        if let Err(e) = self.platform.controller.ShutdownQueueAsync() {
             #[cfg(debug_assertions)]
             eprintln!("Failed to request termination of the DispatcherQueue: {e:?}");
         }
@@ -863,7 +552,7 @@ impl Drop for MichiuRenderer {
 /// - michiu manages ownership and shutdown processing (`ShutdownQueueAsync`) for the `DispatcherQueueController`.
 pub struct RawMichiuRenderer<'a> {
     pub hwnd: &'a mut HWND,
-    pub layout_size: &'a mut LayoutSize,
+    pub window_size: &'a mut LayoutSize,
     pub scale_factor: &'a mut f32,
     pub wic_factory: &'a mut IWICImagingFactory,
     pub d3d11_device: &'a mut ID3D11Device,
@@ -912,102 +601,6 @@ fn is_entity_transitioning(cx: &Context, id: Entity) -> bool {
             })
 }
 
-#[derive(Debug, Clone)]
-pub(crate) struct DCompDeviceManager {
-    pub(crate) d3d11_device: ID3D11Device,
-    pub(crate) desktop_device: IDCompositionDesktopDevice,
-    pub(crate) controller: DispatcherQueueController,
-    pub(crate) compositor: Compositor,
-}
-
-unsafe impl Send for DCompDeviceManager {}
-unsafe impl Sync for DCompDeviceManager {}
-
-impl DCompDeviceManager {
-    /// デバイスマネージャーのグローバル参照を取得。
-    /// 未初期化、または過去の初期化でエラーが起きていた場合は再試行。
-    pub(crate) fn global() -> crate::Result<&'static Self> {
-        static INSTANCE: OnceLock<DCompDeviceManager> = OnceLock::new();
-
-        if let Some(manager) = INSTANCE.get() {
-            return Ok(manager);
-        }
-
-        let manager = Self::try_create_devices()?;
-
-        // 完全に成功した場合にのみ OnceLock に実体をセットする。
-        // 複数スレッドで同時に成功した場合、最初に完了した方がセットされ、
-        // もう一方は set() で Err(manager) を返すが、
-        // 最終的に get() 側で正しく1つのインスタンスに統合されるため安全。
-        let _ = INSTANCE.set(manager);
-
-        INSTANCE
-            .get()
-            .ok_or(MichiuError::UninitializedDeviceManager)
-    }
-
-    /// デバイスの生成・クエリを試みる、失敗を許容する内部ヘルパー
-    fn try_create_devices() -> crate::Result<Self> {
-        let controller = DCompDeviceManager::create_dispatcher_queue()?;
-
-        // D3D11 デバイスを作成
-        let mut d3d11_device: Option<ID3D11Device> = None;
-        unsafe {
-            D3D11CreateDevice(
-                None,
-                D3D_DRIVER_TYPE_HARDWARE,
-                HMODULE::default(),
-                D3D11_CREATE_DEVICE_BGRA_SUPPORT,
-                None,
-                D3D11_SDK_VERSION,
-                Some(&raw mut d3d11_device),
-                None,
-                None,
-            )?;
-        }
-        let d3d11_device = d3d11_device.ok_or(MichiuError::D3d11DeviceCreationFailed)?;
-
-        // WinRT の Compositor を作成 (STAスレッドと DispatcherQueue が必要)
-        let compositor = Compositor::new()?;
-
-        // DCompositionCreateDevice ではなく DCompositionCreateDevice2 を使用。
-        // これにより IDCompositionDesktopDevice の生成が正しくサポートされる。
-        let desktop_device: IDCompositionDesktopDevice =
-            unsafe { DCompositionCreateDevice2(None) }?;
-
-        Ok(DCompDeviceManager {
-            d3d11_device,
-            desktop_device,
-            controller,
-            compositor,
-        })
-    }
-
-    fn create_dispatcher_queue() -> crate::Result<DispatcherQueueController> {
-        // DispatcherQueue を現在のスレッド（UIスレッド）に作成
-        #[expect(clippy::as_conversions, clippy::cast_possible_truncation)]
-        let options = DispatcherQueueOptions {
-            dwSize: std::mem::size_of::<DispatcherQueueOptions>() as u32,
-            threadType: DQTYPE_THREAD_CURRENT,
-            apartmentType: DQTAT_COM_STA,
-        };
-        unsafe {
-            CreateDispatcherQueueController(options)
-                .map_err(|_| MichiuError::DispatcherQueueControllerCreationFailed)
-        }
-    }
-}
-
-#[link(name = "dwmapi")]
-unsafe extern "system" {
-    fn DwmSetWindowAttribute(
-        hwnd: HWND,
-        dwattribute: u32,
-        pvattribute: *const std::ffi::c_void,
-        cbattribute: u32,
-    ) -> windows::core::HRESULT;
-}
-
 // フレーム拡張用構造体
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
@@ -1020,6 +613,13 @@ pub struct Margins {
 
 #[link(name = "dwmapi")]
 unsafe extern "system" {
+    fn DwmSetWindowAttribute(
+        hwnd: HWND,
+        dwattribute: u32,
+        pvattribute: *const std::ffi::c_void,
+        cbattribute: u32,
+    ) -> windows::core::HRESULT;
+
     fn DwmExtendFrameIntoClientArea(
         hwnd: HWND,
         pMarInset: *const Margins,

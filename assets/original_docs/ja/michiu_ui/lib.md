@@ -107,7 +107,7 @@ fn win32_message(cx: &mut AppState, hwnd: HWND, event: MyWindowEvent) {
 
             // 3. レイアウトの再計算
             // スクロールバーの出現に伴うコンテンツ領域の変動を正しく解決するため、内部で2パスの計算を行います。
-            app.context.sync_layout(app.root_id, app.renderer.layout_size());
+            app.context.sync_layout(app.root_id, app.renderer.window_size());
 
             // 4. レイアウト結果に基づき、外部Visualや背景の DirectComposition ツリーを同期。
             app.renderer.update_composition_tree(&mut app.context);

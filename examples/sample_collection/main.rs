@@ -223,7 +223,7 @@ fn redraw(app: &mut MichiuApp) {
     // レイアウトの再計算。必須。
     // Recalculate the layout. Required.
     app.context
-        .sync_layout(app.root(), app.renderer.layout_size());
+        .sync_layout(app.root(), app.renderer.window_size());
     let layout_elapsed = layout_start.elapsed();
 
     let comp_start = std::time::Instant::now();

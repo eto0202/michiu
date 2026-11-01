@@ -568,15 +568,15 @@ impl WgpuRenderer {
     /// ウィンドウサイズが変更された際の再設定
     /// `new_physical_size`: (width, height)
     #[expect(clippy::cast_precision_loss)]
-    pub fn resize(&mut self, physical_width: u32, physical_height: u32, scale_factor: f32) {
-        if physical_width > 0 && physical_height > 0 {
-            self.config.width = physical_width;
-            self.config.height = physical_height;
+    pub fn resize(&mut self, p_width: u32, p_height: u32, scale_factor: f32) {
+        if p_width > 0 && p_height > 0 {
+            self.config.width = p_width;
+            self.config.height = p_height;
 
             self.surface.configure(&self.device, &self.config);
 
-            let logical_width = physical_width as f32 / scale_factor;
-            let logical_height = physical_height as f32 / scale_factor;
+            let logical_width = p_width as f32 / scale_factor;
+            let logical_height = p_height as f32 / scale_factor;
 
             // シェーダー側で位置を正しく計算できるよう、論理サイズを Uniform に再書き込み
             let config_data = GlobalConfig {
