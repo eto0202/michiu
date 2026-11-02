@@ -3,12 +3,12 @@ use crate::{
     BorderStyle, BoxShadow, BoxSizing, Color, ComponentMask, Context, Convert, CornerRadius,
     CursorIcon, Direction, Display, DndDragMode, DndDragPlaceholderParent, DndDragProperty,
     DndDropProperty, DndDropTarget, EdgeInsets, Entity, FlexDirection, FlexLayout, FlexWrap,
-    FocusTrigger, Focusable, FontStyle, GlobalCursorIcon, InteractionName, InteractionStyles,
-    IntoModConvert, IntoModCornerRadius, IntoModPoint, IntoModRect, IntoModResizable, IntoModSize,
-    IntoModValue, JustifyContent, KeyframeAnimation, LayoutOverflow, LayoutPoint, Length,
-    LinearGradient, MichiuSoA, Overflow, PointerEvents, Position, PropertyList, Rect,
-    ScrollbarDisplay, ScrollbarMode, ScrollbarStyle, TargetStyle, TextAlign, Transform, Transition,
-    UserSelect, Val, VisualProperty, auto, fill, pct,
+    FocusTrigger, Focusable, LineHeight, FontStyle, GlobalCursorIcon, InteractionName,
+    InteractionStyles, IntoModConvert, IntoModCornerRadius, IntoModPoint, IntoModRect,
+    IntoModResizable, IntoModSize, IntoModValue, JustifyContent, KeyframeAnimation, LayoutOverflow,
+    LayoutPoint, Length, LinearGradient, MichiuSoA, Overflow, PointerEvents, Position,
+    PropertyList, Rect, ScrollbarDisplay, ScrollbarMode, ScrollbarStyle, TargetStyle, TextAlign,
+    Transform, Transition, UserSelect, Val, VisualProperty, auto, fill, pct,
 };
 use std::{borrow::Cow, sync::Arc, time::Duration};
 
@@ -5528,6 +5528,31 @@ impl Modifier {
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
                     cx.get_visual_property_mut(id, target).font.size = Some(val);
+                    cx.mark_render_dirty(id);
+                }));
+            }
+        }
+        self
+    }
+
+    /// Sets the line height.
+    ///
+    /// Default is `Factor(1.4)`
+    #[inline]
+    #[must_use]
+    pub fn line_height(mut self, height: impl IntoModValue<LineHeight>) -> Self {
+        match height.into_mod_value() {
+            ModValue::Static(v) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.visual_property.font.line_height = Some(v);
+                inner.mask.set(ComponentMask::STYLE_FONT_SIZE);
+            }
+            ModValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(ComponentMask::STYLE_FONT_SIZE);
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
+                    let val = getter();
+                    cx.get_visual_property_mut(id, target).font.line_height = Some(val);
                     cx.mark_render_dirty(id);
                 }));
             }

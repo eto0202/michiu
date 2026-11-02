@@ -102,10 +102,11 @@ impl TextEngine {
         auto_wrap: bool,
         spans: &[TextSpan],
     ) -> Buffer {
-        let font_size = font.size.unwrap_or(FontDate::FONT_SIZE);
-        let metrics = Metrics::new(font_size, font_size * 1.4);
-        let mut buffer = Buffer::new(&mut self.font_system, metrics);
+        let font_size = font.size.unwrap_or_default();
+        let line_height = font.line_height();
 
+        let metrics = Metrics::new(font_size, line_height);
+        let mut buffer = Buffer::new(&mut self.font_system, metrics);
         let mut default_attrs = Attrs::new();
 
         if let Some(family) = font.family.as_deref() {
@@ -159,7 +160,9 @@ impl TextEngine {
                 for span in spans {
                     if span.range.start <= start && span.range.end >= end {
                         if let Some(size) = span.font_size {
-                            attrs = attrs.metrics(Metrics::new(size, size * 1.4));
+                            let line_height =
+                                span.line_height.unwrap_or_default().clac_height(font_size);
+                            attrs = attrs.metrics(Metrics::new(size, line_height));
                         }
                         if let Some(color) = span.color {
                             #[expect(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
