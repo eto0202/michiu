@@ -157,7 +157,7 @@ pub use window_store::*;
 use crate::trace_lifecycle;
 use crate::{
     BasicLayout, ComponentMask, CursorIcon, Entity, FlexLayout, InteractionState, LayoutPoint,
-    LayoutRect, LayoutSize, MichiuSoA, ReadSignal, VisualProperty, WriteSignal,
+    LayoutRect, LayoutSize, MichiuSoA, ReadSignal, TextEngine, VisualProperty, WriteSignal,
     a11y::A11yInferenceTag, bind_context, handle_on_click,
 };
 use std::{borrow::Cow, sync::Arc};
@@ -886,6 +886,88 @@ impl Context {
     #[inline]
     pub fn auto_focus_switch_by_trigger(&mut self, e: Entity, trigger: ActiveFocusTrigger) {
         FocusStore::auto_focus_switch_by_trigger(self, e, trigger);
+    }
+
+    #[inline]
+    pub fn text_engine(&self) -> &TextEngine {
+        &self.system.sys_text_engine
+    }
+
+    #[inline]
+    pub fn load_font_data(&mut self, data: Vec<u8>) {
+        self.system.sys_text_engine.db_mut().load_font_data(data);
+    }
+
+    #[inline]
+    #[expect(clippy::missing_errors_doc)]
+    pub fn load_font_file<P>(&mut self, path: P) -> std::result::Result<(), std::io::Error>
+    where
+        P: AsRef<std::path::Path>,
+    {
+        self.system.sys_text_engine.db_mut().load_font_file(path)
+    }
+
+    #[inline]
+    pub fn load_fonts_dir<P>(&mut self, path: P)
+    where
+        P: AsRef<std::path::Path>,
+    {
+        self.system.sys_text_engine.db_mut().load_fonts_dir(path);
+    }
+
+    #[inline]
+    pub fn set_sans_serif_family<S>(&mut self, family: S)
+    where
+        S: Into<String>,
+    {
+        self.system
+            .sys_text_engine
+            .db_mut()
+            .set_sans_serif_family(family);
+    }
+
+    #[inline]
+    pub fn set_serif_family<S>(&mut self, family: S)
+    where
+        S: Into<String>,
+    {
+        self.system
+            .sys_text_engine
+            .db_mut()
+            .set_serif_family(family);
+    }
+
+    #[inline]
+    pub fn set_monospace_family<S>(&mut self, family: S)
+    where
+        S: Into<String>,
+    {
+        self.system
+            .sys_text_engine
+            .db_mut()
+            .set_monospace_family(family);
+    }
+
+    #[inline]
+    pub fn set_cursive_family<S>(&mut self, family: S)
+    where
+        S: Into<String>,
+    {
+        self.system
+            .sys_text_engine
+            .db_mut()
+            .set_cursive_family(family);
+    }
+
+    #[inline]
+    pub fn set_fantasy_family<S>(&mut self, family: S)
+    where
+        S: Into<String>,
+    {
+        self.system
+            .sys_text_engine
+            .db_mut()
+            .set_fantasy_family(family);
     }
 
     /// Sets the pseudo-class ([`StateFlag`]).

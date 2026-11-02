@@ -315,7 +315,6 @@ use crate::{Color, CornerRadius, EdgeInsets, Entity, LayoutRect, LinearGradientI
 use bytemuck::{Pod, Zeroable};
 use rustc_hash::FxHashMap;
 
-#[expect(clippy::pub_underscore_fields)]
 #[repr(C)]
 #[derive(Copy, Clone, Debug, PartialEq, Pod, Zeroable)]
 pub struct QuadInstance {
@@ -331,9 +330,9 @@ pub struct QuadInstance {
     pub uv_min: [f32; 2], // 8B
     pub uv_max: [f32; 2], // 8B
 
-    pub gradient: LinearGradientInner,   // 96B
-    pub transform_origin: [f32; 2],      // 8B
-    pub _transform_origin_pad: [f32; 2], // 8B (次が16B境界になるよう揃える)
+    pub gradient: LinearGradientInner, // 96B
+    pub transform_origin: [f32; 2],    // 8B
+    pub is_color_atlas_pad: [f32; 2],  // 8B (次が16B境界になるよう揃える)
 
     pub shadow_color: Color,     // 16B.
     pub shadow_params: [f32; 4], // 16B.
@@ -361,7 +360,7 @@ impl Default for QuadInstance {
             uv_min: [0.0; 2],
             uv_max: [0.0; 2],
             gradient: LinearGradientInner::default(),
-            _transform_origin_pad: [0.0; 2],
+            is_color_atlas_pad: [0.0; 2],
             shadow_color: Color::TRANSPARENT,
             shadow_params: [0.0; 4],
             border_lengths: EdgeInsets::ZERO,
@@ -393,7 +392,8 @@ pub struct DrawBatch {
 #[derive(Debug)]
 pub(crate) struct RendererView<'a> {
     pub(crate) render_data: &'a mut RenderData,
-    pub(crate) atlas: &'a mut TextureAtlas,
+    pub(crate) mask_atlas: &'a mut TextureAtlas,
+    pub(crate) color_atlas: &'a mut TextureAtlas,
     pub(crate) text_cache: &'a mut FxHashMap<TextCacheKey, TextCacheValue>,
     pub(crate) queue: &'a wgpu::Queue,
 }

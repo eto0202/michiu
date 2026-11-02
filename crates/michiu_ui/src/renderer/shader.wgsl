@@ -6,11 +6,12 @@ struct GlobalConfig {
 
 @group(0) @binding(0) var<uniform> config: GlobalConfig;
 
-// Rust 側の binding: 1 (atlas.view) と同期
-@group(0) @binding(1) var t_texture: texture_2d<f32>;
+// Rust 側の binding
+@group(0) @binding(1) var t_mask: texture_2d<f32>; // 通常文字 (R8Unorm)
+@group(0) @binding(2) var t_color: texture_2d<f32>; // 絵文字  (Rgba8UnormSrgb)
 
-// Rust 側の binding: 2 (atlas.sampler) と同期
-@group(0) @binding(2) var s_sampler: sampler;
+// Rust 側の binding: 3 (atlas.sampler) と同期
+@group(0) @binding(3) var s_sampler: sampler;
 
 struct InstanceData {
     rect: vec4<f32>,
@@ -25,7 +26,7 @@ struct InstanceData {
     uv_range: vec4<f32>,
     gradient: LinearGradientInner,
     transform_origin: vec2<f32>,
-    _transform_origin_pad: vec2<f32>,
+    is_color_atlas_pad: vec2<f32>,
     shadow_color: vec4<f32>,
     shadow_params: vec4<f32>,
     border_lengths: vec4<f32>,
@@ -44,7 +45,7 @@ struct LinearGradientInner {
     origin: vec2<f32>,           // 8B
 };
 
-@group(0) @binding(3) var<storage, read> instances: array<InstanceData>;
+@group(0) @binding(4) var<storage, read> instances: array<InstanceData>;
 
 struct VertexInput {
     @location(0)
@@ -468,15 +469,21 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     var entity_color = vec4<f32>(0.0);
 
     if mode == 2.0 {
-        // テキスト描画（R8Unormアトラスフォントの Alpha サンプリング、PMA着色）
-        let tex_color = textureSample(t_texture, s_sampler, in.uv);
-        let alpha = tex_color.r * opacity;
-        // let raw_alpha = pow(tex_color.r, 0.75);
-        // let alpha = raw_alpha * opacity;
-        entity_color = vec4<f32>(color_linear.rgb * alpha, alpha);
+        let is_color_atlas = instance.is_color_atlas_pad.x;
+
+        if is_color_atlas < 0.5 {
+            // カラー絵文字
+            let tex_color = textureSample(t_color, s_sampler, in.uv);
+            let alpha = tex_color.a * opacity;
+            entity_color = vec4<f32>(tex_color.rgb * alpha, alpha);
+        } else {
+            // 通常テキスト
+            let alpha = textureSample(t_mask, s_sampler, in.uv).r * opacity;
+            entity_color = vec4<f32>(color_linear.rgb * alpha, alpha);
+        }
     } else if mode == 4.0 {
         // 外部テクスチャサンプリング
-        var tex_color = textureSample(t_texture, s_sampler, in.uv);
+        var tex_color = textureSample(t_mask, s_sampler, in.uv);
 
         let alpha_mode = instance.alpha_mode_y_flip_srgb_gamma.x; // 0.0 = Straight, 1.0 = Premultiplied
 
