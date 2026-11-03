@@ -1,11 +1,14 @@
 use crate::app::theme::Theme;
-use image::{DynamicImage, ImageBuffer};
-use michiu_ui::prelude::*;
+use image::{DynamicImage, ImageBuffer, ImageReader};
 use michiu_ui::{
     ExternalTexture, ExternalTextureAlphaMode, ExternalTextureCompositingMode,
-    ExternalTextureMetadata, UserSelect,
+    ExternalTextureMetadata, UserSelect, prelude::*,
 };
-use std::{path::Path, sync::OnceLock};
+use std::{
+    path::Path,
+    sync::{Arc, Mutex, OnceLock},
+    thread,
+};
 use tiff_reader::TiffFile;
 
 pub fn container() -> Entity {
@@ -111,26 +114,23 @@ fn image_list() -> Entity {
 
 #[derive(Debug, Clone)]
 pub struct ImageExternalTexture {
-    // デコード済みの画像データ
-    rgba_image: image::RgbaImage,
-    // 初回描画時に作成し、以降再利用するGPUテクスチャビューのキャッシュ
-    cached_view: OnceLock<wgpu::TextureView>,
+    // バックグラウンドスレッドのハンドル
+    decode_worker: Arc<Mutex<Option<thread::JoinHandle<image::RgbaImage>>>>,
+    // 初回描画時に作成するGPUテクスチャビューのキャッシュ
+    cached_view: Arc<OnceLock<wgpu::TextureView>>,
     metadata: ExternalTextureMetadata,
     file_name: String,
 }
 
 impl ImageExternalTexture {
     pub fn new(path: impl AsRef<Path>) -> std::result::Result<Self, Box<dyn std::error::Error>> {
-        let path_ref = path.as_ref();
+        let path_buf = path.as_ref().to_path_buf();
+        let file_name = Self::extract_file_name(&path_buf);
 
-        let file_name = Self::extract_file_name(path_ref);
+        // ヘッダー情報だけを高速に読み取りサイズを即時確定
+        let (width, height) = ImageReader::open(&path_buf)?.into_dimensions()?;
 
-        let img = image::open(path_ref)?;
-        let rgba_image = img.to_rgba8();
-
-        let (width, height) = rgba_image.dimensions();
         let size = LayoutSize::new(width as f32, height as f32);
-
         let metadata = ExternalTextureMetadata {
             size,
             alpha_mode: ExternalTextureAlphaMode::Straight,
@@ -139,9 +139,16 @@ impl ImageExternalTexture {
             compositing_mode: ExternalTextureCompositingMode::LinearLight,
         };
 
+        // デコード処理をバックグラウンドスレッドへ
+        let worker_path = path_buf.clone();
+        let handle = thread::spawn(move || {
+            let img = image::open(&worker_path).expect("Failed to open image in background");
+            img.to_rgba8()
+        });
+
         Ok(Self {
-            rgba_image,
-            cached_view: OnceLock::new(),
+            decode_worker: Arc::new(Mutex::new(Some(handle))),
+            cached_view: Arc::new(OnceLock::new()),
             metadata,
             file_name,
         })
@@ -151,7 +158,6 @@ impl ImageExternalTexture {
         path: impl AsRef<Path>,
     ) -> std::result::Result<Self, Box<dyn std::error::Error>> {
         let path_ref = path.as_ref();
-
         let file_name = Self::extract_file_name(path_ref);
 
         let tiff = TiffFile::open(path_ref)?;
@@ -161,12 +167,6 @@ impl ImageExternalTexture {
         let height = ifd.height();
         let size = LayoutSize::new(width as f32, height as f32);
 
-        // YCbCr を RGB としてデコードしている？
-        let rgb_bytes = tiff.read_decoded_image_bytes(0)?;
-        let buffer =
-            ImageBuffer::<image::Rgb<u8>, Vec<u8>>::from_raw(width, height, rgb_bytes).unwrap();
-        let rgba_image = DynamicImage::ImageRgb8(buffer).to_rgba8();
-
         let metadata = ExternalTextureMetadata {
             size,
             alpha_mode: ExternalTextureAlphaMode::Straight,
@@ -175,9 +175,20 @@ impl ImageExternalTexture {
             compositing_mode: ExternalTextureCompositingMode::LinearLight,
         };
 
+        let handle = thread::spawn(move || {
+            let rgb_bytes = tiff
+                .read_decoded_image_bytes(0)
+                .expect("Failed to read/decode TIFF image bytes");
+
+            let buffer = ImageBuffer::<image::Rgb<u8>, Vec<u8>>::from_raw(width, height, rgb_bytes)
+                .expect("Failed to construct ImageBuffer from raw bytes");
+
+            DynamicImage::ImageRgb8(buffer).to_rgba8()
+        });
+
         Ok(Self {
-            rgba_image,
-            cached_view: OnceLock::new(),
+            decode_worker: Arc::new(Mutex::new(Some(handle))),
+            cached_view: Arc::new(OnceLock::new()),
             metadata,
             file_name,
         })
@@ -195,8 +206,18 @@ impl ExternalTexture for ImageExternalTexture {
     fn resolve_view(&self, device: &wgpu::Device, queue: &wgpu::Queue) -> wgpu::TextureView {
         self.cached_view
             .get_or_init(|| {
-                let width = self.rgba_image.width();
-                let height = self.rgba_image.height();
+                // 初回描画時にバックグラウンドスレッドのデコード完了を待つ
+                let rgba_image = {
+                    let mut worker = self.decode_worker.lock().unwrap();
+                    worker
+                        .take()
+                        .expect("Worker handle already taken")
+                        .join()
+                        .expect("Image decoding thread panicked")
+                };
+
+                let width = rgba_image.width();
+                let height = rgba_image.height();
                 let size = wgpu::Extent3d {
                     width,
                     height,
@@ -204,7 +225,7 @@ impl ExternalTexture for ImageExternalTexture {
                 };
 
                 let texture = device.create_texture(&wgpu::TextureDescriptor {
-                    label: Some("PngExternalTexture"),
+                    label: Some(&self.file_name),
                     size,
                     mip_level_count: 1,
                     sample_count: 1,
@@ -221,7 +242,7 @@ impl ExternalTexture for ImageExternalTexture {
                         origin: wgpu::Origin3d::ZERO,
                         aspect: wgpu::TextureAspect::All,
                     },
-                    &self.rgba_image,
+                    &rgba_image,
                     wgpu::TexelCopyBufferLayout {
                         offset: 0,
                         bytes_per_row: Some(4 * width),

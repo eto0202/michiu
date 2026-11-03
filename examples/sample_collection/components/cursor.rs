@@ -4,6 +4,7 @@ use crate::{
 };
 use michiu::prelude::*;
 use michiu::ui::GlobalCursorIcon;
+use windows::Win32::UI::WindowsAndMessaging::HCURSOR;
 
 pub fn container() -> Entity {
     v_flex(ii().gap(20.0).p(16.0)).children([
@@ -93,8 +94,8 @@ fn custom_container() -> Entity {
         "/sample_collection/assets/cursor_grabbing.png"
     );
 
-    let grab_icon = CursorIcon::create_from_path(grab_path, 16, 16).ok();
-    let grabbing_icon = CursorIcon::create_from_path(grabbing_path, 16, 16).ok();
+    let grab_icon = create_from_path(grab_path, 16, 16).ok();
+    let grabbing_icon = create_from_path(grabbing_path, 16, 16).ok();
 
     let wrapper = h_flex(
         ii().w_full()
@@ -115,4 +116,24 @@ fn custom_container() -> Entity {
             grabbing,
         ]),
     ])
+}
+
+/// Generates a custom `HCURSOR` with the specified hotspot coordinates based on the image file path.
+#[inline]
+pub fn create_from_path(
+    path: impl AsRef<std::path::Path>,
+    hotspot_x: u32,
+    hotspot_y: u32,
+) -> std::result::Result<HCURSOR, Box<dyn std::error::Error>> {
+    let img = image::open(path)?.to_rgba8();
+
+    let icon = CursorIcon::create_from_rgba(
+        img.as_raw(),
+        img.width(),
+        img.height(),
+        hotspot_x,
+        hotspot_y,
+    )?;
+
+    Ok(icon)
 }

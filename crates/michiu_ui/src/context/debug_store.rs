@@ -1641,13 +1641,6 @@ pub enum MichiuError {
         atlas_h: u32,
     },
 
-    #[error("Image '{path}' loading failed: {source}")]
-    ImageLoadFailed {
-        path: std::path::PathBuf,
-        #[source]
-        source: Arc<image::ImageError>,
-    },
-
     #[error("Failed to create custom cursor: {0}")]
     CursorCreationFailed(String),
 
