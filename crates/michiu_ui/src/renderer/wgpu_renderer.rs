@@ -172,7 +172,31 @@ impl WgpuRenderer {
     /// - [`MichiuError::CreateSurfaceError`]: Failed to create a surface from `visual` (e.g., invalid pointer or DirectComposition inconsistency).
     /// - [`MichiuError::RequestAdapterError`]: When a GPU (adapter) that meets the requirements cannot be found.
     /// - [`MichiuError::RequestDeviceError`]: When creating a logical device or queue fails (e.g., insufficient VRAM or driver crash).
+    #[inline]
     pub async unsafe fn new(
+        visual: *mut std::ffi::c_void, // wgpu ビジュアル (前面)
+        size: LayoutSize,
+        scale_factor: f32,
+    ) -> crate::Result<Self> {
+        unsafe {
+            Self::with_config(visual, size, scale_factor, RendererUserConfig::default()).await
+        }
+    }
+    /// Initializes wgpu.
+    ///
+    /// # Safety
+    ///
+    /// The caller must satisfy the following safety requirements:
+    /// - `visual` must be a raw pointer to a valid `IDCompositionVisual` (COM object).
+    /// - The object pointed to by `visual` must not be released or destroyed until the created instance is destroyed.。
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the initialization pipeline fails:
+    /// - [`MichiuError::CreateSurfaceError`]: Failed to create a surface from `visual` (e.g., invalid pointer or DirectComposition inconsistency).
+    /// - [`MichiuError::RequestAdapterError`]: When a GPU (adapter) that meets the requirements cannot be found.
+    /// - [`MichiuError::RequestDeviceError`]: When creating a logical device or queue fails (e.g., insufficient VRAM or driver crash).
+    pub async unsafe fn with_config(
         visual: *mut std::ffi::c_void, // wgpu ビジュアル (前面)
         size: LayoutSize,
         scale_factor: f32,

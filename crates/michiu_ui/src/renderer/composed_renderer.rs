@@ -181,18 +181,40 @@ impl MichiuRenderer {
         hwnd: HWND,
         window_size: LayoutSize,
         scale_factor: f32,
-        user_config: Option<RendererUserConfig>,
     ) -> crate::Result<Self> {
-        let user_config = user_config.unwrap_or_default();
+        Self::with_config(
+            hwnd,
+            window_size,
+            scale_factor,
+            RendererUserConfig::default(),
+        )
+        .await
+    }
+
+    /// Initialize the renderer.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if graphics initialization fails:
+    /// - **DirectComposition / D3D11 failure**: Failed to create the D3D11 device, or compositor resources (targets, visuals) could not be configured (e.g., unsupported GPU or invalid HWND).
+    /// - **WIC initialization failure**: Failed to instantiate the WIC imaging factory (e.g., COM is not initialized on this thread).
+    /// - **wgpu initialization failure**: Failed to request a suitable GPU adapter or create the logical device.
+    pub async fn with_config(
+        hwnd: HWND,
+        window_size: LayoutSize,
+        scale_factor: f32,
+        user_config: RendererUserConfig,
+    ) -> crate::Result<Self> {
         let sync = WindowSynchronizer::new(window_size, scale_factor);
         let platform = PlatformContext::new()?;
         let workspace = DCompWorkspace::new(hwnd, &platform.dcomp, user_config.target_layer)?;
 
         // wgpu レンダラーの初期化
         let raw_visual_ptr = workspace.wgpu_visual.as_raw();
-        let wgpu_renderer =
-            unsafe { WgpuRenderer::new(raw_visual_ptr, window_size, scale_factor, user_config) }
-                .await?;
+        let wgpu_renderer = unsafe {
+            WgpuRenderer::with_config(raw_visual_ptr, window_size, scale_factor, user_config)
+        }
+        .await?;
 
         platform.commit()?;
 

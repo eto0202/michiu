@@ -34,7 +34,6 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         handle.hwnd(),
         client_rect.cast(),
         scale_factor,
-        None,
     ))?;
 
     let inspector = MichiuInspector::new();

@@ -51,7 +51,6 @@
 //!     hwnd,
 //!     LayoutSize::new(600.0, 500.0),
 //!     scale_factor,
-//!     None,
 //! ))?;
 //!
 //! // 3. Initialize `Context`

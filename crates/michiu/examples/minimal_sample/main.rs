@@ -25,7 +25,6 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         handle.hwnd(),
         rect.cast(),
         scale_factor,
-        None,
     ))?;
 
     let (mut app, mut pump) = MichiuAppBuilder::new(window).build_with_ui(renderer, move || {
