@@ -5,10 +5,11 @@ use crate::{
     DndDropProperty, DndDropTarget, EdgeInsets, Entity, FlexDirection, FlexLayout, FlexWrap,
     FocusTrigger, Focusable, FontStyle, GlobalCursorIcon, InteractionName, InteractionStyles,
     IntoModConvert, IntoModCornerRadius, IntoModFamily, IntoModPoint, IntoModRect,
-    IntoModResizable, IntoModSize, IntoModValue, JustifyContent, KeyframeAnimation, LayoutOverflow,
-    LayoutPoint, Length, LineHeight, LinearGradient, MichiuSoA, Overflow, PointerEvents, Position,
-    PropertyList, Rect, ScrollbarDisplay, ScrollbarMode, ScrollbarStyle, TargetStyle, TextAlign,
-    Transform, Transition, UserSelect, Val, VisualProperty, auto, fill, pct,
+    IntoModResizable, IntoModSize, IntoModValue, IntoModWeight, JustifyContent, KeyframeAnimation,
+    LayoutOverflow, LayoutPoint, Length, LineHeight, LinearGradient, MichiuSoA, Overflow,
+    PointerEvents, Position, PropertyList, Rect, ScrollbarDisplay, ScrollbarMode, ScrollbarStyle,
+    TargetStyle, TextAlign, Transform, Transition, UserSelect, Val, VisualProperty, auto, fill,
+    pct,
 };
 use std::{sync::Arc, time::Duration};
 
@@ -5490,8 +5491,8 @@ impl Modifier {
     /// Default is 400
     #[inline]
     #[must_use]
-    pub fn font_weight(mut self, weight: impl IntoModValue<u16>) -> Self {
-        match weight.into_mod_value() {
+    pub fn font_weight(mut self, weight: impl IntoModWeight) -> Self {
+        match weight.into_mod_wight() {
             ModValue::Static(v) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.visual_property.font.weight = Some(v);

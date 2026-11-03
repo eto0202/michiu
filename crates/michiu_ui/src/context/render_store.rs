@@ -995,9 +995,9 @@ impl RenderStore {
         let target_text_color = target.text_color.unwrap_or(Color::WHITE);
         let text_color_changed = current.text_color != target_text_color;
 
-        let target_font_size = target.font.size.unwrap_or(16.0);
+        let target_font_size = target.font.size.unwrap_or(FontDate::FONT_SIZE);
         let target_font_family = target.font.family.clone();
-        let target_font_weight = target.font.weight.unwrap_or(400);
+        let target_font_weight = target.font.weight.unwrap_or_default();
         let target_font_style = target.font.style.unwrap_or_default();
         let target_auto_wrap = target.auto_wrap.unwrap_or(false);
 

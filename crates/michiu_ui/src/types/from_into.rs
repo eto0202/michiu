@@ -2,9 +2,10 @@
 
 use crate::{
     AlignContent, AlignItems, AlignSelf, Auto, BoxSizing, CornerRadius, Direction, Display, Entity,
-    FlexDirection, FlexWrap, FocusTrigger, Focusable, FontFamily, InputContents, JustifyContent,
-    LayoutOverflow, LayoutPoint, Length, LinearGradient, ModValue, Modifier, Overflow, Percent,
-    Pixel, Point, Position, Prop, ReadSignal, Rect, Size, Stretch, TextAlign, Transform, Val,
+    FlexDirection, FlexWrap, FocusTrigger, Focusable, FontFamily, FontWeight, InputContents,
+    JustifyContent, LayoutOverflow, LayoutPoint, Length, LinearGradient, ModValue, Modifier,
+    Overflow, Percent, Pixel, Point, Position, Prop, ReadSignal, Rect, Size, Stretch, TextAlign,
+    Transform, Val,
 };
 use std::borrow::Cow;
 use taffy::{ExpandedDimension, ExpandedLengthPercentage, ExpandedLengthPercentageAuto};
@@ -1115,71 +1116,167 @@ where
     }
 }
 
+pub trait IntoModWeight {
+    fn into_mod_wight(self) -> ModValue<FontWeight>;
+}
+
+impl IntoModWeight for ModValue<FontWeight> {
+    #[inline]
+    fn into_mod_wight(self) -> ModValue<FontWeight> {
+        self
+    }
+}
+
+impl IntoModWeight for FontWeight {
+    #[inline]
+    fn into_mod_wight(self) -> ModValue<FontWeight> {
+        ModValue::Static(self)
+    }
+}
+
+impl IntoModWeight for u16 {
+    #[inline]
+    fn into_mod_wight(self) -> ModValue<FontWeight> {
+        ModValue::Static(FontWeight(self))
+    }
+}
+
+impl IntoModWeight for u32 {
+    #[expect(clippy::cast_possible_truncation)]
+    #[inline]
+    fn into_mod_wight(self) -> ModValue<FontWeight> {
+        ModValue::Static(FontWeight(self as u16))
+    }
+}
+
+impl IntoModWeight for i16 {
+    #[inline]
+    fn into_mod_wight(self) -> ModValue<FontWeight> {
+        ModValue::Static(FontWeight(self.cast_unsigned()))
+    }
+}
+
+impl IntoModWeight for i32 {
+    #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    #[inline]
+    fn into_mod_wight(self) -> ModValue<FontWeight> {
+        ModValue::Static(FontWeight(self as u16))
+    }
+}
+
+impl IntoModWeight for ReadSignal<FontWeight> {
+    #[inline]
+    fn into_mod_wight(self) -> ModValue<FontWeight> {
+        ModValue::Dynamic(Box::new(move || self.get()))
+    }
+}
+
+impl IntoModWeight for ReadSignal<u16> {
+    #[inline]
+    fn into_mod_wight(self) -> ModValue<FontWeight> {
+        ModValue::Dynamic(Box::new(move || FontWeight(self.get())))
+    }
+}
+
+impl IntoModWeight for ReadSignal<u32> {
+    #[expect(clippy::cast_possible_truncation)]
+    #[inline]
+    fn into_mod_wight(self) -> ModValue<FontWeight> {
+        ModValue::Dynamic(Box::new(move || FontWeight(self.get() as u16)))
+    }
+}
+
+impl IntoModWeight for ReadSignal<i16> {
+    #[inline]
+    fn into_mod_wight(self) -> ModValue<FontWeight> {
+        ModValue::Dynamic(Box::new(move || FontWeight(self.get().cast_unsigned())))
+    }
+}
+
+impl IntoModWeight for ReadSignal<i32> {
+    #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    #[inline]
+    fn into_mod_wight(self) -> ModValue<FontWeight> {
+        ModValue::Dynamic(Box::new(move || FontWeight(self.get() as u16)))
+    }
+}
+
 pub trait IntoModFamily {
     fn into_mod_family(self) -> ModValue<FontFamily>;
 }
 
 impl IntoModFamily for ModValue<FontFamily> {
+    #[inline]
     fn into_mod_family(self) -> ModValue<FontFamily> {
         self
     }
 }
 
 impl IntoModFamily for FontFamily {
+    #[inline]
     fn into_mod_family(self) -> ModValue<FontFamily> {
         ModValue::Static(self)
     }
 }
 
 impl IntoModFamily for &'static str {
+    #[inline]
     fn into_mod_family(self) -> ModValue<FontFamily> {
         ModValue::Static(FontFamily::Name(self.into()))
     }
 }
 
 impl IntoModFamily for Cow<'static, str> {
+    #[inline]
     fn into_mod_family(self) -> ModValue<FontFamily> {
         ModValue::Static(FontFamily::Name(self))
     }
 }
 
 impl IntoModFamily for String {
+    #[inline]
     fn into_mod_family(self) -> ModValue<FontFamily> {
         ModValue::Static(FontFamily::Name(self.into()))
     }
 }
 
 impl IntoModFamily for ReadSignal<FontFamily> {
+    #[inline]
     fn into_mod_family(self) -> ModValue<FontFamily> {
         ModValue::Dynamic(Box::new(move || self.get()))
     }
 }
 
 impl IntoModFamily for ReadSignal<&'static str> {
+    #[inline]
     fn into_mod_family(self) -> ModValue<FontFamily> {
         ModValue::Dynamic(Box::new(move || FontFamily::Name(self.get().into())))
     }
 }
 
 impl IntoModFamily for ReadSignal<Cow<'static, str>> {
+    #[inline]
     fn into_mod_family(self) -> ModValue<FontFamily> {
         ModValue::Dynamic(Box::new(move || FontFamily::Name(self.get())))
     }
 }
 
 impl From<&'static str> for FontFamily {
+    #[inline]
     fn from(s: &'static str) -> Self {
         FontFamily::Name(Cow::Borrowed(s))
     }
 }
 
 impl From<String> for FontFamily {
+    #[inline]
     fn from(s: String) -> Self {
         FontFamily::Name(Cow::Owned(s))
     }
 }
 
 impl IntoModFamily for ReadSignal<String> {
+    #[inline]
     fn into_mod_family(self) -> ModValue<FontFamily> {
         ModValue::Dynamic(Box::new(move || FontFamily::Name(self.get().into())))
     }
@@ -1190,24 +1287,28 @@ pub trait IntoModCornerRadius {
 }
 
 impl IntoModCornerRadius for ModValue<CornerRadius> {
+    #[inline]
     fn into_mod_corner_radius(self) -> ModValue<CornerRadius> {
         self
     }
 }
 
 impl IntoModCornerRadius for CornerRadius {
+    #[inline]
     fn into_mod_corner_radius(self) -> ModValue<CornerRadius> {
         ModValue::Static(self)
     }
 }
 
 impl IntoModCornerRadius for f32 {
+    #[inline]
     fn into_mod_corner_radius(self) -> ModValue<CornerRadius> {
         ModValue::Static(self.into_corner_radius())
     }
 }
 
 impl IntoModCornerRadius for i32 {
+    #[inline]
     fn into_mod_corner_radius(self) -> ModValue<CornerRadius> {
         ModValue::Static(self.into_corner_radius())
     }
@@ -1217,6 +1318,7 @@ impl<V, H> IntoModCornerRadius for (V, H)
 where
     (V, H): IntoCornerRadius + Send + Sync + 'static,
 {
+    #[inline]
     fn into_mod_corner_radius(self) -> ModValue<CornerRadius> {
         ModValue::Static(self.into_corner_radius())
     }
@@ -1226,6 +1328,7 @@ impl<TL, TR, BR, BL> IntoModCornerRadius for (TL, TR, BR, BL)
 where
     (TL, TR, BR, BL): IntoCornerRadius + Send + Sync + 'static,
 {
+    #[inline]
     fn into_mod_corner_radius(self) -> ModValue<CornerRadius> {
         ModValue::Static(self.into_corner_radius())
     }

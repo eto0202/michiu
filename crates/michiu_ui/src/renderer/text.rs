@@ -113,7 +113,7 @@ impl TextEngine {
             default_attrs = default_attrs.family(family.as_family());
         }
         if let Some(weight) = font.weight {
-            default_attrs = default_attrs.weight(Weight(weight));
+            default_attrs = default_attrs.weight(weight.as_weight());
         }
         if let Some(style) = font.style {
             default_attrs = default_attrs.style(match style {
