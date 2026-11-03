@@ -28,7 +28,7 @@ fn role_group() -> Entity {
 
 fn role_button() -> Entity {
     flex(
-        ii().r(4.0)
+        ii().r(3.0)
             .p(8.0)
             .debug_border_yellow()
             .focusable_inherit_keyboard()
@@ -43,7 +43,7 @@ fn role_button() -> Entity {
 
 fn label_button() -> Entity {
     flex(
-        ii().r(4.0)
+        ii().r(3.0)
             .p(8.0)
             .debug_border_red()
             .focusable_inherit_keyboard()
@@ -74,7 +74,7 @@ fn tag_group() -> Entity {
 
 fn tag_button() -> Entity {
     flex(
-        ii().r(4.0)
+        ii().r(3.0)
             .p(8.0)
             .debug_border_green()
             .focusable_inherit_keyboard()
@@ -104,7 +104,7 @@ impl A11yInferenceTag for UserMichiuButton {
 
 fn user_tag_button() -> Entity {
     flex(
-        ii().r(4.0)
+        ii().r(3.0)
             .p(8.0)
             .debug_border_red()
             .focusable_inherit_keyboard()

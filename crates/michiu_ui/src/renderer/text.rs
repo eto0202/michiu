@@ -109,8 +109,8 @@ impl TextEngine {
         let mut buffer = Buffer::new(&mut self.font_system, metrics);
         let mut default_attrs = Attrs::new();
 
-        if let Some(family) = font.family.as_deref() {
-            default_attrs = default_attrs.family(Family::Name(family));
+        if let Some(ref family) = font.family {
+            default_attrs = default_attrs.family(family.as_family());
         }
         if let Some(weight) = font.weight {
             default_attrs = default_attrs.weight(Weight(weight));

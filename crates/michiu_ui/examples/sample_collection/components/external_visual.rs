@@ -4,7 +4,7 @@ use michiu_ui::{FocusTrigger, external_visual};
 use crate::{GitHubVisual, YouTubeVisual};
 
 pub fn container() -> Entity {
-    v_flex(ii().p(10.0).r(4.0).size_full()).child_d(|github: &GitHubVisual| webview2(github))
+    v_flex(ii().p(10.0).r(3.0).size_full()).child_d(|github: &GitHubVisual| webview2(github))
 }
 
 fn webview2(github: &GitHubVisual) -> Entity {
@@ -16,7 +16,7 @@ fn webview2(github: &GitHubVisual) -> Entity {
             let base = ii()
                 .size_full()
                 .focusable_self(FocusTrigger::Both)
-                .r(4.0)
+                .r(3.0)
                 .resizable_bottom(true)
                 .dnd_droppable(DndDropTarget::Child, DndDragMode::Interactive)
                 .overflow_hidden();
@@ -74,7 +74,7 @@ fn webview2(github: &GitHubVisual) -> Entity {
         .on_click(move || set_is_opacity.set(!is_opacity.get()));
 
     v_flex(
-        ii().r(4.0)
+        ii().r(3.0)
             .size_full()
             .gap(8.0)
             .justify_center()

@@ -2,7 +2,7 @@
 
 use crate::{
     AlignContent, AlignItems, AlignSelf, Auto, BoxSizing, CornerRadius, Direction, Display, Entity,
-    FlexDirection, FlexWrap, FocusTrigger, Focusable, InputContents, JustifyContent,
+    FlexDirection, FlexWrap, FocusTrigger, Focusable, FontFamily, InputContents, JustifyContent,
     LayoutOverflow, LayoutPoint, Length, LinearGradient, ModValue, Modifier, Overflow, Percent,
     Pixel, Point, Position, Prop, ReadSignal, Rect, Size, Stretch, TextAlign, Transform, Val,
 };
@@ -1112,6 +1112,76 @@ where
 {
     fn into_mod_point(self) -> ModValue<Point<T>> {
         ModValue::Static(self.into_point())
+    }
+}
+
+pub trait IntoModFamily {
+    fn into_mod_family(self) -> ModValue<FontFamily>;
+}
+
+impl IntoModFamily for ModValue<FontFamily> {
+    fn into_mod_family(self) -> ModValue<FontFamily> {
+        self
+    }
+}
+
+impl IntoModFamily for FontFamily {
+    fn into_mod_family(self) -> ModValue<FontFamily> {
+        ModValue::Static(self)
+    }
+}
+
+impl IntoModFamily for &'static str {
+    fn into_mod_family(self) -> ModValue<FontFamily> {
+        ModValue::Static(FontFamily::Name(self.into()))
+    }
+}
+
+impl IntoModFamily for Cow<'static, str> {
+    fn into_mod_family(self) -> ModValue<FontFamily> {
+        ModValue::Static(FontFamily::Name(self))
+    }
+}
+
+impl IntoModFamily for String {
+    fn into_mod_family(self) -> ModValue<FontFamily> {
+        ModValue::Static(FontFamily::Name(self.into()))
+    }
+}
+
+impl IntoModFamily for ReadSignal<FontFamily> {
+    fn into_mod_family(self) -> ModValue<FontFamily> {
+        ModValue::Dynamic(Box::new(move || self.get()))
+    }
+}
+
+impl IntoModFamily for ReadSignal<&'static str> {
+    fn into_mod_family(self) -> ModValue<FontFamily> {
+        ModValue::Dynamic(Box::new(move || FontFamily::Name(self.get().into())))
+    }
+}
+
+impl IntoModFamily for ReadSignal<Cow<'static, str>> {
+    fn into_mod_family(self) -> ModValue<FontFamily> {
+        ModValue::Dynamic(Box::new(move || FontFamily::Name(self.get())))
+    }
+}
+
+impl From<&'static str> for FontFamily {
+    fn from(s: &'static str) -> Self {
+        FontFamily::Name(Cow::Borrowed(s))
+    }
+}
+
+impl From<String> for FontFamily {
+    fn from(s: String) -> Self {
+        FontFamily::Name(Cow::Owned(s))
+    }
+}
+
+impl IntoModFamily for ReadSignal<String> {
+    fn into_mod_family(self) -> ModValue<FontFamily> {
+        ModValue::Dynamic(Box::new(move || FontFamily::Name(self.get().into())))
     }
 }
 

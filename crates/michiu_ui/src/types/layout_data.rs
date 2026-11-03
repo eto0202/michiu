@@ -1,15 +1,12 @@
 use crate::{
     AlignContent, AlignItems, AlignSelf, Backdrop, BaseVisualPropertiesSecondary, BorderAlignment,
     BorderStyle, BoxShadow, BoxSizing, Color, ComponentMask, CornerRadius, CursorIcon, Direction,
-    Display, EdgeInsets, Entity, FlexDirection, FlexWrap, Focusable, FontDate, FontStyle,
-    IDENTITY_MATRIX, JustifyContent, KeyframeAnimation, LayoutOverflow, Length, LinearGradient,
-    MichiuSoA, ModTarget, Modifier, Point, PointerEvents, Position, Rect, Size, TextAlign,
-    Transition, UserSelect, Val, VisualPropertiesSecondary,
+    Display, EdgeInsets, Entity, FlexDirection, FlexWrap, Focusable, FontDate, FontFamily,
+    FontStyle, IDENTITY_MATRIX, JustifyContent, KeyframeAnimation, LayoutOverflow, Length,
+    LinearGradient, MichiuSoA, ModTarget, Modifier, Point, PointerEvents, Position, Rect, Size,
+    TextAlign, Transition, UserSelect, Val, VisualPropertiesSecondary,
 };
-use std::{
-    borrow::Cow,
-    sync::{Arc, LazyLock},
-};
+use std::sync::{Arc, LazyLock};
 
 /// 要素がほぼ必ず持つ、基本のレイアウト情報。
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -265,7 +262,7 @@ pub(crate) struct CurrentStyle {
     pub(crate) shadow_params: BoxShadow,
     pub(crate) text_color: Color,
     pub(crate) font_size: f32,
-    pub(crate) font_family: Option<Cow<'static, str>>,
+    pub(crate) font_family: Option<FontFamily>,
     pub(crate) font_weight: u16,
     pub(crate) font_style: FontStyle,
     pub(crate) auto_wrap: bool,

@@ -19,7 +19,7 @@ fn wrapper_style() -> Modifier {
 
 fn item_style() -> Modifier {
     ii().p(12.0)
-        .r(4.0)
+        .r(3.0)
         .size((200.0, 100.0))
         .justify_center()
         .items_center()

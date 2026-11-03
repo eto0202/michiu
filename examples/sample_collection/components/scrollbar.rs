@@ -14,7 +14,7 @@ fn section_buttom() -> Entity {
 }
 
 fn scroll_container_1() -> Entity {
-    flex(ii().r(4.0).size(320.0).border_solid(1.0).overflow_scroll())
+    flex(ii().r(3.0).size(320.0).border_solid(1.0).overflow_scroll())
         .modify_d(|t: &Theme| {
             ii().border_color(t.border)
                 .scrollbar_always()
@@ -23,7 +23,7 @@ fn scroll_container_1() -> Entity {
                     ScrollbarStyle::new(8.0)
                         .v_thumb(
                             ii().m_y(8.0)
-                                .p_r(4.0)
+                                .p_r(3.0)
                                 .width(8.0)
                                 .r_full()
                                 .bg_color(t.accent)
@@ -43,7 +43,7 @@ fn scroll_container_1() -> Entity {
 }
 
 fn scroll_container_2() -> Entity {
-    flex(ii().r(4.0).size(320.0).border_solid(1.0).overflow_scroll())
+    flex(ii().r(3.0).size(320.0).border_solid(1.0).overflow_scroll())
         .modify_d(|t: &Theme| {
             ii().border_color(t.border)
                 .scrollbar_always()
@@ -68,7 +68,7 @@ fn scroll_container_2() -> Entity {
 }
 
 fn scroll_container_3() -> Entity {
-    flex(ii().r(4.0).size(320.0).border_solid(1.0).overflow_scroll())
+    flex(ii().r(3.0).size(320.0).border_solid(1.0).overflow_scroll())
         .modify_d(|t: &Theme| {
             ii().border_color(t.border)
                 .scrollbar_auto()
@@ -77,7 +77,7 @@ fn scroll_container_3() -> Entity {
                     ScrollbarStyle::new(8.0)
                         .v_thumb(
                             ii().m_y(8.0)
-                                .p_r(4.0)
+                                .p_r(3.0)
                                 .width(8.0)
                                 .r_full()
                                 .bg_color(t.accent)
@@ -97,7 +97,7 @@ fn scroll_container_3() -> Entity {
 }
 
 fn scroll_container_4() -> Entity {
-    flex(ii().r(4.0).size(320.0).border_solid(1.0).overflow_scroll())
+    flex(ii().r(3.0).size(320.0).border_solid(1.0).overflow_scroll())
         .modify_d(|t: &Theme| {
             ii().border_color(t.border)
                 .scrollbar_transient()
@@ -106,7 +106,7 @@ fn scroll_container_4() -> Entity {
                     ScrollbarStyle::new(8.0)
                         .v_thumb(
                             ii().m_y(8.0)
-                                .p_r(4.0)
+                                .p_r(3.0)
                                 .width(8.0)
                                 .r_full()
                                 .bg_color(t.accent)
@@ -126,10 +126,10 @@ fn scroll_container_4() -> Entity {
 }
 
 fn scroll_item(label: &'static str) -> Entity {
-    flex(ii().r(4.0).p(16.0).size(500.0).shrink_0().justify_center()).child(
+    flex(ii().r(3.0).p(16.0).size(500.0).shrink_0().justify_center()).child(
         flex(
             ii().justify_center()
-                .r(4.0)
+                .r(3.0)
                 .size_full()
                 .bg_color(dynamic(|t: &Theme| t.background_hover)),
         )

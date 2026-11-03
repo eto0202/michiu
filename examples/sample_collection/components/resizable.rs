@@ -2,7 +2,7 @@ use crate::app::theme::Theme;
 use michiu::prelude::*;
 
 pub fn container() -> Entity {
-    v_flex(ii().gap(16.0).p(16.0).r(4.0))
+    v_flex(ii().gap(16.0).p(16.0).r(3.0))
         .children([all_section_relative().child(all_section_absolute())])
 }
 
@@ -13,7 +13,7 @@ fn all_section_relative() -> Entity {
     // ここでは見本として一つずつ設定する
     let layout = ii()
         .p(16.0)
-        .r(4.0)
+        .r(3.0)
         .size(400.0)
         .resizable_top(true)
         .resizable_right(true)
@@ -41,7 +41,7 @@ fn all_section_absolute() -> Entity {
         .left(50.0)
         .size(200.0)
         .p(16.0)
-        .r(4.0)
+        .r(3.0)
         .border_solid(1.0)
         .overflow_hidden();
 

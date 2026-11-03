@@ -9,7 +9,7 @@ use std::{path::Path, sync::OnceLock};
 use tiff_reader::TiffFile;
 
 pub fn container() -> Entity {
-    v_flex(ii().gap(16.0).p(16.0).r(4.0).size_full()).children([image_list()])
+    v_flex(ii().gap(16.0).p(16.0).r(3.0).size_full()).children([image_list()])
 }
 
 fn image_list() -> Entity {
@@ -48,7 +48,7 @@ fn image_list() -> Entity {
     let thumbnail = |screen_shot: ImageExternalTexture| {
         external_texture(screen_shot.clone())
             .modify(
-                ii().r(4.0)
+                ii().r(3.0)
                     .size((size.width / 7.0, size.height / 7.0))
                     .hovered(
                         ii().outline_solid(2.0)

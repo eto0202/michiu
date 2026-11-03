@@ -7,7 +7,7 @@ pub fn container() -> Entity {
         ii().gap(16.0)
             .size_full()
             .p(16.0)
-            .r(4.0)
+            .r(3.0)
             .dnd_droppable(DndDropTarget::Child, DndDragMode::Interactive)
             .dnd_drag_over(ii().bg_color(dynamic(|t: &Theme| t.background_hover))),
     )
@@ -23,7 +23,7 @@ fn section_draggable(parent_id: Entity) -> Entity {
     // 静的レイアウトスタイル
     let layout = ii()
         .p(16.0)
-        .r(4.0)
+        .r(3.0)
         .absolute()
         .top(50.0)
         .left(50.0)
@@ -52,7 +52,7 @@ fn item_draggable(parent_id: Entity) -> Entity {
 
     let layout = ii()
         .p(16.0)
-        .r(4.0)
+        .r(3.0)
         .absolute()
         .top(50.0)
         .left(50.0)

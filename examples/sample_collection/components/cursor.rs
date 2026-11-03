@@ -26,7 +26,7 @@ fn item(label: &'static str, style: Modifier) -> Entity {
     flex(
         style
             .p(10.0)
-            .r(4.0)
+            .r(3.0)
             .size((150.0, 60.0))
             .justify_center()
             .items_center()
@@ -71,7 +71,7 @@ fn global_container() -> Entity {
         ii().w_full()
             .gap((20.0, 10.0))
             .p(8.0)
-            .r(4.0)
+            .r(3.0)
             .border_color(dynamic(|t: &Theme| t.border))
             .border_solid(1.0)
             .cursor_global_pointer(),
@@ -100,7 +100,7 @@ fn custom_container() -> Entity {
         ii().w_full()
             .gap((20.0, 10.0))
             .p(8.0)
-            .r(4.0)
+            .r(3.0)
             .border_color(dynamic(|t: &Theme| t.border))
             .border_solid(1.0)
             .cursor_global(GlobalCursorIcon::Grab(grab_icon)),
@@ -111,7 +111,7 @@ fn custom_container() -> Entity {
     v_flex(section_style()).children([
         section_title("Custom Cursor"),
         wrapper.children([
-            flex(ii().p(10.0).r(4.0).justify_center().items_center()).label("Grab", label_style()),
+            flex(ii().p(10.0).r(3.0).justify_center().items_center()).label("Grab", label_style()),
             grabbing,
         ]),
     ])

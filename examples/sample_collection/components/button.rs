@@ -23,7 +23,7 @@ fn wrapper_style() -> Modifier {
 
 fn item_style() -> Modifier {
     ii().p(12.0)
-        .r(4.0)
+        .r(3.0)
         .size((120.0, 70.0))
         .justify_center()
         .items_center()
@@ -144,7 +144,7 @@ fn hovered_btn() -> Entity {
     h_flex(
         item_style()
             .shadow_color(Color::BLACK)
-            .shadow_blur(4.0)
+            .shadow_blur(3.0)
             .shadow_offset(0.0)
             .shadow_spread(1.0)
             .hovered(ii().shadow_blur(8.0)),
@@ -155,7 +155,7 @@ fn hovered_btn() -> Entity {
 fn pressed_btn() -> Entity {
     h_flex(
         ii().p(12.0)
-            .r(4.0)
+            .r(3.0)
             .size((120.0, 70.0))
             .justify_center()
             .items_center()
@@ -238,7 +238,7 @@ pub fn selected_btn() -> Entity {
 }
 
 fn transition_btn(ms: u64, label_text: &'static str) -> Entity {
-    h_flex(item_style().box_shadow(shadow().blur(4.0).color(Color::BLACK).spread(1.0))).child(
+    h_flex(item_style().box_shadow(shadow().blur(3.0).color(Color::BLACK).spread(1.0))).child(
         h_flex(
             ii().w_full()
                 .p_y(4.0)

@@ -3,14 +3,14 @@ use crate::{
     BorderStyle, BoxShadow, BoxSizing, Color, ComponentMask, Context, Convert, CornerRadius,
     CursorIcon, Direction, Display, DndDragMode, DndDragPlaceholderParent, DndDragProperty,
     DndDropProperty, DndDropTarget, EdgeInsets, Entity, FlexDirection, FlexLayout, FlexWrap,
-    FocusTrigger, Focusable, LineHeight, FontStyle, GlobalCursorIcon, InteractionName,
-    InteractionStyles, IntoModConvert, IntoModCornerRadius, IntoModPoint, IntoModRect,
+    FocusTrigger, Focusable, FontStyle, GlobalCursorIcon, InteractionName, InteractionStyles,
+    IntoModConvert, IntoModCornerRadius, IntoModFamily, IntoModPoint, IntoModRect,
     IntoModResizable, IntoModSize, IntoModValue, JustifyContent, KeyframeAnimation, LayoutOverflow,
-    LayoutPoint, Length, LinearGradient, MichiuSoA, Overflow, PointerEvents, Position,
+    LayoutPoint, Length, LineHeight, LinearGradient, MichiuSoA, Overflow, PointerEvents, Position,
     PropertyList, Rect, ScrollbarDisplay, ScrollbarMode, ScrollbarStyle, TargetStyle, TextAlign,
     Transform, Transition, UserSelect, Val, VisualProperty, auto, fill, pct,
 };
-use std::{borrow::Cow, sync::Arc, time::Duration};
+use std::{sync::Arc, time::Duration};
 
 // スレッド安全な動的クロージャをサポートする `ModValue` の定義
 pub enum ModValue<T> {
@@ -5465,8 +5465,8 @@ impl Modifier {
     /// Default is [`cosmic_text::Family::SansSerif`]
     #[inline]
     #[must_use]
-    pub fn font_family(mut self, family: impl IntoModValue<Cow<'static, str>>) -> Self {
-        match family.into_mod_value() {
+    pub fn font_family(mut self, family: impl IntoModFamily) -> Self {
+        match family.into_mod_family() {
             ModValue::Static(v) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.visual_property.font.family = Some(v);

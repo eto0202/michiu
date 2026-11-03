@@ -33,7 +33,7 @@ fn common_inner() -> [Entity; 9] {
     let inner = |label: &'static str| {
         flex(
             ii().border_solid(1.0)
-                .r(4.0)
+                .r(3.0)
                 .size((80.0, 40.0))
                 .shrink_0()
                 .justify_center()
@@ -52,7 +52,7 @@ fn common_inner() -> [Entity; 9] {
         inner("4"),
         flex(
             ii().border_solid(1.0)
-                .r(4.0)
+                .r(3.0)
                 .min_size((80.0, 40.0))
                 .justify_center()
                 .align_self(dynamic(|f: &AlignSelf| (*f).into()))
@@ -87,7 +87,7 @@ fn main_aria() -> Entity {
             )
             .modify_d(|t: &Theme| {
                 ii().p(8.0)
-                    .r(4.0)
+                    .r(3.0)
                     .min_size((400.0, 200.0))
                     .max_size((950.0, 400.0))
                     .resizable_right(true)
@@ -143,7 +143,7 @@ fn table() -> Entity {
         .bg_color(dynamic(|t: &Theme| t.background_hover));
 
     h_flex_d(|t: &Theme| {
-        ii().r(4.0)
+        ii().r(3.0)
             .justify_evenly()
             .border_dashed(1.0)
             .border_color(t.border)
