@@ -122,6 +122,9 @@ impl TextEngine {
                 FontStyle::Normal => Style::Normal,
             });
         }
+        if let Some(spacing) = font.spacing {
+            default_attrs = default_attrs.letter_spacing(spacing.0);
+        }
 
         let align = Self::map_to_align(text_align);
 

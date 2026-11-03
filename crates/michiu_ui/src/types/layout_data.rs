@@ -3,8 +3,8 @@ use crate::{
     BorderStyle, BoxShadow, BoxSizing, Color, ComponentMask, CornerRadius, CursorIcon, Direction,
     Display, EdgeInsets, Entity, FlexDirection, FlexWrap, Focusable, FontDate, FontFamily,
     FontStyle, FontWeight, IDENTITY_MATRIX, JustifyContent, KeyframeAnimation, LayoutOverflow,
-    Length, LinearGradient, MichiuSoA, ModTarget, Modifier, Point, PointerEvents, Position, Rect,
-    Size, TextAlign, Transition, UserSelect, Val, VisualPropertiesSecondary,
+    Length, LetterSpacing, LinearGradient, MichiuSoA, ModTarget, Modifier, Point, PointerEvents,
+    Position, Rect, Size, TextAlign, Transition, UserSelect, Val, VisualPropertiesSecondary,
 };
 use std::sync::{Arc, LazyLock};
 
@@ -265,6 +265,7 @@ pub(crate) struct CurrentStyle {
     pub(crate) font_family: Option<FontFamily>,
     pub(crate) font_weight: FontWeight,
     pub(crate) font_style: FontStyle,
+    pub(crate) spacing: LetterSpacing,
     pub(crate) auto_wrap: bool,
     pub(crate) pointer_events: PointerEvents,
 }
@@ -287,6 +288,7 @@ impl Default for CurrentStyle {
             font_family: None,
             font_weight: FontWeight::default(),
             font_style: FontStyle::default(),
+            spacing: LetterSpacing::default(),
             auto_wrap: false,
             pointer_events: PointerEvents::default(),
         }
@@ -448,6 +450,7 @@ impl VisualProperty {
                 font_family: v.font.family.clone(),
                 font_weight: v.font.weight.unwrap_or_default(),
                 font_style: v.font.style.unwrap_or_default(),
+                spacing: v.font.spacing.unwrap_or_default(),
                 auto_wrap: v.auto_wrap.unwrap_or(false),
                 pointer_events: v.pointer_events.unwrap_or_default(),
             })

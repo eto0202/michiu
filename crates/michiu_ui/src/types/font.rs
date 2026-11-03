@@ -9,6 +9,7 @@ pub struct FontDate {
     pub family: Option<FontFamily>,
     pub weight: Option<FontWeight>,
     pub style: Option<FontStyle>,
+    pub spacing: Option<LetterSpacing>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
@@ -55,6 +56,7 @@ impl Default for FontWeight {
     }
 }
 impl FontWeight {
+    #[inline]
     pub(crate) fn as_weight(self) -> Weight {
         Weight(self.0)
     }
@@ -80,7 +82,7 @@ impl FontWeight {
 
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
 pub enum LineHeight {
-    Value(f32),
+    Fixed(f32),
     Factor(f32),
 }
 impl Default for LineHeight {
@@ -94,10 +96,21 @@ impl LineHeight {
     #[inline]
     pub(crate) fn clac_height(self, font_size: f32) -> f32 {
         match self {
-            LineHeight::Value(v) => v,
+            LineHeight::Fixed(v) => v,
             LineHeight::Factor(f) => font_size * f,
         }
     }
+}
+
+#[derive(Clone, Copy, PartialOrd, PartialEq, Debug)]
+pub struct LetterSpacing(pub f32);
+impl Default for LetterSpacing {
+    fn default() -> Self {
+        Self::DEFAULT
+    }
+}
+impl LetterSpacing {
+    pub const DEFAULT: Self = Self(0.0);
 }
 
 impl Default for FontDate {
@@ -108,6 +121,7 @@ impl Default for FontDate {
             family: None,
             weight: None,
             style: None,
+            spacing: None,
         }
     }
 }

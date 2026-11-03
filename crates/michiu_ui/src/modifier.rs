@@ -5,11 +5,11 @@ use crate::{
     DndDropProperty, DndDropTarget, EdgeInsets, Entity, FlexDirection, FlexLayout, FlexWrap,
     FocusTrigger, Focusable, FontStyle, GlobalCursorIcon, InteractionName, InteractionStyles,
     IntoModConvert, IntoModCornerRadius, IntoModFamily, IntoModPoint, IntoModRect,
-    IntoModResizable, IntoModSize, IntoModValue, IntoModWeight, JustifyContent, KeyframeAnimation,
-    LayoutOverflow, LayoutPoint, Length, LineHeight, LinearGradient, MichiuSoA, Overflow,
-    PointerEvents, Position, PropertyList, Rect, ScrollbarDisplay, ScrollbarMode, ScrollbarStyle,
-    TargetStyle, TextAlign, Transform, Transition, UserSelect, Val, VisualProperty, auto, fill,
-    pct,
+    IntoModResizable, IntoModSize, IntoModSpacing, IntoModValue, IntoModWeight, JustifyContent,
+    KeyframeAnimation, LayoutOverflow, LayoutPoint, Length, LineHeight, LinearGradient, MichiuSoA,
+    Overflow, PointerEvents, Position, PropertyList, Rect, ScrollbarDisplay, ScrollbarMode,
+    ScrollbarStyle, TargetStyle, TextAlign, Transform, Transition, UserSelect, Val, VisualProperty,
+    auto, fill, pct,
 };
 use std::{sync::Arc, time::Duration};
 
@@ -5579,6 +5579,34 @@ impl Modifier {
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
                     cx.get_visual_property_mut(id, target).font.style = Some(val);
+                    cx.mark_render_dirty(id);
+                }));
+            }
+        }
+        self
+    }
+
+    /// Sets the letter spacing.
+    ///
+    /// This is a relative value that scales with the font size.
+    /// For example, when the font size is 16px, 0.1 equals a width of 1.6px.
+    ///
+    /// Default is 0.0
+    #[inline]
+    #[must_use]
+    pub fn letter_spacing(mut self, spacing: impl IntoModSpacing) -> Self {
+        match spacing.into_mod_spacing() {
+            ModValue::Static(v) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.visual_property.font.spacing = Some(v);
+                inner.mask.set(ComponentMask::STYLE_FONT_SIZE);
+            }
+            ModValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(ComponentMask::STYLE_FONT_SIZE);
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
+                    let val = getter();
+                    cx.get_visual_property_mut(id, target).font.spacing = Some(val);
                     cx.mark_render_dirty(id);
                 }));
             }

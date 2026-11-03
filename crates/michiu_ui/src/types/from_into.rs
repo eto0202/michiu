@@ -3,9 +3,9 @@
 use crate::{
     AlignContent, AlignItems, AlignSelf, Auto, BoxSizing, CornerRadius, Direction, Display, Entity,
     FlexDirection, FlexWrap, FocusTrigger, Focusable, FontFamily, FontWeight, InputContents,
-    JustifyContent, LayoutOverflow, LayoutPoint, Length, LinearGradient, ModValue, Modifier,
-    Overflow, Percent, Pixel, Point, Position, Prop, ReadSignal, Rect, Size, Stretch, TextAlign,
-    Transform, Val,
+    JustifyContent, LayoutOverflow, LayoutPoint, Length, LetterSpacing, LinearGradient, ModValue,
+    Modifier, Overflow, Percent, Pixel, Point, Position, Prop, ReadSignal, Rect, Size, Stretch,
+    TextAlign, Transform, Val,
 };
 use std::borrow::Cow;
 use taffy::{ExpandedDimension, ExpandedLengthPercentage, ExpandedLengthPercentageAuto};
@@ -1198,6 +1198,45 @@ impl IntoModWeight for ReadSignal<i32> {
     #[inline]
     fn into_mod_wight(self) -> ModValue<FontWeight> {
         ModValue::Dynamic(Box::new(move || FontWeight(self.get() as u16)))
+    }
+}
+
+pub trait IntoModSpacing {
+    fn into_mod_spacing(self) -> ModValue<LetterSpacing>;
+}
+
+impl IntoModSpacing for ModValue<LetterSpacing> {
+    #[inline]
+    fn into_mod_spacing(self) -> ModValue<LetterSpacing> {
+        self
+    }
+}
+
+impl IntoModSpacing for LetterSpacing {
+    #[inline]
+    fn into_mod_spacing(self) -> ModValue<LetterSpacing> {
+        ModValue::Static(self)
+    }
+}
+
+impl IntoModSpacing for f32 {
+    #[inline]
+    fn into_mod_spacing(self) -> ModValue<LetterSpacing> {
+        ModValue::Static(LetterSpacing(self))
+    }
+}
+
+impl IntoModSpacing for ReadSignal<LetterSpacing> {
+    #[inline]
+    fn into_mod_spacing(self) -> ModValue<LetterSpacing> {
+        ModValue::Dynamic(Box::new(move || self.get()))
+    }
+}
+
+impl IntoModSpacing for ReadSignal<f32> {
+    #[inline]
+    fn into_mod_spacing(self) -> ModValue<LetterSpacing> {
+        ModValue::Dynamic(Box::new(move || LetterSpacing(self.get())))
     }
 }
 

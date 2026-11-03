@@ -999,12 +999,14 @@ impl RenderStore {
         let target_font_family = target.font.family.clone();
         let target_font_weight = target.font.weight.unwrap_or_default();
         let target_font_style = target.font.style.unwrap_or_default();
+        let target_spacing = target.font.spacing.unwrap_or_default();
         let target_auto_wrap = target.auto_wrap.unwrap_or(false);
 
         let font_changed = (current.font_size - target_font_size).abs() >= 0.01
             || current.font_family != target_font_family
             || current.font_weight != target_font_weight
             || current.font_style != target_font_style
+            || current.spacing != target_spacing
             || current.auto_wrap != target_auto_wrap;
 
         let target_pointer_events = target.pointer_events.unwrap_or_default();
