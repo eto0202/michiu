@@ -213,7 +213,7 @@ pub mod input_func;
 use crate::{
     BasicLayout, ComponentMask, Context, DebugStore, EffectCategory, ExternalTexture,
     ExternalVisual, IntoOptionProp, MichiuError, MichiuSoA, MichiuTrace, ModTarget, Modifier,
-    ReadSignal, ScrollBarState, ScrollbarDisplay, ScrollbarStyle, SystemStore, Val,
+    ReadSignal, ResultTraceExt, ScrollBarState, ScrollbarDisplay, ScrollbarStyle, SystemStore, Val,
     a11y::A11yInferenceTag, div_n, trace_error,
 };
 #[cfg(feature = "trace-lifecycle")]
@@ -408,6 +408,39 @@ impl Entity {
         with_context(|cx| {
             cx.provide::<T>(Some(self), read_signal);
         });
+        self
+    }
+
+    #[must_use]
+    #[inline]
+    pub fn load_font_data(self, data: Vec<u8>) -> Self {
+        with_context(|cx| cx.load_font_data(data));
+        self
+    }
+
+    #[must_use]
+    #[inline]
+    pub fn load_font_file<P>(self, path: P) -> Self
+    where
+        P: AsRef<std::path::Path>,
+    {
+        with_context(|cx| {
+            cx.load_font_file(path)
+                .map_err(move |e| MichiuError::LoadFontFileFailed {
+                    source: Arc::new(e),
+                })
+                .unwrap_or_trace(None, &mut cx.debug);
+        });
+        self
+    }
+
+    #[must_use]
+    #[inline]
+    pub fn load_fonts_dir<P>(self, path: P) -> Self
+    where
+        P: AsRef<std::path::Path>,
+    {
+        with_context(|cx| cx.load_fonts_dir(path));
         self
     }
 

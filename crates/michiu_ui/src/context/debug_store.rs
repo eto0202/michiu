@@ -1681,6 +1681,12 @@ pub enum MichiuError {
         source: Arc<notify::Error>,
     },
 
+    #[error("failed to load file: {source}")]
+    LoadFontFileFailed {
+        #[source]
+        source: Arc<std::io::Error>,
+    },
+
     #[error("failed to send task: the main thread has been terminated (receiver disconnected)")]
     SendError,
 }

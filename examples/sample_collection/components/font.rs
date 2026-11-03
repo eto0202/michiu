@@ -76,8 +76,8 @@ fn style_section() -> Entity {
     )
 }
 
-fn item_family(s: &'static str, f: impl IntoModFamily) -> Entity {
-    text(s).modify(base_m().font_family(f).font_size(24.0))
+fn item_family(s: &'static str, family: impl IntoModFamily) -> Entity {
+    text(s).modify(base_m().font_family(family).font_size(24.0))
 }
 
 fn family_section() -> Entity {
@@ -146,5 +146,26 @@ fn spacing_section() -> Entity {
 }
 
 fn font_file_section() -> Entity {
-    section("Font File", [div_n()])
+    // https://fonts.google.com/icons?icon.size=24&icon.color=%23e3e3e3
+    // https://github.com/google/material-design-icons/blob/master/variablefont/MaterialSymbolsOutlined[FILL%2CGRAD%2Copsz%2Cwght].ttf
+
+    let path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/sample_collection/assets/MaterialSymbolsOutlined.ttf"
+    );
+
+    let family = "Material Symbols Outlined";
+
+    section(
+        "Family",
+        [
+            item_family("search", family),
+            item_family("home", family),
+            item_family("settings", family),
+            item_family("check_box", family),
+            item_family("favorite", family),
+            item_family("star", family),
+        ],
+    )
+    .load_font_file(path)
 }
