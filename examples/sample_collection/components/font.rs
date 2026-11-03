@@ -3,7 +3,7 @@ use michiu::{
     prelude::*,
     ui::{
         FontFamily, FontStyle, FontWeight, IntoModFamily, IntoModSpacing, IntoModWeight,
-        LetterSpacing, LineHeight,
+        LetterSpacing,
     },
 };
 
@@ -55,7 +55,7 @@ fn size_section() -> Entity {
             item("12.0", 12.0),
             item("16.0", 16.0), // Default
             item("20.0", 20.0),
-            item("24.0", 25.0),
+            item("24.0", 24.0),
             item("28.0", 28.0),
             item("32.0", 32.0),
         ],
@@ -157,7 +157,7 @@ fn font_file_section() -> Entity {
     let family = "Material Symbols Outlined";
 
     section(
-        "Family",
+        "Font File (Icon Font)",
         [
             item_family("search", family),
             item_family("home", family),
