@@ -252,18 +252,15 @@ pub use michiu_guard as guard;
 #[doc(inline)]
 pub use michiu_window as window;
 
-#[doc(hidden)]
 pub mod prelude {
     pub use crate::guard::{Unvalidated, Validate, Validated};
     pub use crate::ui::prelude::*;
     pub use crate::window::prelude::*;
     pub use crate::*;
 }
-#[doc(hidden)]
 pub mod accessibility {
     pub use crate::ui::accessibility::*;
 }
-#[doc(hidden)]
 pub mod config {
     pub use crate::ui::config::*;
 }
