@@ -1,3 +1,10 @@
+## [unreleased]
+
+### 🚀 Features
+
+- _(michiu_window)_ Implement file open and save dialogs.
+  - Add `open_file_dialog` and `save_file_dialog` to `FileDialog`, `WindowHandle`, and `MichiuWindow`.
+
 ## [0.2.1] - 2026-11-04
 
 ### 🐛 Bug Fixes
