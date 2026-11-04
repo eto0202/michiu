@@ -712,7 +712,8 @@ pub enum RenderStage {
 #[derive(Debug, Clone)]
 pub struct RendererViewTrace {
     pub render_data: RenderData,
-    pub atlas: TextureAtlas,
+    pub mask_atlas: TextureAtlas,
+    pub color_atlas: TextureAtlas,
     pub text_cache: FxHashMap<TextCacheKey, TextCacheValue>,
     pub queue: wgpu::Queue,
 }
@@ -1012,7 +1013,7 @@ macro_rules! trace_entity {
 macro_rules! flush_trace {
     ($cx:expr, $r:expr) => {
         let _: &Context = $cx;
-        let _: &ComposedRenderer = $r;
+        let _: &MichiuRenderer = $r;
 
         if let Some(ref tx) = $cx.debug.dbg_tx.clone() {
             $cx.debug.frame += 1;
@@ -1029,8 +1030,9 @@ macro_rules! flush_trace {
                 ))),
             };
             $cx.debug.dbg_trace_queue.push(record);
-            let batch = $cx.debug.take_trace_queue();
-            tx.send_batch(batch);
+            if let Some(batch) = $cx.debug.take_trace_queue() {
+                tx.send_batch(batch);
+            }
         }
     };
 }
@@ -1246,10 +1248,10 @@ pub struct WgpuRendererSnapshot {
     pub config_buffer: wgpu::Buffer,
     pub config_bind_group: wgpu::BindGroup,
     pub config_bind_group_layout: wgpu::BindGroupLayout,
-    pub atlas: TextureAtlas,
+    pub mask_atlas: TextureAtlas,
+    pub color_atlas: TextureAtlas,
     pub temp_uv_map: SecondaryMap<Entity, [f32; 4]>,
     pub text_cache: FxHashMap<TextCacheKey, TextCacheValue>,
-    pub webview_static_caches: FxHashMap<Entity, wgpu::TextureView>,
     pub render_data: RenderData,
     pub external_bind_groups: FxHashMap<Entity, (wgpu::TextureView, wgpu::BindGroup)>,
 }
@@ -1257,19 +1259,35 @@ pub struct WgpuRendererSnapshot {
 #[derive(Clone)]
 pub struct ComposedRendererSnapshot {
     pub hwnd: usize,
-    pub layout_size: LayoutSize,
+    pub sync: WindowSynchronizerSnapshot,
+    pub platform: PlatformContextSnapshot,
+    pub workspace: DCompWorkspaceSnapshot,
+    pub current_backdrop: Backdrop,
+}
+
+#[derive(Clone)]
+pub struct WindowSynchronizerSnapshot {
+    pub window_size: LayoutSize,
     pub scale_factor: f32,
-    pub wic_factory: usize,
-    pub dcomp_device: usize,
-    pub dcomp_target: usize,
+    pub resize_cooldown_frames: u32,
+}
+
+#[derive(Clone)]
+pub struct PlatformContextSnapshot {
+    pub d3d11: usize,
+    pub dcomp: usize,
+    pub compositor: usize,
+    pub wic: usize,
+    pub controller: usize,
+}
+
+#[derive(Clone)]
+pub struct DCompWorkspaceSnapshot {
+    pub target: usize,
     pub root_visual: usize,
     pub wgpu_visual: usize,
-    pub webview_env: Option<usize>,
     pub promoted_visuals: Vec<PromotedVisualSnapshot>,
-    pub pending_removals: Vec<(Entity, Option<wgpu::Texture>, Option<MichiuError>)>,
-    pub pending_dcomp_releases: Vec<PendingDcompRelease>,
-    pub current_backdrop: Backdrop,
-    pub resize_cooldown_frames: u32,
+    pub pending_releases: Vec<PendingDcompRelease>,
 }
 
 #[derive(Debug, Clone)]
@@ -1277,8 +1295,6 @@ pub struct PromotedVisualSnapshot {
     pub entity_id: Entity,
     pub visual: usize,
     pub transform: Option<usize>,
-    pub webview_controller: Option<usize>,
-    pub is_capturing: bool,
     pub is_visible: bool,
 }
 
@@ -1373,12 +1389,10 @@ impl ContextSnapshot {
                 lay_taffy_nodes: cx.layouts.lay_taffy_nodes.clone(),
                 lay_basic: cx.layouts.lay_basic.clone(),
                 lay_flex: cx.layouts.lay_flex.clone(),
-                lay_grid: cx.layouts.lay_grid.clone(),
                 lay_base_basic: cx.layouts.lay_base_basic.clone(),
                 lay_base_flex: cx.layouts.lay_base_flex.clone(),
                 lay_resolved_basic: cx.layouts.lay_resolved_basic.clone(),
                 lay_resolved_flex: cx.layouts.lay_resolved_flex.clone(),
-                lay_resolved_grid: cx.layouts.lay_resolved_grid.clone(),
             },
             renders: RenderStoreSnapshot {
                 rnd_dirty_entities: cx.renders.rnd_dirty_entities.clone(),
@@ -1406,7 +1420,7 @@ impl ContextSnapshot {
 #[cfg(feature = "snapshot")]
 impl RendererSnapshot {
     #[inline]
-    pub(crate) fn flush(cx: &Context, r: &ComposedRenderer) -> Self {
+    pub(crate) fn flush(cx: &Context, r: &MichiuRenderer) -> Self {
         Self {
             frame: cx.debug.frame,
             wgpu: WgpuRendererSnapshot {
@@ -1423,43 +1437,45 @@ impl RendererSnapshot {
                 config_buffer: r.wgpu_renderer.config_buffer.clone(),
                 config_bind_group: r.wgpu_renderer.config_bind_group.clone(),
                 config_bind_group_layout: r.wgpu_renderer.config_bind_group_layout.clone(),
-                atlas: r.wgpu_renderer.atlas.clone(),
+                mask_atlas: r.wgpu_renderer.mask_atlas.clone(),
+                color_atlas: r.wgpu_renderer.color_atlas.clone(),
                 temp_uv_map: r.wgpu_renderer.temp_uv_map.clone(),
                 text_cache: r.wgpu_renderer.text_cache.clone(),
-                webview_static_caches: r.wgpu_renderer.webview_static_caches.clone(),
                 render_data: r.wgpu_renderer.render_data.clone(),
                 external_bind_groups: r.wgpu_renderer.external_bind_groups.clone(),
             },
             dcomp: ComposedRendererSnapshot {
                 hwnd: r.hwnd.0 as usize,
-                layout_size: r.layout_size,
-                scale_factor: r.scale_factor,
-                wic_factory: r.wic_factory.as_raw() as usize,
-                dcomp_device: r.dcomp_device.as_raw() as usize,
-                dcomp_target: r.dcomp_target.as_raw() as usize,
-                root_visual: r.root_visual.as_raw() as usize,
-                wgpu_visual: r.wgpu_visual.as_raw() as usize,
-                webview_env: r.webview_env.borrow().as_ref().map(|w| w.as_raw() as usize),
-                promoted_visuals: r
-                    .promoted_visuals
-                    .iter()
-                    .map(|v| PromotedVisualSnapshot {
-                        entity_id: v.entity_id,
-                        visual: v.visual.as_raw() as usize,
-                        transform: v.transform.clone().map(|t| t.as_raw() as usize),
-                        webview_controller: v
-                            .webview_controller
-                            .borrow()
-                            .as_ref()
-                            .map(|w| w.as_raw() as usize),
-                        is_capturing: v.is_capturing,
-                        is_visible: v.is_visible,
-                    })
-                    .collect(),
-                pending_removals: r.pending_removals.borrow().clone(),
-                pending_dcomp_releases: r.pending_dcomp_releases.clone(),
+                sync: WindowSynchronizerSnapshot {
+                    window_size: r.sync.window_size,
+                    scale_factor: r.sync.scale_factor,
+                    resize_cooldown_frames: r.sync.resize_cooldown_frames,
+                },
+                platform: PlatformContextSnapshot {
+                    d3d11: r.platform.d3d11.as_raw() as usize,
+                    dcomp: r.platform.dcomp.as_raw() as usize,
+                    compositor: r.platform.compositor.as_raw() as usize,
+                    wic: r.platform.wic.as_raw() as usize,
+                    controller: r.platform.controller.as_raw() as usize,
+                },
+                workspace: DCompWorkspaceSnapshot {
+                    target: r.workspace.target.as_raw() as usize,
+                    root_visual: r.workspace.root_visual.as_raw() as usize,
+                    wgpu_visual: r.workspace.wgpu_visual.as_raw() as usize,
+                    promoted_visuals: r
+                        .workspace
+                        .promoted_visuals
+                        .iter()
+                        .map(|p| PromotedVisualSnapshot {
+                            entity_id: p.entity_id,
+                            visual: p.visual.as_raw() as usize,
+                            transform: p.transform.clone().map(|t| t.as_raw() as usize),
+                            is_visible: p.is_visible,
+                        })
+                        .collect(),
+                    pending_releases: r.workspace.pending_releases.clone(),
+                },
                 current_backdrop: r.current_backdrop,
-                resize_cooldown_frames: r.resize_cooldown_frames,
             },
         }
     }

@@ -1183,7 +1183,8 @@ impl Pipeline {
             stage: RenderStage::Start,
             data: Some(Arc::new(RendererViewTrace {
                 render_data: view.render_data.clone(),
-                atlas: view.atlas.clone(),
+                mask_atlas: view.mask_atlas.clone(),
+                color_atlas: view.color_atlas.clone(),
                 text_cache: view.text_cache.clone(),
                 queue: view.queue.clone()
             })),
@@ -1244,7 +1245,8 @@ impl Pipeline {
             stage: RenderStage::FirstGlyphsCache,
             data: Some(Arc::new(RendererViewTrace {
                 render_data: view.render_data.clone(),
-                atlas: view.atlas.clone(),
+                mask_atlas: view.mask_atlas.clone(),
+                color_atlas: view.color_atlas.clone(),
                 text_cache: view.text_cache.clone(),
                 queue: view.queue.clone()
             })),
@@ -1276,7 +1278,8 @@ impl Pipeline {
                 stage: RenderStage::FullGlyphsCache,
                 data: Some(Arc::new(RendererViewTrace {
                     render_data: view.render_data.clone(),
-                    atlas: view.atlas.clone(),
+                    mask_atlas: view.mask_atlas.clone(),
+                    color_atlas: view.color_atlas.clone(),
                     text_cache: view.text_cache.clone(),
                     queue: view.queue.clone()
                 })),
@@ -1656,7 +1659,8 @@ impl Pipeline {
             }),
             data: Some(Arc::new(RendererViewTrace {
                 render_data: view.render_data.clone(),
-                atlas: view.atlas.clone(),
+                mask_atlas: view.mask_atlas.clone(),
+                color_atlas: view.color_atlas.clone(),
                 text_cache: view.text_cache.clone(),
                 queue: view.queue.clone()
             })),
