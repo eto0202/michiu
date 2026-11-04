@@ -143,6 +143,13 @@ pub enum MichiuError {
         source: windows::core::Error,
     },
 
+    /// Failed to communicate with the UI thread.
+    #[error("Failed to communicate with the UI thread: {source}")]
+    UiDisconnected {
+        #[source]
+        source: std::sync::mpsc::RecvError,
+    },
+
     /// Aggregates events such as the failure of immutable conditions—which should never occur—and internal calculation overflows
     #[error("Internal error: {0}")]
     Internal(&'static str),

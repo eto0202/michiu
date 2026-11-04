@@ -1,42 +1,35 @@
-use crate::error::{MichiuError, Result};
-use crate::utils::{
-    get_window_ex_style, get_window_style, get_window_userdata_mut, round_to_i32,
-    set_window_ex_style, set_window_style, size_of_u32, take_window_userdata,
-};
-use crate::win32_ext::LParamExt;
 use crate::{
-    CursorIcon, FileDropTarget, ImeRelayServer, LogicalSize, MichiuTray, MichiuWindowBuilder,
-    PhysicalPoint, PhysicalSize, PreferredAppMode, WindowHandle, ZOrder, translate_and_dispatch,
+    CursorIcon, FileDialog, FileDropTarget, ImeRelayServer, LogicalSize, MichiuTray,
+    MichiuWindowBuilder, PhysicalPoint, PhysicalSize, PreferredAppMode, FileDialogOptions,
+    WindowHandle, ZOrder,
+    error::{MichiuError, Result},
+    translate_and_dispatch,
+    utils::{
+        get_window_ex_style, get_window_style, get_window_userdata_mut, round_to_i32,
+        set_window_ex_style, set_window_style, size_of_u32, take_window_userdata,
+    },
+    win32_ext::LParamExt,
 };
 use michiu_guard::{Unvalidated, Validated};
 use raw_window_handle::{
     DisplayHandle as RwhDisplayHandle, HandleError, HasDisplayHandle, HasWindowHandle,
     Win32WindowHandle, WindowHandle as RwhWindowHandle,
 };
-use std::{borrow::Cow, ffi::c_void, marker::PhantomData, num::NonZeroIsize, sync::Arc};
-use windows::Win32::Foundation::{FreeLibrary, GlobalFree};
-use windows::Win32::Graphics::Dwm::DwmFlush;
-use windows::Win32::Graphics::Gdi::{
-    BeginPaint, EndPaint, HDC, InvalidateRect, PAINTSTRUCT, UpdateWindow,
-};
-use windows::Win32::System::Memory::GlobalSize;
-use windows::Win32::UI::Shell::{DefSubclassProc, RemoveWindowSubclass};
-use windows::Win32::UI::WindowsAndMessaging::{
-    CS_DBLCLKS, HTCAPTION, HWND_BOTTOM, HWND_NOTOPMOST, HWND_TOPMOST, IDC_CROSS, IDC_HAND,
-    IDC_IBEAM, IDC_NO, IDC_SIZEALL, IDC_SIZENESW, IDC_SIZENS, IDC_SIZENWSE, IDC_SIZEWE, IDC_WAIT,
-    IsZoomed, PostQuitMessage, SW_MAXIMIZE, SW_MINIMIZE, SW_RESTORE, SetCursor, WM_NCLBUTTONDOWN,
+use std::{
+    borrow::Cow, ffi::c_void, marker::PhantomData, num::NonZeroIsize, path::PathBuf, sync::Arc,
 };
 use windows::{
     Win32::{
         Foundation::{
-            ERROR_CLASS_ALREADY_EXISTS, HANDLE, HGLOBAL, HINSTANCE, HWND, LPARAM, LRESULT, RECT,
-            WPARAM,
+            ERROR_CLASS_ALREADY_EXISTS, FreeLibrary, GlobalFree, HANDLE, HGLOBAL, HINSTANCE, HWND,
+            LPARAM, LRESULT, RECT, WPARAM,
         },
         Graphics::{
-            Dwm::{DWMWA_USE_IMMERSIVE_DARK_MODE, DwmSetWindowAttribute},
+            Dwm::{DWMWA_USE_IMMERSIVE_DARK_MODE, DwmFlush, DwmSetWindowAttribute},
             Gdi::{
-                GetMonitorInfoW, HBRUSH, MONITOR_DEFAULTTONEAREST, MONITORINFO, MapWindowPoints,
-                MonitorFromWindow,
+                BeginPaint, EndPaint, GetMonitorInfoW, HBRUSH, HDC, InvalidateRect,
+                MONITOR_DEFAULTTONEAREST, MONITORINFO, MapWindowPoints, MonitorFromWindow,
+                PAINTSTRUCT, UpdateWindow,
             },
         },
         System::{
@@ -44,7 +37,7 @@ use windows::{
                 CloseClipboard, EmptyClipboard, GetClipboardData, OpenClipboard, SetClipboardData,
             },
             LibraryLoader::{GetModuleHandleW, GetProcAddress, LoadLibraryW},
-            Memory::{GMEM_MOVEABLE, GlobalLock, GlobalUnlock},
+            Memory::{GMEM_MOVEABLE, GlobalLock, GlobalSize, GlobalUnlock},
             Ole::{CF_UNICODETEXT, IDropTarget, RegisterDragDrop},
             Registry::{
                 HKEY, HKEY_CURRENT_USER, KEY_READ, REG_DWORD, RegCloseKey, RegOpenKeyExW,
@@ -58,19 +51,23 @@ use windows::{
                 SetProcessDpiAwarenessContext,
             },
             Input::KeyboardAndMouse::{ReleaseCapture, SetCapture},
-            Shell::SetWindowSubclass,
+            Shell::{DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass},
             WindowsAndMessaging::{
-                CREATESTRUCTW, CS_HREDRAW, CS_VREDRAW, CW_USEDEFAULT, ClipCursor, CreateWindowExW,
-                DefWindowProcW, DestroyWindow, GWLP_USERDATA, GetClientRect, GetWindowLongPtrW,
-                GetWindowRect, GetWindowThreadProcessId, HICON, HWND_TOP, IDC_ARROW, IsWindow,
-                LoadCursorW, MINMAXINFO, RegisterClassExW, SW_HIDE, SW_SHOW, SWP_FRAMECHANGED,
-                SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SendMessageW,
-                SetWindowLongPtrW, SetWindowPos, SetWindowTextW, ShowWindow, WINDOW_EX_STYLE,
-                WINDOW_STYLE, WM_GETMINMAXINFO, WM_NCCREATE, WM_NCDESTROY, WM_SETICON, WNDCLASSEXW,
-                WS_BORDER, WS_CAPTION, WS_CHILD, WS_DLGFRAME, WS_EX_APPWINDOW, WS_EX_CLIENTEDGE,
-                WS_EX_DLGMODALFRAME, WS_EX_LAYERED, WS_EX_NOREDIRECTIONBITMAP, WS_EX_STATICEDGE,
-                WS_EX_TRANSPARENT, WS_MAXIMIZE, WS_MAXIMIZEBOX, WS_MINIMIZEBOX,
-                WS_OVERLAPPEDWINDOW, WS_POPUP, WS_THICKFRAME, WS_VISIBLE,
+                CREATESTRUCTW, CS_DBLCLKS, CS_HREDRAW, CS_VREDRAW, CW_USEDEFAULT, ClipCursor,
+                CreateWindowExW, DefWindowProcW, DestroyWindow, GWLP_USERDATA, GetClientRect,
+                GetWindowLongPtrW, GetWindowRect, GetWindowThreadProcessId, HICON, HTCAPTION,
+                HWND_BOTTOM, HWND_NOTOPMOST, HWND_TOP, HWND_TOPMOST, IDC_ARROW, IDC_CROSS,
+                IDC_HAND, IDC_IBEAM, IDC_NO, IDC_SIZEALL, IDC_SIZENESW, IDC_SIZENS, IDC_SIZENWSE,
+                IDC_SIZEWE, IDC_WAIT, IsWindow, IsZoomed, LoadCursorW, MINMAXINFO, PostQuitMessage,
+                RegisterClassExW, SW_HIDE, SW_MAXIMIZE, SW_MINIMIZE, SW_RESTORE, SW_SHOW,
+                SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER,
+                SendMessageW, SetCursor, SetWindowLongPtrW, SetWindowPos, SetWindowTextW,
+                ShowWindow, WINDOW_EX_STYLE, WINDOW_STYLE, WM_GETMINMAXINFO, WM_NCCREATE,
+                WM_NCDESTROY, WM_NCLBUTTONDOWN, WM_SETICON, WNDCLASSEXW, WS_BORDER, WS_CAPTION,
+                WS_CHILD, WS_DLGFRAME, WS_EX_APPWINDOW, WS_EX_CLIENTEDGE, WS_EX_DLGMODALFRAME,
+                WS_EX_LAYERED, WS_EX_NOREDIRECTIONBITMAP, WS_EX_STATICEDGE, WS_EX_TRANSPARENT,
+                WS_MAXIMIZE, WS_MAXIMIZEBOX, WS_MINIMIZEBOX, WS_OVERLAPPEDWINDOW, WS_POPUP,
+                WS_THICKFRAME, WS_VISIBLE,
             },
         },
     },
@@ -728,6 +725,45 @@ impl MichiuWindow {
                 let _ = apply_cursor_icon_impl(self.hwnd, cursor);
             }
         }
+    }
+
+    /// Shows a file open dialog and returns the selected file path. If the user cancels, `None` is returned.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MichiuError`]:
+    /// - If `CoInitializeEx` has not been called on the calling thread (`CO_E_NOTINITIALIZED`).
+    /// - If the operating system fails to instantiate or display the dialog.
+    /// - If the selected file path contains invalid characters and cannot be converted.
+    #[inline]
+    pub fn open_file_dialog(&self, owner: FileDialog) -> Result<Option<PathBuf>> {
+        let hwnd = match owner {
+            FileDialog::ThisWindow => Some(self.hwnd),
+            FileDialog::None => None,
+        };
+        FileDialog::open_file_dialog(hwnd)
+    }
+
+    /// Shows a file save dialog and returns the save file path. If the user cancels, `None` is returned.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MichiuError`]:
+    /// - If `CoInitializeEx` has not been called on the calling thread (`CO_E_NOTINITIALIZED`).
+    /// - If the specified filter string (`FileFilter`) is empty or malformed (`E_INVALIDARG`).
+    /// - If `IFileSaveDialog` creation fails due to insufficient memory or system limitations.
+    /// - If the retrieved file path could not be converted to a valid UTF-8 string.
+    #[inline]
+    pub fn save_file_dialog(
+        &self,
+        owner: FileDialog,
+        options: &FileDialogOptions,
+    ) -> Result<Option<PathBuf>> {
+        let hwnd = match owner {
+            FileDialog::ThisWindow => Some(self.hwnd),
+            FileDialog::None => None,
+        };
+        FileDialog::save_file_dialog(hwnd, options)
     }
 
     /// Set window minimize.

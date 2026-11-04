@@ -288,6 +288,7 @@ mod builder;
 mod com;
 mod error;
 mod events;
+mod file;
 mod handle;
 mod icon;
 mod ime;
@@ -306,6 +307,8 @@ pub use com::*;
 pub use error::*;
 #[doc(inline)]
 pub use events::*;
+#[doc(inline)]
+pub use file::*;
 #[doc(inline)]
 pub use handle::*;
 #[doc(inline)]

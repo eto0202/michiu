@@ -1,33 +1,37 @@
+use crate::{
+    CursorIcon, FileDialog, MichiuEventSender, PhysicalPoint, PhysicalSize, PreferredAppMode,
+    FileDialogOptions, WindowId, WindowState, ZOrder, enable_dark_mode_titlebar,
+    error::{MichiuError, Result},
+    is_system_dark_mode, set_app_theme,
+};
 use michiu_guard::Validate;
 use raw_window_handle::{
     DisplayHandle as RwhDisplayHandle, HandleError, HasDisplayHandle, HasWindowHandle,
     Win32WindowHandle, WindowHandle as RwhWindowHandle,
 };
-use windows::Win32::Foundation::RECT;
-use windows::Win32::Graphics::Dwm::{DwmExtendFrameIntoClientArea, DwmFlush};
-use windows::Win32::Graphics::Gdi::{InvalidateRect, UpdateWindow};
-use windows::Win32::UI::Controls::MARGINS;
-use windows::Win32::UI::Input::KeyboardAndMouse::ReleaseCapture;
-use windows::Win32::UI::WindowsAndMessaging::{
-    GWLP_USERDATA, GetClientRect, GetMessagePos, GetWindowLongPtrW, HWND_BOTTOM, HWND_NOTOPMOST,
-    HWND_TOPMOST, IsZoomed, PostQuitMessage, SW_MAXIMIZE, SW_MINIMIZE, SW_RESTORE,
-    SWP_FRAMECHANGED, SendMessageW, WM_NULL, WM_SYSCOMMAND,
-};
-use windows::core::PCWSTR;
-
-use crate::error::{MichiuError, Result};
-use crate::{
-    CursorIcon, MichiuEventSender, PhysicalPoint, PhysicalSize, PreferredAppMode, WindowId,
-    WindowState, ZOrder, enable_dark_mode_titlebar, is_system_dark_mode, set_app_theme,
-};
-use std::{borrow::Cow, num::NonZeroIsize};
-use windows::Win32::{
-    Foundation::{HINSTANCE, HWND, LPARAM, WPARAM},
-    System::Threading::{GetCurrentProcessId, GetCurrentThreadId},
-    UI::WindowsAndMessaging::{
-        GetWindowThreadProcessId, IsWindow, PostMessageW, SW_HIDE, SW_SHOW, SWP_NOACTIVATE,
-        SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SetWindowPos, SetWindowTextW, ShowWindow, WM_USER,
+use std::{borrow::Cow, num::NonZeroIsize, path::PathBuf, sync::mpsc::Sender};
+use windows::{
+    Win32::{
+        Foundation::{HINSTANCE, HWND, LPARAM, RECT, WPARAM},
+        Graphics::{
+            Dwm::{DwmExtendFrameIntoClientArea, DwmFlush},
+            Gdi::{InvalidateRect, UpdateWindow},
+        },
+        System::Threading::{GetCurrentProcessId, GetCurrentThreadId},
+        UI::{
+            Controls::MARGINS,
+            Input::KeyboardAndMouse::ReleaseCapture,
+            WindowsAndMessaging::{
+                GWLP_USERDATA, GetClientRect, GetMessagePos, GetWindowLongPtrW,
+                GetWindowThreadProcessId, HWND_BOTTOM, HWND_NOTOPMOST, HWND_TOPMOST, IsWindow,
+                IsZoomed, PostMessageW, PostQuitMessage, SW_HIDE, SW_MAXIMIZE, SW_MINIMIZE,
+                SW_RESTORE, SW_SHOW, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
+                SWP_NOZORDER, SendMessageW, SetWindowPos, SetWindowTextW, ShowWindow, WM_NULL,
+                WM_SYSCOMMAND, WM_USER,
+            },
+        },
     },
+    core::PCWSTR,
 };
 
 /// A lightweight, cloneable, and thread-safe reference to an active Win32 window.
@@ -76,6 +80,16 @@ pub(crate) enum SetWindowCommand {
     DefaultFrameRendering,
     Minimize,
     Maximize,
+    FileDialog {
+        kinds: FileDialogKinds,
+        hwnd: Option<HWND>,
+        response_sender: Sender<Result<Option<PathBuf>>>,
+    },
+}
+
+pub(crate) enum FileDialogKinds {
+    Open,
+    Save(FileDialogOptions),
 }
 
 /// Message ID used internally for posting async Window commands to the UI thread.
@@ -459,6 +473,69 @@ impl WindowHandle {
             }
         } else {
             self.post_command(SetWindowCommand::SetCursor(cursor));
+        }
+    }
+
+    /// Thread-safely shows a file open dialog and returns the selected file path. If the user cancels, `None` is returned.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MichiuError`]:
+    /// - If `CoInitializeEx` has not been called on the calling thread (`CO_E_NOTINITIALIZED`).
+    /// - If the operating system fails to instantiate or display the dialog.
+    /// - If the selected file path contains invalid characters and cannot be converted.
+    #[inline]
+    pub fn open_file_dialog(&self, owner: FileDialog) -> Result<Option<PathBuf>> {
+        let hwnd = match owner {
+            FileDialog::ThisWindow => Some(self.hwnd),
+            FileDialog::None => None,
+        };
+        if self.is_on_ui_thread() {
+            FileDialog::open_file_dialog(hwnd)
+        } else {
+            let (tx, rx) = std::sync::mpsc::channel();
+            self.post_command(SetWindowCommand::FileDialog {
+                kinds: FileDialogKinds::Open,
+                hwnd,
+                response_sender: tx,
+            });
+
+            rx.recv()
+                .map_err(|e| MichiuError::UiDisconnected { source: e })?
+        }
+    }
+
+    /// Shows a file save dialog and returns the save file path. If the user cancels, `None` is returned.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MichiuError`]:
+    /// - If `CoInitializeEx` has not been called on the calling thread (`CO_E_NOTINITIALIZED`).
+    /// - If the specified filter string (`FileFilter`) is empty or malformed (`E_INVALIDARG`).
+    /// - If `IFileSaveDialog` creation fails due to insufficient memory or system limitations.
+    /// - If the retrieved file path could not be converted to a valid UTF-8 string.
+    #[inline]
+    pub fn save_file_dialog(
+        &self,
+        owner: FileDialog,
+        options: FileDialogOptions,
+    ) -> Result<Option<PathBuf>> {
+        let hwnd = match owner {
+            FileDialog::ThisWindow => Some(self.hwnd),
+            FileDialog::None => None,
+        };
+        if self.is_on_ui_thread() {
+            FileDialog::save_file_dialog(hwnd, &options)
+        } else {
+            let (tx, rx) = std::sync::mpsc::channel();
+            self.post_command(SetWindowCommand::FileDialog {
+                kinds: FileDialogKinds::Save(options),
+                hwnd,
+                response_sender: tx,
+            });
+
+            rx.recv()
+                .map_err(|e| MichiuError::UiDisconnected { source: e })?
         }
     }
 

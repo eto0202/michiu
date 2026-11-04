@@ -1,7 +1,8 @@
 use crate::{
-    ElementState, ImeContext, ImeStateUpdate, MichiuAnyEvent, MichiuError, MichiuEvent, Modifiers,
-    MouseButton, PhysicalPoint, PhysicalRect, PhysicalSize, SetWindowCommand, WM_RUN_ON_UI_THREAD,
-    WM_WINDOW_COMMAND, WheelDelta, WindowId, WindowState, ZOrder,
+    ElementState, FileDialog, FileDialogKinds, ImeContext, ImeStateUpdate, MichiuAnyEvent,
+    MichiuError, MichiuEvent, Modifiers, MouseButton, PhysicalPoint, PhysicalRect, PhysicalSize,
+    SetWindowCommand, WM_RUN_ON_UI_THREAD, WM_WINDOW_COMMAND, WheelDelta, WindowId, WindowState,
+    ZOrder,
     win32_ext::{LParamExt, WParamExt},
 };
 use michiu_guard::Unvalidated;
@@ -704,6 +705,17 @@ pub(crate) fn translate_and_dispatch(
                             SW_MAXIMIZE
                         };
                         let _ = unsafe { ShowWindow(hwnd, show) };
+                    }
+                    SetWindowCommand::FileDialog {
+                        kinds,
+                        hwnd,
+                        response_sender,
+                    } => {
+                        let result = match kinds {
+                            FileDialogKinds::Open => FileDialog::open_file_dialog(hwnd),
+                            FileDialogKinds::Save(o) => FileDialog::save_file_dialog(hwnd, &o),
+                        };
+                        let _ = response_sender.send(result);
                     }
                 }
             }
