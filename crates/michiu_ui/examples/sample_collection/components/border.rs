@@ -25,12 +25,12 @@ fn wrapper_style() -> Modifier {
 fn base(change: bool) -> Modifier {
     let s = ii()
         .p(12.0)
-        .r(4.0)
+        .r(3.0)
         .size((170.0, 75.0))
         .justify_center()
         .items_center()
         .p(10.0)
-        .r(4.0)
+        .r(3.0)
         .hovered(ii().bg_color(dynamic(|t: &Theme| t.background_hover)));
 
     if change {

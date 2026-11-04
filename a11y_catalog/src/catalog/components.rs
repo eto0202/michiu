@@ -24,7 +24,7 @@ where
         ii().size_full()
             .gap(20.0)
             .p(20.0)
-            .r(4.0)
+            .r(3.0)
             .overflow_hidden()
             .border_dashed(1.0)
             .border_color(dynamic(|t: &Theme| t.border)),

@@ -41,7 +41,7 @@ fn flex_container() -> Entity {
             let base = ii()
                 .flex()
                 .grow()
-                .r(4.0)
+                .r(3.0)
                 .p(20.0)
                 .gap(20.0)
                 .border_dashed(1.0)
@@ -65,7 +65,7 @@ fn flex_container() -> Entity {
 fn div_container() -> Entity {
     flex(
         ii().grow()
-            .r(4.0)
+            .r(3.0)
             .p(20.0)
             .gap(20.0)
             .border_dashed(1.0)

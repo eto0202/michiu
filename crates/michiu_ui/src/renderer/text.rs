@@ -1,12 +1,13 @@
 use crate::{
-    ByteIndex, DebugStore, FontDate, LayoutPoint, LayoutRect, MichiuError, MichiuString,
+    ByteIndex, DebugStore, FontDate, FontStyle, LayoutPoint, LayoutRect, MichiuError, MichiuString,
     OptionTraceExt, RendererView, TextAlign, TextSpan,
 };
 use cosmic_text::{
-    Attrs, Buffer, CacheKey, Family, FontSystem, Metrics, Shaping, Style, SwashCache, Weight, Wrap,
+    Attrs, Buffer, CacheKey, Family, FontSystem, Metrics, Shaping, Style, SwashCache, SwashContent,
+    Weight, Wrap,
 };
 use smallvec::SmallVec;
-use std::ops::Range;
+use std::ops::{Deref, DerefMut, Range};
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct TextLayoutSize {
@@ -43,6 +44,18 @@ pub struct TextEngine {
     pub swash_cache: SwashCache,
 }
 
+impl Deref for TextEngine {
+    type Target = FontSystem;
+    fn deref(&self) -> &Self::Target {
+        &self.font_system
+    }
+}
+impl DerefMut for TextEngine {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.font_system
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct TextCacheKey {
     pub cache_key: CacheKey,
@@ -56,6 +69,7 @@ pub struct TextCacheValue {
     pub offset_y: i32,
     pub width: f32,
     pub height: f32,
+    pub is_color: bool,
 }
 
 impl TextCacheValue {
@@ -66,10 +80,12 @@ impl TextCacheValue {
         offset_y: 0,
         width: 0.0,
         height: 0.0,
+        is_color: false,
     };
 }
 
 impl TextEngine {
+    #[inline]
     pub(crate) fn new() -> Self {
         Self {
             font_system: FontSystem::new(),
@@ -86,24 +102,28 @@ impl TextEngine {
         auto_wrap: bool,
         spans: &[TextSpan],
     ) -> Buffer {
-        let font_size = font.size.unwrap_or(FontDate::FONT_SIZE);
-        let metrics = Metrics::new(font_size, font_size * 1.4);
-        let mut buffer = Buffer::new(&mut self.font_system, metrics);
+        let font_size = font.size.unwrap_or_default();
+        let line_height = font.line_height();
 
+        let metrics = Metrics::new(font_size, line_height);
+        let mut buffer = Buffer::new(&mut self.font_system, metrics);
         let mut default_attrs = Attrs::new();
 
-        if let Some(family) = font.family.as_deref() {
-            default_attrs = default_attrs.family(Family::Name(family));
+        if let Some(ref family) = font.family {
+            default_attrs = default_attrs.family(family.as_family());
         }
         if let Some(weight) = font.weight {
-            default_attrs = default_attrs.weight(Weight(weight));
+            default_attrs = default_attrs.weight(weight.as_weight());
         }
         if let Some(style) = font.style {
             default_attrs = default_attrs.style(match style {
-                1 => Style::Italic,
-                2 => Style::Oblique,
-                _ => Style::Normal,
+                FontStyle::Italic => Style::Italic,
+                FontStyle::Oblique => Style::Oblique,
+                FontStyle::Normal => Style::Normal,
             });
+        }
+        if let Some(spacing) = font.spacing {
+            default_attrs = default_attrs.letter_spacing(spacing.0);
         }
 
         let align = Self::map_to_align(text_align);
@@ -143,7 +163,9 @@ impl TextEngine {
                 for span in spans {
                     if span.range.start <= start && span.range.end >= end {
                         if let Some(size) = span.font_size {
-                            attrs = attrs.metrics(Metrics::new(size, size * 1.4));
+                            let line_height =
+                                span.line_height.unwrap_or_default().clac_height(font_size);
+                            attrs = attrs.metrics(Metrics::new(size, line_height));
                         }
                         if let Some(color) = span.color {
                             #[expect(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
@@ -164,8 +186,9 @@ impl TextEngine {
                         }
                         if let Some(style) = span.font_style {
                             attrs = attrs.style(match style {
-                                2 => Style::Italic,
-                                _ => Style::Normal,
+                                FontStyle::Italic => Style::Italic,
+                                FontStyle::Oblique => Style::Oblique,
+                                FontStyle::Normal => Style::Normal,
                             });
                         }
                     }
@@ -188,6 +211,7 @@ impl TextEngine {
         }
     }
 
+    #[inline]
     pub(crate) fn measure_text(
         &mut self,
         text: &MichiuString,
@@ -206,6 +230,7 @@ impl TextEngine {
         Self::get_layout_size(&buffer)
     }
 
+    #[inline]
     pub(crate) fn get_layout_size(buffer: &Buffer) -> TextLayoutSize {
         let mut width = 0.0f32;
         let mut height = 0.0f32;
@@ -336,6 +361,7 @@ impl TextEngine {
     }
 
     // 2D Cursor からフラットなバイト位置を逆算
+    #[inline]
     pub(crate) fn cursor_to_flat_idx(buffer: &Buffer, cursor: &cosmic_text::Cursor) -> ByteIndex {
         let mut flat_idx = 0;
         for (line_idx, line) in buffer.lines.iter().enumerate() {
@@ -347,6 +373,7 @@ impl TextEngine {
         ByteIndex(flat_idx + cursor.index)
     }
 
+    #[inline]
     pub(crate) fn hit_test_point(buffer: &Buffer, point: LayoutPoint) -> (ByteIndex, bool) {
         if let Some(cursor) = buffer.hit(point.x, point.y) {
             // 2D位置をフラットなバイトインデックスに変換
@@ -357,6 +384,7 @@ impl TextEngine {
         }
     }
 
+    #[expect(clippy::cast_precision_loss)]
     pub(crate) fn get_or_create_glyph_uv(
         &mut self,
         cache_key: CacheKey,
@@ -384,27 +412,55 @@ impl TextEngine {
             return (TextCacheValue::ZERO, false);
         }
 
-        let mut alloc_res = view.atlas.allocate(width, height);
+        // カラー絵文字か通常文字かを判定
+        let is_color = matches!(image.content, SwashContent::Color);
+
+        // アトラスの選択とアロケート
+        let (alloc_res, target_atlas_size) = if is_color {
+            (
+                view.color_atlas.allocate(width, height),
+                view.color_atlas.size,
+            )
+        } else {
+            (
+                view.mask_atlas.allocate(width, height),
+                view.mask_atlas.size,
+            )
+        };
+
         let mut cleared = false;
-
-        if alloc_res.is_none() {
-            view.atlas.clear();
+        let (x, y) = if let Some(pos) = alloc_res {
+            pos
+        } else {
+            // どちらかが溢れたら整合性を保つため両方クリア
+            view.mask_atlas.clear();
+            view.color_atlas.clear();
             view.text_cache.clear();
-            alloc_res = view.atlas.allocate(width, height);
             cleared = true;
-        }
 
-        let (x, y) =
-            alloc_res.unwrap_or_trace(None, debug, || MichiuError::GlyphAllocationFailed {
+            // 再度アロケート
+            if is_color {
+                view.color_atlas.allocate(width, height)
+            } else {
+                view.mask_atlas.allocate(width, height)
+            }
+            .unwrap_or_trace(None, debug, || MichiuError::GlyphAllocationFailed {
                 width,
                 height,
-                atlas_w: view.atlas.size,
-                atlas_h: view.atlas.size,
-            });
+                atlas_w: target_atlas_size,
+                atlas_h: target_atlas_size,
+            })
+        };
+
+        let (texture, bytes_per_row) = if is_color {
+            (&view.color_atlas.texture, width * 4) // 4倍（RGBA）
+        } else {
+            (&view.mask_atlas.texture, width)
+        };
 
         view.queue.write_texture(
             wgpu::TexelCopyTextureInfo {
-                texture: &view.atlas.texture,
+                texture,
                 mip_level: 0,
                 origin: wgpu::Origin3d { x, y, z: 0 },
                 aspect: wgpu::TextureAspect::All,
@@ -412,7 +468,7 @@ impl TextEngine {
             &image.data,
             wgpu::TexelCopyBufferLayout {
                 offset: 0,
-                bytes_per_row: Some(width),
+                bytes_per_row: Some(bytes_per_row),
                 rows_per_image: Some(height),
             },
             wgpu::Extent3d {
@@ -422,12 +478,15 @@ impl TextEngine {
             },
         );
 
-        let (uv_min, uv_max) = view.atlas.texel_to_uv(x, y, width, height);
+        let (uv_min, uv_max) = if is_color {
+            view.color_atlas.texel_to_uv(x, y, width, height)
+        } else {
+            view.mask_atlas.texel_to_uv(x, y, width, height)
+        };
+
         let offset_x = image.placement.left;
         let offset_y = image.placement.top;
-        #[expect(clippy::cast_precision_loss)]
         let log_width = width as f32 / scale_factor;
-        #[expect(clippy::cast_precision_loss)]
         let log_height = height as f32 / scale_factor;
 
         let value = TextCacheValue {
@@ -437,6 +496,7 @@ impl TextEngine {
             offset_y,
             width: log_width,
             height: log_height,
+            is_color,
         };
 
         view.text_cache.insert(key.clone(), value);
@@ -500,7 +560,8 @@ pub struct TextureAtlas {
 }
 
 impl TextureAtlas {
-    pub(crate) fn new(device: &wgpu::Device, size: u32) -> Self {
+    #[inline]
+    pub(crate) fn new(device: &wgpu::Device, format: wgpu::TextureFormat, size: u32) -> Self {
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Texture Atlas"),
             size: wgpu::Extent3d {
@@ -511,10 +572,7 @@ impl TextureAtlas {
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            // WIC（32bppPBGRA）からの転送データと完全に一致させるため Bgra8Unorm へ変更
-            // 色空間を sRGB フォーマットに明示変更
-            // 再度 R8Unorm に修正
-            format: wgpu::TextureFormat::R8Unorm,
+            format,
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
             view_formats: &[],
         });
@@ -568,6 +626,7 @@ impl TextureAtlas {
         Some((x, y))
     }
 
+    #[inline]
     pub(crate) fn clear(&mut self) {
         self.current_x = 0;
         self.current_y = 0;
@@ -576,6 +635,7 @@ impl TextureAtlas {
 
     /// ピクセル座標を NDC (0.0 ~ 1.0) の UV 座標に変換する
     #[expect(clippy::cast_precision_loss)]
+    #[inline]
     pub(crate) fn texel_to_uv(
         &self,
         x: u32,

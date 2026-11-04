@@ -48,7 +48,7 @@ pub fn container() -> Entity {
 fn context_menu() -> Entity {
     v_flex(
         ii().absolute()
-            .r(4.0)
+            .r(3.0)
             .p(6.0)
             .size((WIDTH, HEIGHT))
             .hidden()

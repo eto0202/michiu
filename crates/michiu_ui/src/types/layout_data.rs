@@ -1,15 +1,12 @@
 use crate::{
     AlignContent, AlignItems, AlignSelf, Backdrop, BaseVisualPropertiesSecondary, BorderAlignment,
     BorderStyle, BoxShadow, BoxSizing, Color, ComponentMask, CornerRadius, CursorIcon, Direction,
-    Display, EdgeInsets, Entity, FlexDirection, FlexWrap, Focusable, FontDate, IDENTITY_MATRIX,
-    JustifyContent, KeyframeAnimation, LayoutOverflow, Length, LinearGradient, MichiuSoA,
-    ModTarget, Modifier, Point, PointerEvents, Position, Rect, Size, TextAlign, Transition,
-    UserSelect, Val, VisualPropertiesSecondary,
+    Display, EdgeInsets, Entity, FlexDirection, FlexWrap, Focusable, FontDate, FontFamily,
+    FontStyle, FontWeight, IDENTITY_MATRIX, JustifyContent, KeyframeAnimation, LayoutOverflow,
+    Length, LetterSpacing, LinearGradient, MichiuSoA, ModTarget, Modifier, Point, PointerEvents,
+    Position, Rect, Size, TextAlign, Transition, UserSelect, Val, VisualPropertiesSecondary,
 };
-use std::{
-    borrow::Cow,
-    sync::{Arc, LazyLock},
-};
+use std::sync::{Arc, LazyLock};
 
 /// 要素がほぼ必ず持つ、基本のレイアウト情報。
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -265,9 +262,10 @@ pub(crate) struct CurrentStyle {
     pub(crate) shadow_params: BoxShadow,
     pub(crate) text_color: Color,
     pub(crate) font_size: f32,
-    pub(crate) font_family: Option<Cow<'static, str>>,
-    pub(crate) font_weight: u16,
-    pub(crate) font_style: u32,
+    pub(crate) font_family: Option<FontFamily>,
+    pub(crate) font_weight: FontWeight,
+    pub(crate) font_style: FontStyle,
+    pub(crate) spacing: LetterSpacing,
     pub(crate) auto_wrap: bool,
     pub(crate) pointer_events: PointerEvents,
 }
@@ -288,8 +286,9 @@ impl Default for CurrentStyle {
             text_color: Color::WHITE,
             font_size: 16.0,
             font_family: None,
-            font_weight: 400,
-            font_style: 0,
+            font_weight: FontWeight::default(),
+            font_style: FontStyle::default(),
+            spacing: LetterSpacing::default(),
             auto_wrap: false,
             pointer_events: PointerEvents::default(),
         }
@@ -449,8 +448,9 @@ impl VisualProperty {
                 text_color: v.text_color.unwrap_or(Color::WHITE),
                 font_size: v.font.size.unwrap_or(16.0),
                 font_family: v.font.family.clone(),
-                font_weight: v.font.weight.unwrap_or(400),
-                font_style: v.font.style.unwrap_or(0),
+                font_weight: v.font.weight.unwrap_or_default(),
+                font_style: v.font.style.unwrap_or_default(),
+                spacing: v.font.spacing.unwrap_or_default(),
                 auto_wrap: v.auto_wrap.unwrap_or(false),
                 pointer_events: v.pointer_events.unwrap_or_default(),
             })

@@ -252,16 +252,17 @@ pub use michiu_guard as guard;
 #[doc(inline)]
 pub use michiu_window as window;
 
-#[doc(hidden)]
 pub mod prelude {
     pub use crate::guard::{Unvalidated, Validate, Validated};
     pub use crate::ui::prelude::*;
     pub use crate::window::prelude::*;
     pub use crate::*;
 }
-#[doc(hidden)]
 pub mod accessibility {
     pub use crate::ui::accessibility::*;
+}
+pub mod config {
+    pub use crate::ui::config::*;
 }
 
 /// Integrated execution status of the Michiu GUI application.
@@ -979,7 +980,7 @@ impl MichiuApp {
 
         self.context.tick_system_frame(&TickType::All);
         self.context
-            .sync_layout(root_id, self.renderer.layout_size());
+            .sync_layout(root_id, self.renderer.window_size());
         self.renderer.update_composition_tree(&mut self.context);
 
         self.renderer.draw(&mut self.context);

@@ -3,14 +3,15 @@ use crate::{
     BorderStyle, BoxShadow, BoxSizing, Color, ComponentMask, Context, Convert, CornerRadius,
     CursorIcon, Direction, Display, DndDragMode, DndDragPlaceholderParent, DndDragProperty,
     DndDropProperty, DndDropTarget, EdgeInsets, Entity, FlexDirection, FlexLayout, FlexWrap,
-    FocusTrigger, Focusable, GlobalCursorIcon, InteractionName, InteractionStyles, IntoModConvert,
-    IntoModCornerRadius, IntoModPoint, IntoModRect, IntoModResizable, IntoModSize, IntoModValue,
-    JustifyContent, KeyframeAnimation, LayoutOverflow, LayoutPoint, Length, LinearGradient,
-    MichiuSoA, Overflow, PointerEvents, Position, PropertyList, Rect, ScrollbarDisplay,
-    ScrollbarMode, ScrollbarStyle, TargetStyle, TextAlign, Transform, Transition, UserSelect, Val,
-    VisualProperty, auto, fill, pct,
+    FocusTrigger, Focusable, FontStyle, GlobalCursorIcon, InteractionName, InteractionStyles,
+    IntoModConvert, IntoModCornerRadius, IntoModFamily, IntoModPoint, IntoModRect,
+    IntoModResizable, IntoModSize, IntoModSpacing, IntoModValue, IntoModWeight, JustifyContent,
+    KeyframeAnimation, LayoutOverflow, LayoutPoint, Length, LineHeight, LinearGradient, MichiuSoA,
+    Overflow, PointerEvents, Position, PropertyList, Rect, ScrollbarDisplay, ScrollbarMode,
+    ScrollbarStyle, TargetStyle, TextAlign, Transform, Transition, UserSelect, Val, VisualProperty,
+    auto, fill, pct,
 };
-use std::{borrow::Cow, sync::Arc, time::Duration};
+use std::{sync::Arc, time::Duration};
 
 // スレッド安全な動的クロージャをサポートする `ModValue` の定義
 pub enum ModValue<T> {
@@ -5465,8 +5466,8 @@ impl Modifier {
     /// Default is [`cosmic_text::Family::SansSerif`]
     #[inline]
     #[must_use]
-    pub fn font_family(mut self, family: impl IntoModValue<Cow<'static, str>>) -> Self {
-        match family.into_mod_value() {
+    pub fn font_family(mut self, family: impl IntoModFamily) -> Self {
+        match family.into_mod_family() {
             ModValue::Static(v) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.visual_property.font.family = Some(v);
@@ -5490,8 +5491,8 @@ impl Modifier {
     /// Default is 400
     #[inline]
     #[must_use]
-    pub fn font_weight(mut self, weight: impl IntoModValue<u16>) -> Self {
-        match weight.into_mod_value() {
+    pub fn font_weight(mut self, weight: impl IntoModWeight) -> Self {
+        match weight.into_mod_wight() {
             ModValue::Static(v) => {
                 let inner = Arc::make_mut(&mut self.inner);
                 inner.visual_property.font.weight = Some(v);
@@ -5535,16 +5536,37 @@ impl Modifier {
         self
     }
 
-    /// Sets the font style.
+    /// Sets the line height.
     ///
-    /// 1: [`cosmic_text::Style::Italic`]
-    ///
-    /// 2: [`cosmic_text::Style::Oblique`]
-    ///
-    /// other (default): [`cosmic_text::Style::Normal`]
+    /// Default is `Factor(1.4)`
     #[inline]
     #[must_use]
-    pub fn font_style(mut self, style: impl IntoModValue<u32>) -> Self {
+    pub fn line_height(mut self, height: impl IntoModValue<LineHeight>) -> Self {
+        match height.into_mod_value() {
+            ModValue::Static(v) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.visual_property.font.line_height = Some(v);
+                inner.mask.set(ComponentMask::STYLE_FONT_SIZE);
+            }
+            ModValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(ComponentMask::STYLE_FONT_SIZE);
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
+                    let val = getter();
+                    cx.get_visual_property_mut(id, target).font.line_height = Some(val);
+                    cx.mark_render_dirty(id);
+                }));
+            }
+        }
+        self
+    }
+
+    /// Sets the font style.
+    ///
+    /// Default: [`FontStyle::Normal`]
+    #[inline]
+    #[must_use]
+    pub fn font_style(mut self, style: impl IntoModValue<FontStyle>) -> Self {
         match style.into_mod_value() {
             ModValue::Static(v) => {
                 let inner = Arc::make_mut(&mut self.inner);
@@ -5557,6 +5579,34 @@ impl Modifier {
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
                     cx.get_visual_property_mut(id, target).font.style = Some(val);
+                    cx.mark_render_dirty(id);
+                }));
+            }
+        }
+        self
+    }
+
+    /// Sets the letter spacing.
+    ///
+    /// This is a relative value that scales with the font size.
+    /// For example, when the font size is 16px, 0.1 equals a width of 1.6px.
+    ///
+    /// Default is 0.0
+    #[inline]
+    #[must_use]
+    pub fn letter_spacing(mut self, spacing: impl IntoModSpacing) -> Self {
+        match spacing.into_mod_spacing() {
+            ModValue::Static(v) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.visual_property.font.spacing = Some(v);
+                inner.mask.set(ComponentMask::STYLE_FONT_SIZE);
+            }
+            ModValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(ComponentMask::STYLE_FONT_SIZE);
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
+                    let val = getter();
+                    cx.get_visual_property_mut(id, target).font.spacing = Some(val);
                     cx.mark_render_dirty(id);
                 }));
             }

@@ -25,7 +25,7 @@ fn wrapper_style() -> Modifier {
 fn item(label: &'static str, change: bool, style: Modifier) -> Entity {
     let s = style
         .p(10.0)
-        .r(4.0)
+        .r(3.0)
         .size((162.0, 62.0))
         .justify_center()
         .items_center()

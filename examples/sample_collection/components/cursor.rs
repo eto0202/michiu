@@ -4,6 +4,7 @@ use crate::{
 };
 use michiu::prelude::*;
 use michiu::ui::GlobalCursorIcon;
+use windows::Win32::UI::WindowsAndMessaging::HCURSOR;
 
 pub fn container() -> Entity {
     v_flex(ii().gap(20.0).p(16.0)).children([
@@ -26,7 +27,7 @@ fn item(label: &'static str, style: Modifier) -> Entity {
     flex(
         style
             .p(10.0)
-            .r(4.0)
+            .r(3.0)
             .size((150.0, 60.0))
             .justify_center()
             .items_center()
@@ -71,7 +72,7 @@ fn global_container() -> Entity {
         ii().w_full()
             .gap((20.0, 10.0))
             .p(8.0)
-            .r(4.0)
+            .r(3.0)
             .border_color(dynamic(|t: &Theme| t.border))
             .border_solid(1.0)
             .cursor_global_pointer(),
@@ -93,14 +94,14 @@ fn custom_container() -> Entity {
         "/sample_collection/assets/cursor_grabbing.png"
     );
 
-    let grab_icon = CursorIcon::create_from_path(grab_path, 16, 16).ok();
-    let grabbing_icon = CursorIcon::create_from_path(grabbing_path, 16, 16).ok();
+    let grab_icon = create_from_path(grab_path, 16, 16).ok();
+    let grabbing_icon = create_from_path(grabbing_path, 16, 16).ok();
 
     let wrapper = h_flex(
         ii().w_full()
             .gap((20.0, 10.0))
             .p(8.0)
-            .r(4.0)
+            .r(3.0)
             .border_color(dynamic(|t: &Theme| t.border))
             .border_solid(1.0)
             .cursor_global(GlobalCursorIcon::Grab(grab_icon)),
@@ -111,8 +112,28 @@ fn custom_container() -> Entity {
     v_flex(section_style()).children([
         section_title("Custom Cursor"),
         wrapper.children([
-            flex(ii().p(10.0).r(4.0).justify_center().items_center()).label("Grab", label_style()),
+            flex(ii().p(10.0).r(3.0).justify_center().items_center()).label("Grab", label_style()),
             grabbing,
         ]),
     ])
+}
+
+/// Generates a custom `HCURSOR` with the specified hotspot coordinates based on the image file path.
+#[inline]
+pub fn create_from_path(
+    path: impl AsRef<std::path::Path>,
+    hotspot_x: u32,
+    hotspot_y: u32,
+) -> std::result::Result<HCURSOR, Box<dyn std::error::Error>> {
+    let img = image::open(path)?.to_rgba8();
+
+    let icon = CursorIcon::create_from_rgba(
+        img.as_raw(),
+        img.width(),
+        img.height(),
+        hotspot_x,
+        hotspot_y,
+    )?;
+
+    Ok(icon)
 }

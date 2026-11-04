@@ -954,6 +954,7 @@ impl Entity {
                         color: None,
                         bg_color: None,
                         font_size: None,
+                        line_height: None,
                         font_family: None,
                         font_weight: None,
                         font_style: None,

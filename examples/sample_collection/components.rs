@@ -12,6 +12,7 @@ pub mod external_texture;
 pub mod external_visual;
 pub mod flexbox;
 pub mod focusable;
+pub mod font;
 pub mod gradient;
 pub mod hover;
 pub mod input;
@@ -52,6 +53,7 @@ pub enum ComponentType {
     Accessibility,
     Size,
     Position,
+    Font,
 }
 
 pub(crate) fn create_component_entity(comp_type: ComponentType) -> Entity {
@@ -79,6 +81,7 @@ pub(crate) fn create_component_entity(comp_type: ComponentType) -> Entity {
         ComponentType::Size => text("Size"),
         ComponentType::Transform => wrapper(transform::container()),
         ComponentType::Position => wrapper(position::container()),
+        ComponentType::Font => wrapper(font::container()),
         ComponentType::StressTest => {
             if ALLOW_STRESS_TEST {
                 wrapper(stress_test::container())
@@ -92,7 +95,7 @@ pub(crate) fn create_component_entity(comp_type: ComponentType) -> Entity {
 fn wrapper(e: Entity) -> Entity {
     v_flex_d(|t: &Theme| {
         ii().size_full()
-            .r(4.0)
+            .r(3.0)
             .overflow_hidden()
             .border_dashed(1.0)
             .border_color(t.border)

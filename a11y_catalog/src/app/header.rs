@@ -22,7 +22,7 @@ fn search_box() -> Entity {
             .size((pct(35.0), 26.0))
             .max_size((600.0, 26.0))
             .bg_color(dynamic(|t: &Theme| t.surface))
-            .r(4.0)
+            .r(3.0)
             .p_x(16.0),
     );
 
@@ -90,7 +90,7 @@ fn toggle_btn() -> Entity {
     };
 
     let btn_wrapper = h_flex(
-        ii().r(4.0)
+        ii().r(3.0)
             .items_center()
             .size((50.0, 26.0))
             .bg_color(dynamic(|t: &Theme| t.surface))
@@ -107,7 +107,7 @@ fn toggle_btn() -> Entity {
     .on_click(mode_change);
 
     let btn_inner = h_flex_d(|t: &Theme| {
-        ii().r(4.0)
+        ii().r(3.0)
             .m_l(4.0)
             .height(20.0)
             .width(20.0)

@@ -281,19 +281,16 @@ pub(crate) fn draw(&mut self, cx: &mut Context) {
 
 ---
 
-## 主要フィールドの役割
+## 主要フィールド
 
-| フィールド                            | 型                         | 役割                                                             |
-| :------------------------------------ | :------------------------- | :--------------------------------------------------------------- |
-| **`hwnd`**                            | `HWND`                     | 描画対象となるWin32ウィンドウハンドル                            |
-| **`layout_size` / `scale_factor`**    | `LayoutSize` / `f32`       | 論理サイズおよびDPIスケーリング値                                |
-| **`d3d11_device` / `desktop_device`** | D3D11 / DComp 型           | DirectComposition を駆動するための基盤デバイス群                 |
-| **`target` / `root_visual`**          | `IDComposition...`         | ウィンドウにバインドされたコンポジションルート                   |
-| **`wgpu_visual`**                     | `IDCompositionVisual2`     | wgpu のスワップチェーンが接続される前面UIビジュアル              |
-| **`wgpu_renderer`**                   | [`WgpuRenderer`]           | 前面UIのインスタンシング描画およびパンチアウトを担当するエンジン |
-| **`promoted_visuals`**                | `Vec<PromotedVisual>`      | 現在ツリーに昇格・配置されている `ExternalVisual` のリスト       |
-| **`pending_dcomp_releases`**          | `Vec<PendingDcompRelease>` | ちらつき防止のため解放を遅延させているVisualのキュー             |
-| **`current_backdrop`**                | `Backdrop`                 | Mica や Acrylic などのマテリアル適用状態                         |
+| フィールド             | 型                   | 責務 / 役割                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| :--------------------- | :------------------- | :--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **`hwnd`**             | `HWND`               | 描画対象の Win32 ウィンドウハンドル                                                                                                                                                                                                                                                                                                                                                                                                |
+| **`sync`**             | `WindowSynchronizer` | ウィンドウ状態の同期管理（`window_size`、`scale_factor`、リサイズ時のチラつきを抑える `resize_cooldown_frames`）                                                                                                                                                                                                                                                                                                                   |
+| **`platform`**         | `PlatformContext`    | 不変のグラフィックスランタイムおよび WinRT 基盤：<br>• **`d3d11` / `dcomp`**: コアとなる D3D11 および DirectComposition デバイス<br>• **`compositor` / `controller`**: WinRT Compositor と DispatcherQueue のライフサイクル管理<br>• **`wic`**: 画像・テクスチャ読み込み用の WIC イメージングファクトリ                                                                                                                            |
+| **`workspace`**        | `DCompWorkspace`     | ビジュアルツリーとリソースのライフサイクル管理：<br>• **`target` / `root_visual`**: ルートコンポジションターゲットと親 Visual<br>• **`wgpu_visual`**: wgpu のスワップチェーンサーフェスをホストする Visual<br>• **`promoted_visuals`**: コンポジションツリーにマウントされたアクティブな外部 Visual 群<br>• **`pending_releases`**: ツリー更新時の画面のチラつきを防ぐための遅延破棄キュー |
+| **`wgpu_renderer`**    | [`WgpuRenderer`]     | インスタンス描画による UI レンダリングおよびパンチアウト処理を担うサブシステム                                                                                                                                                                                                                                                                                                                                     |
+| **`current_backdrop`** | `Backdrop`           | 現在ウィンドウに適用中のシステムマテリアル設定                                                                                                                                                                                                                                                                                                                                                               |
 
 ---
 

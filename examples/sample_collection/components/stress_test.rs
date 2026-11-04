@@ -10,7 +10,7 @@ pub fn container() -> Entity {
     h_flex_d(|t: &Theme| {
         sidebar::scrollbar(t)
             .p(16.0)
-            .r(4.0)
+            .r(3.0)
             .size_full()
             .overflow_scroll()
     })

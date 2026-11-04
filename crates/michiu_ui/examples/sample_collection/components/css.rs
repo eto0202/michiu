@@ -4,7 +4,7 @@ use michiu_ui::{CssMapSet, CssSetSignalExt};
 use crate::app::theme::Theme;
 
 pub fn container() -> Entity {
-    v_flex(ii().gap(16.0).p(16.0).r(4.0)).children([css_flex(), merge_border()])
+    v_flex(ii().gap(16.0).p(16.0).r(3.0)).children([css_flex(), merge_border()])
 }
 
 // flex_1 と flex_2 は同じ Modifier を持つ

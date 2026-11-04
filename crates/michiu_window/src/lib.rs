@@ -321,7 +321,6 @@ pub use types::*;
 #[doc(inline)]
 pub use window::*;
 
-#[doc(hidden)]
 pub mod prelude {
     pub use crate::{
         LogicalPoint, LogicalRect, LogicalSize, MichiuAnyEvent, MichiuComContext,

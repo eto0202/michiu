@@ -107,8 +107,8 @@
 use crate::{
     BatchType, BorderAlignment, BorderStyle, BoxSizing, Color, Context, DEFAULT_BASIC,
     DEFAULT_FLEX, DrawBatch, EdgeInsets, Entity, LayoutSize, MichiuError, MichiuSoA, Pipeline,
-    QuadInstance, RenderData, RendererView, TextCacheKey, TextCacheValue, TextureAtlas, Vertex,
-    VisualProperty,
+    QuadInstance, RenderData, RendererUserConfig, RendererView, TextCacheKey, TextCacheValue,
+    TextureAtlas, Vertex, VisualProperty,
 };
 use rustc_hash::FxHashMap;
 use slotmap::SecondaryMap;
@@ -138,7 +138,8 @@ pub struct WgpuRenderer {
     // ebView2 の静止画を描画する際にバインドグループを動的生成するため保持
     pub(crate) config_bind_group_layout: wgpu::BindGroupLayout,
 
-    pub(crate) atlas: TextureAtlas,
+    pub(crate) mask_atlas: TextureAtlas,
+    pub(crate) color_atlas: TextureAtlas,
     pub(crate) temp_uv_map: SecondaryMap<Entity, [f32; 4]>,
     pub(crate) text_cache: FxHashMap<TextCacheKey, TextCacheValue>,
 
@@ -171,10 +172,35 @@ impl WgpuRenderer {
     /// - [`MichiuError::CreateSurfaceError`]: Failed to create a surface from `visual` (e.g., invalid pointer or DirectComposition inconsistency).
     /// - [`MichiuError::RequestAdapterError`]: When a GPU (adapter) that meets the requirements cannot be found.
     /// - [`MichiuError::RequestDeviceError`]: When creating a logical device or queue fails (e.g., insufficient VRAM or driver crash).
+    #[inline]
     pub async unsafe fn new(
         visual: *mut std::ffi::c_void, // wgpu ビジュアル (前面)
         size: LayoutSize,
         scale_factor: f32,
+    ) -> crate::Result<Self> {
+        unsafe {
+            Self::with_config(visual, size, scale_factor, RendererUserConfig::default()).await
+        }
+    }
+    /// Initializes wgpu.
+    ///
+    /// # Safety
+    ///
+    /// The caller must satisfy the following safety requirements:
+    /// - `visual` must be a raw pointer to a valid `IDCompositionVisual` (COM object).
+    /// - The object pointed to by `visual` must not be released or destroyed until the created instance is destroyed.。
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the initialization pipeline fails:
+    /// - [`MichiuError::CreateSurfaceError`]: Failed to create a surface from `visual` (e.g., invalid pointer or DirectComposition inconsistency).
+    /// - [`MichiuError::RequestAdapterError`]: When a GPU (adapter) that meets the requirements cannot be found.
+    /// - [`MichiuError::RequestDeviceError`]: When creating a logical device or queue fails (e.g., insufficient VRAM or driver crash).
+    pub async unsafe fn with_config(
+        visual: *mut std::ffi::c_void, // wgpu ビジュアル (前面)
+        size: LayoutSize,
+        scale_factor: f32,
+        user_config: RendererUserConfig,
     ) -> crate::Result<Self> {
         // インスタンス生成（DX12を明示的に指定）
         let instance = WgpuRenderer::create_instance();
@@ -202,8 +228,6 @@ impl WgpuRenderer {
         // デバイスとキューの取得
         let mut custom_limits = wgpu::Limits::downlevel_defaults();
         custom_limits.max_non_sampler_bindings = 2048;
-        custom_limits.max_bind_groups = 3;
-        custom_limits.max_vertex_buffers = 3;
         custom_limits.max_texture_dimension_2d = 8192;
 
         let (device, queue) = adapter
@@ -211,7 +235,7 @@ impl WgpuRenderer {
                 label: Some("Michiu Renderer Device"),
                 required_features: wgpu::Features::empty(),
                 required_limits: custom_limits,
-                memory_hints: wgpu::MemoryHints::MemoryUsage,
+                memory_hints: user_config.memory_hints.clone(),
                 experimental_features: wgpu::ExperimentalFeatures::default(),
                 trace: wgpu::Trace::Off,
             })
@@ -219,7 +243,7 @@ impl WgpuRenderer {
             .map_err(|e| MichiuError::RequestDeviceError { source: e })?;
 
         // Surface 設定
-        let config = WgpuRenderer::surface_config(size, &surface, &adapter);
+        let config = WgpuRenderer::surface_config(size, &surface, &adapter, &user_config);
         // Surface に設定をアタッチしてスワップチェーンを初期化
         surface.configure(&device, &config);
 
@@ -230,7 +254,10 @@ impl WgpuRenderer {
         let config_buffer = WgpuRenderer::create_buffer(size, scale_factor, &device);
 
         // アトラス初期化
-        let atlas = TextureAtlas::new(&device, 2048);
+        // 通常文字用（R8）
+        let mask_atlas = TextureAtlas::new(&device, wgpu::TextureFormat::R8Unorm, 2048);
+        // カラー絵文字用（RGBA8）
+        let color_atlas = TextureAtlas::new(&device, wgpu::TextureFormat::Rgba8UnormSrgb, 2048);
 
         let config_bind_group_layout = WgpuRenderer::create_bind_group_layout(&device);
 
@@ -258,7 +285,8 @@ impl WgpuRenderer {
             &config_bind_group_layout,
             &config_buffer,
             &instance_buffer,
-            &atlas,
+            &mask_atlas,
+            &color_atlas,
         );
 
         Ok(Self {
@@ -276,7 +304,8 @@ impl WgpuRenderer {
             config_buffer,
             config_bind_group,
             config_bind_group_layout,
-            atlas,
+            mask_atlas,
+            color_atlas,
             temp_uv_map: SecondaryMap::new(),
             text_cache: FxHashMap::default(),
             render_data: RenderData::new(),
@@ -307,6 +336,7 @@ impl WgpuRenderer {
         size: LayoutSize,
         surface: &wgpu::Surface,
         adapter: &wgpu::Adapter,
+        user_config: &RendererUserConfig,
     ) -> wgpu::SurfaceConfiguration {
         let caps = surface.get_capabilities(adapter);
         let surface_format = caps
@@ -322,7 +352,7 @@ impl WgpuRenderer {
             format: surface_format,
             width: size.width.max(1.0) as u32,
             height: size.height.max(1.0) as u32,
-            present_mode: wgpu::PresentMode::Fifo, // VSync 有効
+            present_mode: user_config.present_mode,
             alpha_mode: wgpu::CompositeAlphaMode::PreMultiplied,
             view_formats: vec![],
             desired_maximum_frame_latency: 2,
@@ -357,6 +387,7 @@ impl WgpuRenderer {
                     },
                     count: None,
                 },
+                // 通常文字用（R8）
                 wgpu::BindGroupLayoutEntry {
                     binding: 1,
                     visibility: wgpu::ShaderStages::FRAGMENT,
@@ -367,16 +398,27 @@ impl WgpuRenderer {
                     },
                     count: None,
                 },
-                // Atlas Sampler (Binding 2)
+                // カラー絵文字用（RGBA8）
                 wgpu::BindGroupLayoutEntry {
                     binding: 2,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                // Atlas Sampler (Binding 2)
+                wgpu::BindGroupLayoutEntry {
+                    binding: 3,
                     visibility: wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                     count: None,
                 },
                 // Storage (読み取り専用)
                 wgpu::BindGroupLayoutEntry {
-                    binding: 3,
+                    binding: 4,
                     visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Storage { read_only: true },
@@ -537,7 +579,8 @@ impl WgpuRenderer {
         bind_group_layout: &wgpu::BindGroupLayout,
         config: &wgpu::Buffer,
         instance: &wgpu::Buffer,
-        atlas: &TextureAtlas,
+        mask_atlas: &TextureAtlas,
+        color_atlas: &TextureAtlas,
     ) -> wgpu::BindGroup {
         device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: bind_group_layout,
@@ -548,14 +591,18 @@ impl WgpuRenderer {
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
-                    resource: wgpu::BindingResource::TextureView(&atlas.view),
+                    resource: wgpu::BindingResource::TextureView(&mask_atlas.view),
                 },
                 wgpu::BindGroupEntry {
                     binding: 2,
-                    resource: wgpu::BindingResource::Sampler(&atlas.sampler),
+                    resource: wgpu::BindingResource::TextureView(&color_atlas.view),
                 },
                 wgpu::BindGroupEntry {
                     binding: 3,
+                    resource: wgpu::BindingResource::Sampler(&mask_atlas.sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
                     resource: instance.as_entire_binding(),
                 },
             ],
@@ -566,15 +613,15 @@ impl WgpuRenderer {
     /// ウィンドウサイズが変更された際の再設定
     /// `new_physical_size`: (width, height)
     #[expect(clippy::cast_precision_loss)]
-    pub fn resize(&mut self, physical_width: u32, physical_height: u32, scale_factor: f32) {
-        if physical_width > 0 && physical_height > 0 {
-            self.config.width = physical_width;
-            self.config.height = physical_height;
+    pub fn resize(&mut self, p_width: u32, p_height: u32, scale_factor: f32) {
+        if p_width > 0 && p_height > 0 {
+            self.config.width = p_width;
+            self.config.height = p_height;
 
             self.surface.configure(&self.device, &self.config);
 
-            let logical_width = physical_width as f32 / scale_factor;
-            let logical_height = physical_height as f32 / scale_factor;
+            let logical_width = p_width as f32 / scale_factor;
+            let logical_height = p_height as f32 / scale_factor;
 
             // シェーダー側で位置を正しく計算できるよう、論理サイズを Uniform に再書き込み
             let config_data = GlobalConfig {
@@ -599,7 +646,8 @@ impl WgpuRenderer {
             cx,
             &mut RendererView {
                 render_data: &mut self.render_data,
-                atlas: &mut self.atlas,
+                mask_atlas: &mut self.mask_atlas,
+                color_atlas: &mut self.color_atlas,
                 text_cache: &mut self.text_cache,
                 queue: &self.queue,
             },
@@ -772,12 +820,17 @@ impl WgpuRenderer {
                             binding: 1,
                             resource: wgpu::BindingResource::TextureView(&view),
                         },
+                        // ダミー
                         wgpu::BindGroupEntry {
                             binding: 2,
-                            resource: wgpu::BindingResource::Sampler(&self.atlas.sampler),
+                            resource: wgpu::BindingResource::TextureView(&self.mask_atlas.view),
                         },
                         wgpu::BindGroupEntry {
                             binding: 3,
+                            resource: wgpu::BindingResource::Sampler(&self.mask_atlas.sampler),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 4,
                             resource: self.instance_buffer.as_entire_binding(),
                         },
                     ],
@@ -931,7 +984,7 @@ impl WgpuRenderer {
                 uv_min: instance.uv_min,
                 uv_max: instance.uv_max,
                 gradient: instance.gradient,
-                _transform_origin_pad: [0.0; 2],
+                is_color_atlas_pad: instance.is_color_atlas_pad,
                 shadow_color,
                 shadow_params,
                 outline_width: o_width,
@@ -974,14 +1027,18 @@ impl WgpuRenderer {
                     },
                     wgpu::BindGroupEntry {
                         binding: 1,
-                        resource: wgpu::BindingResource::TextureView(&self.atlas.view),
+                        resource: wgpu::BindingResource::TextureView(&self.mask_atlas.view),
                     },
                     wgpu::BindGroupEntry {
                         binding: 2,
-                        resource: wgpu::BindingResource::Sampler(&self.atlas.sampler),
+                        resource: wgpu::BindingResource::TextureView(&self.color_atlas.view),
                     },
                     wgpu::BindGroupEntry {
                         binding: 3,
+                        resource: wgpu::BindingResource::Sampler(&self.mask_atlas.sampler),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 4,
                         resource: self.instance_buffer.as_entire_binding(),
                     },
                 ],
@@ -1070,8 +1127,14 @@ impl WgpuRenderer {
 
     #[inline]
     #[must_use]
-    pub fn atlas(&self) -> &TextureAtlas {
-        &self.atlas
+    pub fn mask_atlas(&self) -> &TextureAtlas {
+        &self.mask_atlas
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn color_atlas(&self) -> &TextureAtlas {
+        &self.color_atlas
     }
 
     #[inline]
@@ -1115,7 +1178,8 @@ impl WgpuRenderer {
             config_buffer: &mut self.config_buffer,
             config_bind_group: &mut self.config_bind_group,
             config_bind_group_layout: &mut self.config_bind_group_layout,
-            atlas: &mut self.atlas,
+            mask_atlas: &mut self.mask_atlas,
+            color_atlas: &mut self.color_atlas,
             temp_uv_map: &mut self.temp_uv_map,
             text_cache: &mut self.text_cache,
             render_data: &mut self.render_data,
@@ -1139,7 +1203,8 @@ pub struct RawWgpuRenderer<'a> {
     pub config_buffer: &'a mut wgpu::Buffer,
     pub config_bind_group: &'a mut wgpu::BindGroup,
     pub config_bind_group_layout: &'a mut wgpu::BindGroupLayout,
-    pub atlas: &'a mut TextureAtlas,
+    pub mask_atlas: &'a mut TextureAtlas,
+    pub color_atlas: &'a mut TextureAtlas,
     pub temp_uv_map: &'a mut SecondaryMap<Entity, [f32; 4]>,
     pub text_cache: &'a mut FxHashMap<TextCacheKey, TextCacheValue>,
     pub render_data: &'a mut RenderData,

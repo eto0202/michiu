@@ -2338,6 +2338,7 @@ impl Pipeline {
 
     /// 文字ごとのインスタンスを追加
     #[inline]
+    #[expect(clippy::cast_precision_loss)]
     fn push_text_metric_instances(
         id: Entity,
         view: &mut RendererView,
@@ -2378,9 +2379,7 @@ impl Pipeline {
                 let char_phys_y = physical.y - value.offset_y; // Swash の top は上向き正のため減算
 
                 // 論理座標に戻す
-                #[expect(clippy::cast_precision_loss)]
                 let char_x = char_phys_x as f32 / win_scale_factor;
-                #[expect(clippy::cast_precision_loss)]
                 let char_y = char_phys_y as f32 / win_scale_factor;
 
                 // 文字の矩形
@@ -2394,12 +2393,15 @@ impl Pipeline {
                     a: f32::from(c.a()) / 255.0,
                 });
 
+                let atlas_mode = if value.is_color { 0.0 } else { 1.0 };
+
                 let glyph_instance = QuadInstance {
                     rect: char_rect,
                     transform: params.transform,
                     transform_origin: params.transform_origin,
                     color: char_color,
                     opacity_mode_sizing: [params.opacity, 2.0, params.box_sizing_val, 0.0],
+                    is_color_atlas_pad: [atlas_mode, 0.0],
                     uv_min: value.uv_min,
                     uv_max: value.uv_max,
                     ..Default::default()

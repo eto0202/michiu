@@ -1,5 +1,4 @@
 use crate::MichiuError;
-use std::sync::Arc;
 use windows::Win32::{
     Graphics::Gdi::{
         BITMAPINFO, BITMAPINFOHEADER, CreateBitmap, CreateDIBSection, DIB_RGB_COLORS, DeleteObject,
@@ -127,6 +126,31 @@ impl CursorIcon {
     /// Returns [`MichiuError::CursorCreationFailed`]:
     /// - If the length of `rgba_pixels` does not match the expected size (`width * height * 4`).
     /// - If the underlying Windows API fails to allocate resources or create the icon (e.g. `CreateDIBSection`, `CreateIconIndirect`).
+    /// # Arguments
+    /// * `rgba` - A sequence of pixel data, 4 bytes per pixel (R, G, B, A)
+    /// * `width` - The width of the image (in pixels)
+    /// * `height` - The height of the image (in pixels)
+    /// * `hotspot_x` - The X coordinate of the hotspot where the click occurs (with the top-left corner as the origin)
+    /// * `hotspot_y` - The Y coordinate of the hotspot where the click occurs (with the top-left corner as the origin)
+    ///
+    /// # Examples
+    ///
+    /// When reading from a file using the [`image`](https://crates.io/crates/image) crate:
+    ///
+    /// ```no_run,ignore
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let img = image::open("path/to/cursor.png")?.to_rgba8();
+    ///
+    /// let cursor = CursorIcon::create_from_rgba(
+    ///     img.as_raw(),
+    ///     img.width(),
+    ///     img.height(),
+    ///     0, // hotspot_x
+    ///     0, // hotspot_y
+    /// )?;
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn create_from_rgba(
         rgba_pixels: &[u8],
         width: u32,
@@ -216,32 +240,5 @@ impl CursorIcon {
 
             Ok(h_cursor)
         }
-    }
-
-    /// Generates a custom `HCURSOR` with the specified hotspot coordinates based on the image file path.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`MichiuError::ImageLoadFailed`]:
-    /// - if the file cannot be opened (e.g. not found, permission denied).
-    /// - if the image format is unsupported or unrecognized.
-    /// - if the file is corrupted or failed to decode.
-    ///
-    /// Returns [`MichiuError::CursorCreationFailed`]:
-    /// - If the underlying Windows API fails to allocate resources or create the icon.
-    pub fn create_from_path(
-        path: impl AsRef<std::path::Path>,
-        hotspot_x: u32,
-        hotspot_y: u32,
-    ) -> crate::Result<HCURSOR> {
-        let p_clone = path.as_ref().to_path_buf();
-        let img = image::open(path).map_err(|e| MichiuError::ImageLoadFailed {
-            path: p_clone,
-            source: Arc::new(e),
-        })?;
-        let rgba_img = img.to_rgba8();
-        let (width, height) = rgba_img.dimensions();
-
-        Self::create_from_rgba(rgba_img.as_raw(), width, height, hotspot_x, hotspot_y)
     }
 }

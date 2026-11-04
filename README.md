@@ -29,7 +29,7 @@ Add the following to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-michiu = "0.1.1"
+michiu = "0.2.0"
 pollster = "1.0.1"
 ```
 
@@ -63,6 +63,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         handle.hwnd(),
         rect.cast(),
         scale_factor,
+        None,
     ))?;
 
     // 3. Build UI and application host

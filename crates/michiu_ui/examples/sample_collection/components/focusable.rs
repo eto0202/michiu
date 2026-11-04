@@ -21,7 +21,7 @@ fn item(label: &'static str, style: Modifier) -> Entity {
     flex(
         style
             .p(12.0)
-            .r(4.0)
+            .r(3.0)
             .justify_center()
             .items_center()
             .border_solid(1.0)

@@ -15,7 +15,7 @@ pub fn container() -> Entity {
 fn group_container(label: &'static str) -> Entity {
     v_flex(
         ii().size_full()
-            .r(4.0)
+            .r(3.0)
             .p(8.0)
             .gap(16.0)
             .border_dashed(1.0)
@@ -33,7 +33,7 @@ fn items() -> Entity {
 
 fn item(label: &'static str, style: Modifier) -> Entity {
     flex(
-        ii().r(4.0)
+        ii().r(3.0)
             .size(80.0)
             .justify_center()
             .bg_color(dynamic(|t: &Theme| t.accent))
@@ -71,7 +71,7 @@ fn inherit_group() -> Entity {
 
 fn trans_item(label: &'static str, style: Modifier) -> Entity {
     flex(
-        ii().r(4.0)
+        ii().r(3.0)
             .size(80.0)
             .justify_center()
             .bg_color(dynamic(|t: &Theme| t.accent))
@@ -96,7 +96,7 @@ fn animation_group() -> Entity {
     group_container("Animation").child(
         items().child(
             flex(
-                ii().r(4.0)
+                ii().r(3.0)
                     .size(80.0)
                     .justify_center()
                     .bg_color(dynamic(|t: &Theme| t.accent))

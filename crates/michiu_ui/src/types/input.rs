@@ -1,6 +1,6 @@
 use crate::{
-    ByteIndex, CharIndex, Color, IntoSize, LayoutPoint, LayoutRect, MichiuString, ReadSignal,
-    UsizeRangeExt, WriteSignal,
+    ByteIndex, CharIndex, Color, FontStyle, IntoSize, LayoutPoint, LayoutRect, LineHeight,
+    MichiuString, ReadSignal, UsizeRangeExt, WriteSignal,
 };
 use std::ops::Range;
 use std::{borrow::Cow, time::Duration};
@@ -119,12 +119,14 @@ pub struct TextSpan {
 
     /// Partial Font Size Override
     pub(crate) font_size: Option<f32>,
+    /// Partial Line Height Override
+    pub(crate) line_height: Option<LineHeight>,
     /// Partial Font Family Override
     pub(crate) font_family: Option<Cow<'static, str>>,
     /// Partial Font Weight Override
     pub(crate) font_weight: Option<u16>,
     /// Partial Font Style Override
-    pub(crate) font_style: Option<u32>,
+    pub(crate) font_style: Option<FontStyle>,
 
     pub(crate) underline: Option<UnderlineStyle>,
     pub(crate) underline_color: Option<Color>,
@@ -148,6 +150,7 @@ impl TextSpan {
             color: None,
             bg_color: None,
             font_size: None,
+            line_height: None,
             font_family: None,
             font_weight: None,
             font_style: None,
@@ -191,6 +194,14 @@ impl TextSpan {
         self
     }
 
+    /// Partial Line Height Override
+    #[inline]
+    #[must_use]
+    pub fn line_height(mut self, height: LineHeight) -> Self {
+        self.line_height = Some(height);
+        self
+    }
+
     /// Partial Font Family Override
     #[must_use]
     #[inline]
@@ -210,7 +221,7 @@ impl TextSpan {
     /// Partial Font Style Override
     #[inline]
     #[must_use]
-    pub fn font_style(mut self, style: u32) -> Self {
+    pub fn font_style(mut self, style: FontStyle) -> Self {
         self.font_style = Some(style);
         self
     }

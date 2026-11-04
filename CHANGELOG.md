@@ -1,3 +1,42 @@
+## [0.2.0] - 2026-11-04
+
+### Breaking Changes
+
+- Change the internal structure of `MichiuRenderer`.
+- Change the argument for `Modifier::font_style` from `u32` to `FontStyle`.
+- Remove `CursorIcon::create_from_path` to reduce dependencies.
+- Add `FontWeight` and change the arguments for `font_weight()`
+- Add `FontFamily` and change the `font_family()` argument to `IntoModFamily`.
+
+### 🚀 Features
+
+- Add `Compositor` and `DispatcherQueueController`
+  - `MichiuRenderer` now calls `ShutdownQueueAsync` when dropped to ensure safe termination.
+- Support color emoji rendering with separate RGBA texture atlas
+- Added `line_height` and `LineHeight`.
+  - `LineHeight::Fixed(f32)` sets the line height to a specified fixed value.
+  - `LineHeight::Factor(f32)` sets the line height to `font_size * factor`.
+- Add `LetterSpacing` and `Modifier::letter_spacing`
+- Add a method to load font data to `Entity`
+- Add `with_config` to `MichiuRenderer` and `WgpuRenderer` to support custom configurations.
+- Add `RendererUserConfig`
+
+### 🐛 Bug Fixes
+
+- Fix `sample_collection`
+
+### 📚 Documentation
+
+- Update the documentation for `MichiuRenderer`
+
+### 🚜 Refactor
+
+- [**breaking**] Restructured `MichiuRenderer` because it had become bloated.
+- [**breaking**] Fix to `FontDate`
+- [**breaking**] Change to the `font_family` argument
+- [**breaking**] Add `FontWeight` and change the arguments for `font_weight()`
+- [**breaking**] Remove `CursorIcon::create_from_path` to reduce dependencies
+
 ## [0.1.2] - 2026-11-01
 
 ### 🚀 Features
@@ -257,8 +296,9 @@
 
 - Initial release
 
-[unreleased]: https://github.com/eto0202/michiu/compare/v0.1.2...HEAD
-[0.1.2]: https://github.com/eto0202/michiu/compare/v0.1.0...v0.1.2
+[unreleased]: https://github.com/eto0202/michiu/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/eto0202/michiu/compare/v0.1.2...v0.2.0
+[0.1.2]: https://github.com/eto0202/michiu/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/eto0202/michiu/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/eto0202/michiu/compare/v0.0.5...v0.1.0
 [0.0.5]: https://github.com/eto0202/michiu/compare/v0.0.4...v0.0.5

@@ -33,7 +33,7 @@ fn input_item(d: &'static str, e: Entity) -> Entity {
         ii().flex()
             .items_center()
             .p((6.0, 4.0))
-            .r(4.0)
+            .r(3.0)
             .size((160.0, 40.0))
             .bg_color(dynamic(|t: &Theme| t.surface))
             .border_solid(1.0)
@@ -214,7 +214,7 @@ fn spin_box() -> Entity {
     );
 
     h_flex(
-        ii().r(4.0)
+        ii().r(3.0)
             .bg_color(dynamic(|t: &Theme| t.surface))
             .border_solid(1.0)
             .border_color(dynamic(|t: &Theme| t.border)),
@@ -246,7 +246,7 @@ fn password_box() -> Entity {
         });
 
     h_flex_d(|t: &Theme| {
-        ii().r(4.0)
+        ii().r(3.0)
             .bg_color(t.surface)
             .border_solid(1.0)
             .border_color(t.border)
@@ -468,7 +468,7 @@ fn search_box() -> Entity {
 
     h_flex_d(move |t: &Theme| {
         let base = ii()
-            .r(4.0)
+            .r(3.0)
             .bg_color(t.surface)
             .border_solid(1.0)
             .border_color(t.border)
@@ -488,7 +488,7 @@ fn multiline_container() -> Entity {
     let area = flex(
         ii().flex()
             .p((6.0, 6.0))
-            .r(4.0)
+            .r(3.0)
             .size((400.0, 100.0))
             .min_size((200.0, 40.0))
             .resizable_right(true)

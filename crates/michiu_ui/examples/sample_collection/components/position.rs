@@ -2,7 +2,7 @@ use crate::app::theme::Theme;
 use michiu_ui::prelude::*;
 
 pub fn container() -> Entity {
-    v_flex(ii().p(16.0).gap(16.0).r(4.0).w_full()).children([
+    v_flex(ii().p(16.0).gap(16.0).r(3.0).w_full()).children([
         text("↓↓↓ Click Section ↓↓↓").modify(common_label()),
         section_1(),
     ])
@@ -18,7 +18,7 @@ fn section_1() -> Entity {
             .w(500.0)
             .gap(12.0)
             .p(12.0)
-            .r(4.0)
+            .r(3.0)
             .border_dashed(1.0)
             .border_color(dynamic(|t: &Theme| t.border)),
     )
@@ -31,7 +31,7 @@ fn section_2() -> Entity {
     div(move || {
         let s = ii()
             .p(12.0)
-            .r(4.0)
+            .r(3.0)
             .left(20.0) // This does not apply to Static.
             .size(160.0)
             .border_solid(1.0)
@@ -61,7 +61,7 @@ fn section_3() -> Entity {
     div(move || {
         let s = ii()
             .p(4.0)
-            .r(4.0)
+            .r(3.0)
             .size(80.0)
             .top(50.0)
             .left(30.0)
