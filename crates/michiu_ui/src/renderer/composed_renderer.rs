@@ -550,7 +550,7 @@ impl MichiuRenderer {
     }
 }
 
-#[allow(clippy::print_stderr)]
+#[allow(clippy::print_stderr, unused)]
 impl Drop for MichiuRenderer {
     fn drop(&mut self) {
         if let Err(e) = self.platform.controller.ShutdownQueueAsync() {
