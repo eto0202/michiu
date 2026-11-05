@@ -168,6 +168,7 @@ impl FileFilter {
 /// # Examples
 ///
 /// ```no_run
+/// # use michiu_window::FileDialogOptions;
 /// let options = FileDialogOptions::new()
 ///     .title("Select Output File")
 ///     .default_file_name("document.txt")
