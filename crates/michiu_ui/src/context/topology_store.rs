@@ -1,10 +1,12 @@
+#![expect(unused)]
+
 use crate::{
     AccessibilityStore, ActiveInteractionStates, BaseVisualPropertiesSecondary, CapacityConfig,
     ClipRectsSecondary, ComponentMask, ContentStore, Context, DebugStore, DirtyLayoutEntitiesVec,
     DirtyRenderEntitiesVec, Entity, EventStore, FlexLayoutsSecondary, IDENTITY_MATRIX, LayoutPoint,
     LayoutRect, LayoutSize, LayoutStore, MichiuError, MichiuSoA, MichiuTagRegistry, OptionTraceExt,
-    OutputStore, PointerEvents, ReactiveStore, RectsSecondary, RenderStore, StateStore,
-    SystemStore, TaffyNodesSecondary, TaffyResultTraceExt, TaffyTreeEntity,
+    OutputStore, PointerEvents, ReactiveStore, RectsSecondary, RenderStore, ResultTraceExt,
+    StateStore, SystemStore, TaffyNodesSecondary, TaffyResultTraceExt, TaffyTreeEntity,
     VisualPropertiesSecondary, WindowStore, a11y::A11yInferenceTag, define_secondary,
     define_smallvec, define_vec,
 };
@@ -12,6 +14,7 @@ use crate::{
 use crate::{MichiuTrace, trace_lifecycle};
 use slotmap::{SecondaryMap, SlotMap};
 use smallvec::SmallVec;
+use std::ops::{Deref, DerefMut};
 #[cfg(feature = "trace-lifecycle")]
 use std::sync::Arc;
 
@@ -35,12 +38,64 @@ define_secondary!(pub struct EffectiveZindicesSecondary(i32));
 define_vec!(pub struct ActiveEntitiesVec(Entity));
 define_vec!(pub struct SessionSpawnedVec(Entity));
 define_vec!(pub struct FlatDfsSequenceVec(Entity));
+define_vec!(pub struct SubtreeSizes(u32));
 define_vec!(pub struct SortedEntitiesVec(Entity));
 define_vec!(pub struct SortCacheVec((Entity, i32, u32)));
 
 define_smallvec!(pub struct SessionRootsVec(Entity, 4));
 define_smallvec!(pub struct WebviewEntitiesVec(Entity, 4));
 define_smallvec!(pub struct DespawnedQueueVec(Entity, 4));
+
+#[derive(Debug, Clone, Default)]
+pub struct FlatDfsSequence {
+    pub(crate) entities: FlatDfsSequenceVec,
+    pub(crate) subtree_sizes: SubtreeSizes,
+}
+impl Deref for FlatDfsSequence {
+    type Target = FlatDfsSequenceVec;
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        &self.entities
+    }
+}
+impl DerefMut for FlatDfsSequence {
+    #[inline]
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.entities
+    }
+}
+impl FlatDfsSequence {
+    pub(crate) fn iter_skippable(&self) -> DfsSkippableIter<'_> {
+        DfsSkippableIter {
+            entities: &self.entities,
+            subtree_sizes: &self.subtree_sizes,
+            index: 0,
+        }
+    }
+}
+
+pub(crate) struct DfsSkippableIter<'a> {
+    entities: &'a [Entity],
+    subtree_sizes: &'a [u32],
+    index: usize,
+}
+impl DfsSkippableIter<'_> {
+    /// 次の要素を取得し index を1つ進める
+    pub(crate) fn next(&mut self) -> Option<Entity> {
+        let entity = self.entities.get(self.index).copied()?;
+        self.index += 1;
+        Some(entity)
+    }
+
+    /// 直前に返した要素の子孫をすべてスキップする
+    pub(crate) fn skip_children(&mut self) {
+        // 直前の next() で index が +1 されているので、残りの子孫分だけ飛ばす
+        let last_index = self.index - 1;
+        let subtree_size = self.subtree_sizes[last_index] as usize;
+        // subtree_size にはノード自身(1)が含まれているため、(subtree_size - 1) 分進める
+        self.index += subtree_size.saturating_sub(1);
+    }
+}
 
 pub struct TopologyStore {
     /// 全要素の生存期間を管理するプライマリマップ
@@ -58,14 +113,13 @@ pub struct TopologyStore {
     pub(crate) topo_session_spawned: SessionSpawnedVec,
     /// セッション終了時に、親がいなくても破棄してはならないルート要素のリスト
     pub(crate) topo_session_roots: SessionRootsVec,
-    pub(crate) topo_flat_dfs_sequence: FlatDfsSequenceVec,
+    pub(crate) topo_flat_dfs_sequence: FlatDfsSequence,
     // 実効 z-index の作業用マップ
     pub(crate) topo_effective_z_indices: EffectiveZindicesSecondary,
     pub(crate) topo_sorted_entities: SortedEntitiesVec,
     pub(crate) topo_sort_cache: SortCacheVec,
     pub(crate) topo_is_structure_dirty: bool,
     pub(crate) topo_is_sort_dirty: bool,
-    pub(crate) topo_webview_entities: WebviewEntitiesVec,
     pub(crate) topo_despawned_queue: DespawnedQueueVec,
     pub(crate) topo_tag_registry: MichiuTagRegistry,
 }
@@ -88,13 +142,15 @@ impl TopologyStore {
             topo_children: ChildrenSecondary(SecondaryMap::new()),
             topo_session_spawned: SessionSpawnedVec(Vec::new()),
             topo_session_roots: SessionRootsVec(SmallVec::new()),
-            topo_flat_dfs_sequence: FlatDfsSequenceVec(Vec::new()),
+            topo_flat_dfs_sequence: FlatDfsSequence {
+                entities: FlatDfsSequenceVec(Vec::new()),
+                subtree_sizes: SubtreeSizes(Vec::new()),
+            },
             topo_effective_z_indices: EffectiveZindicesSecondary(SecondaryMap::new()),
             topo_sorted_entities: SortedEntitiesVec(Vec::new()),
             topo_sort_cache: SortCacheVec(Vec::new()),
             topo_is_structure_dirty: true,
             topo_is_sort_dirty: true,
-            topo_webview_entities: WebviewEntitiesVec(SmallVec::new()),
             topo_despawned_queue: DespawnedQueueVec(SmallVec::new()),
             topo_tag_registry: MichiuTagRegistry::new(),
         }
@@ -113,17 +169,15 @@ impl TopologyStore {
             topo_children: ChildrenSecondary(SecondaryMap::with_capacity(c.topo_children)),
             topo_session_spawned: SessionSpawnedVec(Vec::with_capacity(c.topo_session_spawned)),
             topo_session_roots: SessionRootsVec(SmallVec::with_capacity(c.topo_session_roots)),
-            topo_flat_dfs_sequence: FlatDfsSequenceVec(Vec::with_capacity(
-                c.topo_flat_dfs_sequence,
-            )),
+            topo_flat_dfs_sequence: FlatDfsSequence {
+                entities: FlatDfsSequenceVec(Vec::with_capacity(c.topo_flat_dfs_sequence)),
+                subtree_sizes: SubtreeSizes(Vec::with_capacity(c.topo_children)),
+            },
             topo_effective_z_indices: EffectiveZindicesSecondary(SecondaryMap::with_capacity(
                 c.topo_effective_z_indices,
             )),
             topo_sorted_entities: SortedEntitiesVec(Vec::with_capacity(c.topo_sorted_entities)),
             topo_sort_cache: SortCacheVec(Vec::with_capacity(c.topo_sort_cache)),
-            topo_webview_entities: WebviewEntitiesVec(SmallVec::with_capacity(
-                c.topo_webview_entities,
-            )),
             topo_despawned_queue: DespawnedQueueVec(SmallVec::with_capacity(
                 c.topo_despawned_queue,
             )),
@@ -138,13 +192,13 @@ impl TopologyStore {
         self.topo_active_masks.clear();
         self.topo_parents.clear();
         self.topo_children.clear();
-        self.topo_flat_dfs_sequence.clear();
+        self.topo_flat_dfs_sequence.entities.clear();
+        self.topo_flat_dfs_sequence.subtree_sizes.clear();
         self.topo_effective_z_indices.clear();
         self.topo_sorted_entities.clear();
         self.topo_sort_cache.clear();
         self.topo_is_structure_dirty = true;
         self.topo_is_sort_dirty = true;
-        self.topo_webview_entities.clear();
         self.topo_despawned_queue.clear();
     }
 
@@ -156,11 +210,7 @@ impl TopologyStore {
         self.topo_parents.remove(id);
         self.topo_session_spawned.retain(|&x| x != id);
         self.topo_session_roots.retain(|x| *x != id);
-        self.topo_flat_dfs_sequence.retain(|&x| x != id);
         self.topo_effective_z_indices.remove(id);
-        self.topo_sorted_entities.retain(|&x| x != id);
-        self.topo_sort_cache.retain(|&x| x.0 != id);
-        self.topo_webview_entities.retain(|x| *x != id);
         self.topo_despawned_queue.retain(|x| *x != id);
         self.topo_tag_registry.unregister_entity(id);
     }
@@ -533,30 +583,57 @@ impl TopologyStore {
     #[inline]
     pub(crate) fn rebuild_dfs_sequence(
         root: Entity,
-        topo_flat_dfs_sequence: &mut FlatDfsSequenceVec,
+        topo_flat_dfs_sequence: &mut FlatDfsSequence,
         topo_is_structure_dirty: &mut bool,
         topo_children: &ChildrenSecondary,
         debug: &mut DebugStore,
     ) {
-        topo_flat_dfs_sequence.clear();
-        let mut stack = smallvec::SmallVec::<[Entity; 32]>::new();
-        stack.push(root);
+        enum Task {
+            Visit(Entity),
+            Finish { index: usize },
+        }
 
-        while let Some(id) = stack.pop() {
-            topo_flat_dfs_sequence.push(id);
+        topo_flat_dfs_sequence.entities.clear();
+        topo_flat_dfs_sequence.subtree_sizes.clear();
 
-            let children_list = topo_children.at(id);
+        let mut stack = smallvec::SmallVec::<[Task; 32]>::new();
+        stack.push(Task::Visit(root));
 
-            let len = children_list.len();
-            for i in (0..len).rev() {
-                stack.push(children_list[i]);
+        while let Some(task) = stack.pop() {
+            match task {
+                Task::Visit(id) => {
+                    let index = topo_flat_dfs_sequence.entities.len();
+
+                    topo_flat_dfs_sequence.entities.push(id);
+                    topo_flat_dfs_sequence.subtree_sizes.push(0);
+
+                    // 子孫の処理が終わった後にポップされるよう先に Finish を積む
+                    stack.push(Task::Finish { index });
+
+                    // 子ノードを逆順で積む
+                    let children_list = topo_children.at(id);
+                    let len = children_list.len();
+                    for i in (0..len).rev() {
+                        stack.push(Task::Visit(children_list[i]));
+                    }
+                }
+                Task::Finish { index } => {
+                    // 子孫がすべて entities に追加し終わったので、
+                    // 現在の全体の長さ - 自分が追加されたときのインデックスがそのままサブツリーサイズ
+                    let diff = topo_flat_dfs_sequence.entities.len() - index;
+                    let subtree_size: u32 = diff
+                        .try_into()
+                        .map_err(|e| MichiuError::ExceedsSubtreeLimit { source: e })
+                        .unwrap_or_trace(None, debug);
+                    topo_flat_dfs_sequence.subtree_sizes[index] = subtree_size;
+                }
             }
         }
         *topo_is_structure_dirty = false;
 
         #[cfg(feature = "trace-lifecycle")]
         trace_lifecycle!(None, debug, || MichiuTrace::Dfs {
-            after: Arc::from(topo_flat_dfs_sequence.0.clone()),
+            after: Arc::from(topo_flat_dfs_sequence.entities.0.clone()),
             add: Some("Here, the is_structure_dirty flag changes to false.")
         });
     }
@@ -595,7 +672,7 @@ impl TopologyStore {
     pub(crate) fn find_root(
         topo_entities: &EntitiesSlot,
         topo_parents: &ParentsSecondary,
-        topo_flat_dfs_sequence: &FlatDfsSequenceVec,
+        topo_flat_dfs_sequence: &FlatDfsSequence,
     ) -> Option<Entity> {
         // すでにフラットシーケンスが構築されていればその先頭、
         // 無ければ topo_parents マップをスキャンして親が None の生存要素をフォールバック解決します
@@ -695,7 +772,7 @@ impl TopologyStore {
         topo_sort_cache: &mut SortCacheVec,
         topo_is_sort_dirty: &mut bool,
         topo_parents: &ParentsSecondary,
-        topo_flat_dfs_sequence: &FlatDfsSequenceVec,
+        topo_flat_dfs_sequence: &FlatDfsSequence,
         rnd_visual: &VisualPropertiesSecondary,
         out_clip_rects: &mut ClipRectsSecondary,
         out_rects: &RectsSecondary,
@@ -901,7 +978,7 @@ impl TopologyStore {
         topo_sort_cache: &mut SortCacheVec,
         topo_is_sort_dirty: &mut bool,
         topo_parents: &ParentsSecondary,
-        topo_flat_dfs_sequence: &FlatDfsSequenceVec,
+        topo_flat_dfs_sequence: &FlatDfsSequence,
         rnd_visual: &VisualPropertiesSecondary,
         rnd_base_visual: &BaseVisualPropertiesSecondary,
         out_clip_rects: &mut ClipRectsSecondary,
@@ -1023,7 +1100,7 @@ impl TopologyStore {
         parent: Entity,
         topo_tag_registry: &MichiuTagRegistry,
         topo_parents: &ParentsSecondary,
-        topo_flat_dfs_sequence: &FlatDfsSequenceVec,
+        topo_flat_dfs_sequence: &FlatDfsSequence,
     ) -> Option<Entity> {
         topo_tag_registry.query_first_descendant_of_type::<T>(
             parent,
@@ -1038,7 +1115,7 @@ impl TopologyStore {
         parent: Entity,
         topo_tag_registry: &MichiuTagRegistry,
         topo_parents: &ParentsSecondary,
-        topo_flat_dfs_sequence: &FlatDfsSequenceVec,
+        topo_flat_dfs_sequence: &FlatDfsSequence,
         debug: &mut DebugStore,
     ) -> Entity {
         topo_tag_registry
@@ -1053,7 +1130,7 @@ impl TopologyStore {
         parent: Entity,
         topo_tag_registry: &'a MichiuTagRegistry,
         topo_parents: &'a ParentsSecondary,
-        topo_flat_dfs_sequence: &'a FlatDfsSequenceVec,
+        topo_flat_dfs_sequence: &'a FlatDfsSequence,
     ) -> impl Iterator<Item = Entity> + 'a {
         topo_tag_registry.query_descendants_of_type::<T>(
             parent,
@@ -1093,7 +1170,7 @@ impl TopologyStore {
     }
 
     #[inline]
-    pub fn flat_dfs_sequence_mut(&mut self) -> &mut FlatDfsSequenceVec {
+    pub fn flat_dfs_sequence(&mut self) -> &mut FlatDfsSequence {
         &mut self.topo_flat_dfs_sequence
     }
 
@@ -1135,11 +1212,6 @@ impl TopologyStore {
     #[inline]
     pub fn tag_registry_mut(&mut self) -> &mut MichiuTagRegistry {
         &mut self.topo_tag_registry
-    }
-
-    #[inline]
-    pub fn webview_entities_mut(&mut self) -> &mut WebviewEntitiesVec {
-        &mut self.topo_webview_entities
     }
 }
 

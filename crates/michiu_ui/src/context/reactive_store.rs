@@ -1,5 +1,5 @@
 use crate::{
-    CapacityConfig, Context, EffectId, EntitiesSlot, Entity, FlatDfsSequenceVec, MichiuSoA,
+    CapacityConfig, Context, EffectId, EntitiesSlot, Entity, FlatDfsSequence, MichiuSoA,
     ParentsSecondary, ReadSignal, SignalId, TopologyStore, WriteSignal, define_secondary,
     define_slotmap, define_sparse_secondary, define_vec, execute_effect,
 };
@@ -250,7 +250,7 @@ impl ReactiveStore {
         react_providers: &mut ProvidersSparseSecondary,
         topo_entities: &EntitiesSlot,
         topo_parents: &ParentsSecondary,
-        topo_flat_dfs_sequence: &FlatDfsSequenceVec,
+        topo_flat_dfs_sequence: &FlatDfsSequence,
     ) {
         let id = if let Some(i) = id {
             i

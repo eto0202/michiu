@@ -340,6 +340,8 @@ fn test_mark_dirty() {
 // グループ2:
 // `test_rebuild_dfs_sequence`
 //  - 多階層ツリー（ルート, 子1(孫1, 孫2), 子2）において、先行順（Pre-order / DFS）でフラット配列が正しく生成されること。
+//  - 各ノードのサブツリーサイズ（自身を含む子孫の総数）が正しく計算されていること。
+//  - サブツリーサイズを加算したインデックスジャンプで、子孫を正しくスキップして次の兄弟へ進めること。
 //  - 完了後に `topo_is_structure_dirty` が `false` にリセットされること。
 //
 // `test_is_descendant_of`
@@ -358,11 +360,11 @@ fn test_mark_dirty() {
 fn test_rebuild_dfs_sequence() {
     let mut f = TopologyFixture::new();
     // ツリー構造:
-    // root
-    //   ├─ c1
-    //   │   ├─ gc1
-    //   │   └─ gc2
-    //   └─ c2
+    // root (size: 5)
+    //   ├─ c1 (size: 3)
+    //   │   ├─ gc1 (size: 1)
+    //   │   └─ gc2 (size: 1)
+    //   └─ c2 (size: 1)
     let root = f.spawn(None);
     let c1 = f.spawn(Some(root));
     let c2 = f.spawn(Some(root));
@@ -372,7 +374,7 @@ fn test_rebuild_dfs_sequence() {
     f.topo_children.at_mut(root).extend([c1, c2]);
     f.topo_children.at_mut(c1).extend([gc1, gc2]);
 
-    let mut dfs_seq = FlatDfsSequenceVec::default();
+    let mut dfs_seq = FlatDfsSequence::default();
     f.topo_is_structure_dirty = true;
 
     TopologyStore::rebuild_dfs_sequence(
@@ -383,8 +385,26 @@ fn test_rebuild_dfs_sequence() {
         &mut f.debug,
     );
 
-    // Pre-order (先行順) で並んでいること
-    assert_eq!(dfs_seq.as_slice(), &[root, c1, gc1, gc2, c2]);
+    // 先行順で並んでいること
+    assert_eq!(dfs_seq.entities.as_slice(), &[root, c1, gc1, gc2, c2]);
+
+    // 各ノードのサブツリーサイズが正しく計算されていること
+    // root: 全要素数 (5)
+    // c1  : 自分 + gc1 + gc2 (3)
+    // gc1 : 葉ノード (1)
+    // gc2 : 葉ノード (1)
+    // c2  : 葉ノード (1)
+    assert_eq!(dfs_seq.subtree_sizes.as_slice(), &[5, 3, 1, 1, 1]);
+
+    // サブツリージャンプの検証
+    // c1 (index = 1) の子孫を一括スキップした場合、正しく c2 (index = 4) に着地できるか
+    let c1_idx = 1;
+    let c1_subtree_size = dfs_seq.subtree_sizes[c1_idx] as usize;
+    let next_sibling_idx = c1_idx + c1_subtree_size;
+
+    assert_eq!(next_sibling_idx, 4);
+    assert_eq!(dfs_seq.entities[next_sibling_idx], c2);
+
     assert!(!f.topo_is_structure_dirty);
 }
 
@@ -439,22 +459,22 @@ fn test_find_root() {
     let child = f.spawn(Some(root));
     f.topo_parents.insert(child, Some(root));
 
-    let mut dfs_seq = FlatDfsSequenceVec::default();
+    let mut dfs_seq = FlatDfsSequence::default();
 
     // DFS シーケンスが空のとき（topo_parents からのフォールバック解決）
     let found = TopologyStore::find_root(&f.topo_entities, &f.topo_parents, &dfs_seq);
     assert_eq!(found, Some(root));
 
     // DFS シーケンスが存在するとき（先頭要素を優先）
-    dfs_seq.push(root);
-    dfs_seq.push(child);
+    dfs_seq.entities.push(root);
+    dfs_seq.entities.push(child);
     let found_from_dfs = TopologyStore::find_root(&f.topo_entities, &f.topo_parents, &dfs_seq);
     assert_eq!(found_from_dfs, Some(root));
 
     // 生存ノードが存在しないとき
     let empty_entities = EntitiesSlot::default();
     let empty_parents = ParentsSecondary::default();
-    let empty_dfs = FlatDfsSequenceVec::default();
+    let empty_dfs = FlatDfsSequence::default();
     assert_eq!(
         TopologyStore::find_root(&empty_entities, &empty_parents, &empty_dfs),
         None
@@ -822,8 +842,8 @@ fn test_prepare_sorted_entities() {
     f.topo_parents.insert(c1, Some(root));
     f.topo_parents.insert(c2, Some(root));
 
-    let mut dfs_seq = FlatDfsSequenceVec::default();
-    dfs_seq.extend([root, c1, c2]);
+    let mut dfs_seq = FlatDfsSequence::default();
+    dfs_seq.entities.extend([root, c1, c2]);
 
     let mut effective_z = EffectiveZindicesSecondary::default();
     let mut sorted = SortedEntitiesVec::default();
@@ -902,8 +922,8 @@ fn test_hit_test() {
     f.topo_parents.insert(e1, Some(root));
     f.topo_parents.insert(e2, Some(root));
 
-    let mut dfs_seq = FlatDfsSequenceVec::default();
-    dfs_seq.extend([root, e1, e2]);
+    let mut dfs_seq = FlatDfsSequence::default();
+    dfs_seq.entities.extend([root, e1, e2]);
 
     let mut effective_z = EffectiveZindicesSecondary::default();
     let mut sorted = SortedEntitiesVec::default();
@@ -1064,8 +1084,8 @@ fn test_topology_query_descendants() {
     f.topo_parents.insert(c2, Some(root));
     f.topo_parents.insert(gc1, Some(c1));
 
-    let mut dfs_seq = FlatDfsSequenceVec::default();
-    dfs_seq.extend([root, c1, gc1, c2]);
+    let mut dfs_seq = FlatDfsSequence::default();
+    dfs_seq.entities.extend([root, c1, gc1, c2]);
 
     let mut registry = MichiuTagRegistry::default();
     // gc1（c1の子孫）と c2（rootの子孫だがc1の子孫ではない）にタグを付与

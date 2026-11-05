@@ -1,5 +1,5 @@
 use crate::{
-    Entity, FlatDfsSequenceVec, ParentsSecondary,
+    Entity, FlatDfsSequence, ParentsSecondary,
     a11y::{A11yInferenceTag, InferenceFn},
 };
 use rustc_hash::FxHashMap;
@@ -64,7 +64,7 @@ impl MichiuTagRegistry {
         &'a self,
         parent: Entity,
         topo_parents: &'a ParentsSecondary,
-        topo_flat_dfs_sequence: &'a FlatDfsSequenceVec,
+        topo_flat_dfs_sequence: &'a FlatDfsSequence,
     ) -> Box<dyn Iterator<Item = Entity> + 'a> {
         let type_id = TypeId::of::<T>();
 
@@ -104,7 +104,7 @@ impl MichiuTagRegistry {
         &self,
         parent: Entity,
         topo_parents: &ParentsSecondary,
-        topo_flat_dfs_sequence: &FlatDfsSequenceVec,
+        topo_flat_dfs_sequence: &FlatDfsSequence,
     ) -> Option<Entity> {
         let type_id = TypeId::of::<T>();
 
@@ -320,8 +320,10 @@ mod tests {
         parents.insert(parent_b, Some(root));
         parents.insert(child_b1, Some(parent_b));
 
-        let mut dfs_seq = FlatDfsSequenceVec::default();
-        dfs_seq.extend([root, parent_a, child_a1, child_a2, parent_b, child_b1]);
+        let mut dfs_seq = FlatDfsSequence::default();
+        dfs_seq
+            .entities
+            .extend([root, parent_a, child_a1, child_a2, parent_b, child_b1]);
 
         let mut registry = MichiuTagRegistry::default();
         registry.register_entity::<TagA>(child_a1);
@@ -348,8 +350,8 @@ mod tests {
         parents.insert(root, None);
         parents.insert(child, Some(root));
 
-        let mut dfs_seq = FlatDfsSequenceVec::default();
-        dfs_seq.extend([root, child]);
+        let mut dfs_seq = FlatDfsSequence::default();
+        dfs_seq.entities.extend([root, child]);
 
         let mut registry = MichiuTagRegistry::default();
         registry.register_entity::<TagA>(child);
@@ -381,8 +383,8 @@ mod tests {
         parents.insert(grandchild, Some(child1));
         parents.insert(child2, Some(root));
 
-        let mut dfs_seq = FlatDfsSequenceVec::default();
-        dfs_seq.extend([root, child1, grandchild, child2]);
+        let mut dfs_seq = FlatDfsSequence::default();
+        dfs_seq.entities.extend([root, child1, grandchild, child2]);
 
         let mut registry = MichiuTagRegistry::default();
         registry.register_entity::<TagA>(grandchild);

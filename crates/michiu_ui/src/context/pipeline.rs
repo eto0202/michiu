@@ -192,9 +192,9 @@ use crate::{
     BatchType, BoxSizing, ClipRectsSecondary, Color, ComponentMask, Context, CornerRadius,
     DEFAULT_BASIC, DEFAULT_FLEX, DebugStore, DirtyLayoutEntitiesVec, DrawBatch, EdgeInsets,
     ElementState, Entity, EventStore, ExternalTextureAlphaMode, ExternalTextureCompositingMode,
-    ExternalTextureSparse, FlatDfsSequenceVec, FlexLayout, FocusStore, GradientType,
-    IDENTITY_MATRIX, ImeState, InputContentsSparse, InteractionState, LayoutPoint, LayoutRect,
-    LayoutSize, LayoutStore, LinearGradientInner, MichiuError, MichiuSoA, Modifiers, MouseButton,
+    ExternalTextureSparse, FlatDfsSequence, FlexLayout, FocusStore, GradientType, IDENTITY_MATRIX,
+    ImeState, InputContentsSparse, InteractionState, LayoutPoint, LayoutRect, LayoutSize,
+    LayoutStore, LinearGradientInner, MichiuError, MichiuSoA, Modifiers, MouseButton,
     OptionTraceExt, OutputStore, ParentsSecondary, PrevClipRectsSecondary, PrevRectsSecondary,
     QuadInstance, ReactiveStore, RectsSecondary, RenderData, RenderStore, RendererView,
     ResolvedBasicSecondary, ResolvedFlexSecondary, ResolvedGeometry, ScrollBarState,
@@ -723,7 +723,7 @@ impl Pipeline {
         cx.layouts.lay_resolved_basic.clear();
         cx.layouts.lay_resolved_flex.clear();
 
-        for &id in &cx.topology.topo_flat_dfs_sequence {
+        for &id in &cx.topology.topo_flat_dfs_sequence.entities {
             LayoutStore::update_resolved_active_layout_cache(
                 id,
                 &cx.topology.topo_active_masks,
@@ -868,7 +868,7 @@ impl Pipeline {
 
         // 全スクロールコンテナの scroll_size を事前計算
         cx.states.scroll.sc_sizes.clear();
-        for &id in &cx.topology.topo_flat_dfs_sequence {
+        for &id in &cx.topology.topo_flat_dfs_sequence.entities {
             if cx
                 .topology
                 .topo_active_masks
@@ -1008,7 +1008,7 @@ impl Pipeline {
         });
 
         // リサイズ追従に伴い、インプットのキャレット・選択ハイライトを同期
-        for &id in &cx.topology.topo_flat_dfs_sequence {
+        for &id in &cx.topology.topo_flat_dfs_sequence.entities {
             let has_input = cx.topology.topo_active_masks.at(id).has_input_content();
             let is_focused = cx.events.evt_interaction_states.focused == Some(id);
             // フォーカスを得ている入力要素のみ、レイアウト確定後にキャレット・スクロールを同期
@@ -1048,7 +1048,7 @@ impl Pipeline {
         });
 
         // 全アクティブコンテナのスクロールオフセット自動クランプ同期
-        for &id in &cx.topology.topo_flat_dfs_sequence {
+        for &id in &cx.topology.topo_flat_dfs_sequence.entities {
             if let Some(current) = cx.states.scroll.sc_offsets.find(id).copied() {
                 // 枠サイズの変更など、現在のスクロール位置からはみ出していれば自動クランプ調整
                 ScrollStore::scroll_to(
@@ -1942,7 +1942,7 @@ impl Pipeline {
         topo_active_entities: &mut ActiveEntitiesVec,
         topo_active_masks: &ActiveMasksSecondary,
         topo_parents: &ParentsSecondary,
-        topo_flat_dfs_sequence: &FlatDfsSequenceVec,
+        topo_flat_dfs_sequence: &FlatDfsSequence,
         lay_taffy_tree: &TaffyTreeEntity,
         lay_taffy_nodes: &TaffyNodesSecondary,
         lay_basic: &BasicLayoutsSecondary,
@@ -1955,7 +1955,7 @@ impl Pipeline {
     ) {
         topo_active_entities.clear();
 
-        for &id in topo_flat_dfs_sequence {
+        for &id in &topo_flat_dfs_sequence.entities {
             // スクロールバー専用子要素は手動で物理座標を強制更新するため、この走査ループから完全にスルー
             if scrollbar_el_ids.contains(&id) {
                 continue;
@@ -2011,7 +2011,7 @@ impl Pipeline {
         topo_active_entities: &mut ActiveEntitiesVec,
         topo_active_masks: &ActiveMasksSecondary,
         topo_parents: &ParentsSecondary,
-        topo_flat_dfs_sequence: &FlatDfsSequenceVec,
+        topo_flat_dfs_sequence: &FlatDfsSequence,
         lay_taffy_tree: &TaffyTreeEntity,
         lay_taffy_nodes: &TaffyNodesSecondary,
         lay_basic: &BasicLayoutsSecondary,
@@ -2022,7 +2022,7 @@ impl Pipeline {
     ) {
         topo_active_entities.clear();
 
-        for &id in topo_flat_dfs_sequence {
+        for &id in &topo_flat_dfs_sequence.entities {
             Pipeline::update_entity_output_rect_and_clip(
                 id,
                 window_size,

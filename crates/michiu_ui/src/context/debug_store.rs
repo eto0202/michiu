@@ -1,7 +1,6 @@
-use crate::PendingDcompRelease;
 #[cfg(feature = "trace-entity")]
 use crate::{ActiveAnimation, ActiveTransition, BasicLayout, ModInner, VisualProperty};
-#[expect(unused)]
+#[allow(unused)]
 use crate::{
     ActiveAnimationsSparse, ActiveDragState, ActiveEntitiesVec, ActiveExternalVisualHashSet,
     ActiveInteractionStates, ActiveMasksSecondary, ActiveResizeHoverOption,
@@ -11,7 +10,7 @@ use crate::{
     DirtyLayoutEntitiesVec, DirtyRenderEntitiesVec, DndDragPropertiesSparse,
     DndDropPropertiesSparse, EffectId, EffectToEntitySecondary, EffectiveZindicesSecondary,
     ElementState, EntitiesSlot, Entity, EntityEffectsSecondary, ExternalTextureSparse,
-    ExternalVisualSparse, FlatDfsSequenceVec, FlexLayoutsSecondary, InputContentsSparse,
+    ExternalVisualSparse, FlexLayoutsSecondary, InputContentsSparse,
     InteractionPropertiesSecondary, LayoutPoint, LayoutRect, LayoutSize, MichiuRenderer,
     MichiuString, MichiuTagRegistry, Modifiers, MouseButton, ParentsSecondary, PendingActions,
     PendingEntityEffectsVec, PrevClipRectsSecondary, PrevRectsSecondary, ProvidersSparseSecondary,
@@ -20,8 +19,9 @@ use crate::{
     SelectedRectsSparse, SelectionStartIndexSparse, SessionRootsVec, SessionSpawnedVec, SignalId,
     SortCacheVec, SortedEntitiesVec, SubscribersSecondary, TaffyNodesSecondary, TextCacheKey,
     TextCacheValue, TextContentsSparse, TextSelectionsSparse, TextSpansSparse, TextureAtlas,
-    VirtualKey, VisualPropertiesSecondary, WebviewEntitiesVec,
+    VirtualKey, VisualPropertiesSecondary,
 };
+use crate::{FlatDfsSequence, PendingDcompRelease};
 use cosmic_text::Buffer;
 use rustc_hash::FxHashMap;
 use slotmap::{SecondaryMap, SparseSecondaryMap};
@@ -1128,13 +1128,12 @@ pub struct TopologyStoreSnapshot {
     pub topo_children: ChildrenSecondary,
     pub topo_session_spawned: SessionSpawnedVec,
     pub topo_session_roots: SessionRootsVec,
-    pub topo_flat_dfs_sequence: FlatDfsSequenceVec,
+    pub topo_flat_dfs_sequence: FlatDfsSequence,
     pub topo_effective_z_indices: EffectiveZindicesSecondary,
     pub topo_sorted_entities: SortedEntitiesVec,
     pub topo_sort_cache: SortCacheVec,
     pub topo_is_structure_dirty: bool,
     pub topo_is_sort_dirty: bool,
-    pub topo_webview_entities: WebviewEntitiesVec,
     pub topo_despawned_queue: DespawnedQueueVec,
     pub topo_tag_registry: MichiuTagRegistry,
 }
@@ -1356,7 +1355,6 @@ impl ContextSnapshot {
                 topo_sort_cache: cx.topology.topo_sort_cache.clone(),
                 topo_is_structure_dirty: cx.topology.topo_is_structure_dirty,
                 topo_is_sort_dirty: cx.topology.topo_is_sort_dirty,
-                topo_webview_entities: cx.topology.topo_webview_entities.clone(),
                 topo_despawned_queue: cx.topology.topo_despawned_queue.clone(),
                 topo_tag_registry: cx.topology.topo_tag_registry.clone(),
             },
@@ -1694,6 +1692,12 @@ pub enum MichiuError {
     LoadFontFileFailed {
         #[source]
         source: Arc<std::io::Error>,
+    },
+
+    #[error("The size of the subtree exceeds the u32 limit: {source}")]
+    ExceedsSubtreeLimit {
+        #[source]
+        source: std::num::TryFromIntError,
     },
 
     #[error("failed to send task: the main thread has been terminated (receiver disconnected)")]

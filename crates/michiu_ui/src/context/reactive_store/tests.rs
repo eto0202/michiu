@@ -89,7 +89,7 @@ fn test_provide_and_use_provided_hierarchical() {
     );
 
     let topo_entities = EntitiesSlot::default();
-    let dfs_seq = FlatDfsSequenceVec::default();
+    let dfs_seq = FlatDfsSequence::default();
 
     // 親に provide
     ReactiveStore::provide(
@@ -142,7 +142,7 @@ fn test_provide_shadowing() {
     );
 
     let topo_entities = EntitiesSlot::default();
-    let dfs_seq = FlatDfsSequenceVec::default();
+    let dfs_seq = FlatDfsSequence::default();
 
     ReactiveStore::provide(
         Some(parent),
@@ -177,8 +177,8 @@ fn test_provide_to_root_fallback() {
     parents.insert(root, None);
     parents.insert(child, Some(root));
 
-    let mut dfs_seq = FlatDfsSequenceVec::default();
-    dfs_seq.extend([root, child]);
+    let mut dfs_seq = FlatDfsSequence::default();
+    dfs_seq.entities.extend([root, child]);
 
     let mut store = ReactiveStore::new();
     let (read_sig, _) = ReactiveStore::create_signal(
@@ -377,7 +377,7 @@ fn test_reactive_despawn() {
         ReactiveStore::create_signal(1, &mut store.react_signals, &mut store.react_subscribers);
     let topo_entities = EntitiesSlot::default();
     let parents = ParentsSecondary::default();
-    let dfs_seq = FlatDfsSequenceVec::default();
+    let dfs_seq = FlatDfsSequence::default();
 
     ReactiveStore::provide(
         Some(entity),
