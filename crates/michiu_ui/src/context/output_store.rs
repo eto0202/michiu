@@ -87,6 +87,55 @@ impl OutputStore {
             || topo_active_masks.at(parent_id).has_queued_layout()
     }
 
+    /// ウィンドウ範囲内に要素の可視領域が一部でも重なっているか（可視かどうか）
+    pub(crate) fn intersects_window(
+        id: Entity,
+        window_size: LayoutSize,
+        out_rects: &RectsSecondary,
+    ) -> bool {
+        let Some(self_rect) = out_rects.find(id) else {
+            return false;
+        };
+
+        // 幅・高さが0以下ならそもそも見えない
+        if self_rect.width <= 0.0
+            || self_rect.height <= 0.0
+            || window_size.width <= 0.0
+            || window_size.height <= 0.0
+        {
+            return false;
+        }
+
+        let window_rect = LayoutRect {
+            x: 0.0,
+            y: 0.0,
+            width: window_size.width,
+            height: window_size.height,
+        };
+
+        self_rect.intersect(&window_rect).has_area()
+    }
+
+    /// 指定の要素（target）の可視領域と一部でも重なっているか
+    pub(crate) fn intersects_rect(id: Entity, target: Entity, out_rects: &RectsSecondary) -> bool {
+        let Some(self_rect) = out_rects.find(id) else {
+            return false;
+        };
+        let Some(target_rect) = out_rects.find(target) else {
+            return false;
+        };
+
+        if self_rect.width <= 0.0
+            || self_rect.height <= 0.0
+            || target_rect.width <= 0.0
+            || target_rect.height <= 0.0
+        {
+            return false;
+        }
+
+        self_rect.intersect(target_rect).has_area()
+    }
+
     #[track_caller]
     pub(crate) fn calc_local_rect(
         id: Entity,

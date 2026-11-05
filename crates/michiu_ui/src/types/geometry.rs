@@ -257,6 +257,12 @@ impl LayoutRect {
             && point.y <= self.y + self.height
     }
 
+    /// 面積が 0 より大きいか（描画領域が存在するか）
+    #[inline]
+    pub(crate) fn has_area(&self) -> bool {
+        self.width > 0.0 && self.height > 0.0
+    }
+
     /// 2つの矩形が交差する領域（共通部分）を計算して返す。
     ///
     /// 共通部分が存在しない（はみ出している・離れている）場合は、

@@ -92,6 +92,13 @@ impl ComponentMask {
         self.has(Self::STATE_QUEUED_RENDER)
     }
 
+    #[expect(unused)]
+    #[inline]
+    #[must_use]
+    pub(crate) fn has_content_visibility(&self) -> bool {
+        self.has(Self::STYLE_CONTENT_VISIBILITY)
+    }
+
     #[inline]
     #[must_use]
     pub(crate) fn has_queued_layout_or_render(&self) -> bool {
@@ -123,126 +130,127 @@ impl ComponentMask {
     // =========================================================================
     // カリング・トランスフォーム累積用 STATE
     // =========================================================================
-    pub(crate) const STATE_RENDER_VISIBLE: u128 = 1 << 2;
-    pub(crate) const STATE_TRANSFORM_ACTIVE: u128 = 1 << 3;
+    pub(crate) const STYLE_CONTENT_VISIBILITY: u128 = 1 << 2;
+    pub(crate) const STATE_RENDER_VISIBLE: u128 = 1 << 3;
+    pub(crate) const STATE_TRANSFORM_ACTIVE: u128 = 1 << 4;
 
     // =========================================================================
     // その他 STATE 系
     // =========================================================================
-    pub(crate) const STATE_HOVERED: u128 = 1 << 4;
-    pub(crate) const STATE_FOCUSED: u128 = 1 << 5;
-    pub(crate) const STATE_FOCUSED_VISIBLE: u128 = 1 << 6;
-    pub(crate) const STATE_PRESSED: u128 = 1 << 7;
-    pub(crate) const STATE_ACTIVED: u128 = 1 << 8;
-    pub(crate) const STATE_SELECTED: u128 = 1 << 9;
-    pub(crate) const STATE_DISABLED: u128 = 1 << 10;
-    pub(crate) const STATE_DRAGGED: u128 = 1 << 11;
-    pub(crate) const STATE_DND_DRAGGING: u128 = 1 << 12;
-    pub(crate) const STATE_DND_DRAG_IN: u128 = 1 << 13;
-    pub(crate) const STATE_DND_DRAG_OVER: u128 = 1 << 14;
+    pub(crate) const STATE_HOVERED: u128 = 1 << 5;
+    pub(crate) const STATE_FOCUSED: u128 = 1 << 6;
+    pub(crate) const STATE_FOCUSED_VISIBLE: u128 = 1 << 7;
+    pub(crate) const STATE_PRESSED: u128 = 1 << 8;
+    pub(crate) const STATE_ACTIVED: u128 = 1 << 9;
+    pub(crate) const STATE_SELECTED: u128 = 1 << 10;
+    pub(crate) const STATE_DISABLED: u128 = 1 << 11;
+    pub(crate) const STATE_DRAGGED: u128 = 1 << 12;
+    pub(crate) const STATE_DND_DRAGGING: u128 = 1 << 13;
+    pub(crate) const STATE_DND_DRAG_IN: u128 = 1 << 14;
+    pub(crate) const STATE_DND_DRAG_OVER: u128 = 1 << 15;
 
     // =========================================================================
     // COMP 系 (コンテンツ・エンティティ特性)
     // =========================================================================
-    pub(crate) const COMP_TEXT_CONTENT: u128 = 1 << 15;
-    pub(crate) const COMP_INPUT_CONTENT: u128 = 1 << 16;
-    pub(crate) const COMP_EXTERNAL_VISUAL_CONTENT: u128 = 1 << 17;
-    pub(crate) const COMP_EXTERNAL_TEXTURE_CONTENT: u128 = 1 << 18;
-    pub(crate) const COMP_A11Y: u128 = 1 << 19;
+    pub(crate) const COMP_TEXT_CONTENT: u128 = 1 << 16;
+    pub(crate) const COMP_INPUT_CONTENT: u128 = 1 << 17;
+    pub(crate) const COMP_EXTERNAL_VISUAL_CONTENT: u128 = 1 << 18;
+    pub(crate) const COMP_EXTERNAL_TEXTURE_CONTENT: u128 = 1 << 19;
+    pub(crate) const COMP_A11Y: u128 = 1 << 20;
 
     // =========================================================================
     // STYLE 系: コア・頻出ボックスモデル
     // =========================================================================
-    pub(crate) const STYLE_DISPLAY: u128 = 1 << 20;
-    pub(crate) const STYLE_BOX_SIZING: u128 = 1 << 21;
-    pub(crate) const STYLE_SIZE: u128 = 1 << 22;
-    pub(crate) const STYLE_MIN_SIZE: u128 = 1 << 23;
-    pub(crate) const STYLE_MAX_SIZE: u128 = 1 << 24;
-    pub(crate) const STYLE_MARGIN: u128 = 1 << 25;
-    pub(crate) const STYLE_PADDING: u128 = 1 << 26;
-    pub(crate) const STYLE_BORDER: u128 = 1 << 27;
-    pub(crate) const STYLE_POSITION: u128 = 1 << 28;
-    pub(crate) const STYLE_OVERFLOW: u128 = 1 << 29;
+    pub(crate) const STYLE_DISPLAY: u128 = 1 << 21;
+    pub(crate) const STYLE_BOX_SIZING: u128 = 1 << 22;
+    pub(crate) const STYLE_SIZE: u128 = 1 << 23;
+    pub(crate) const STYLE_MIN_SIZE: u128 = 1 << 24;
+    pub(crate) const STYLE_MAX_SIZE: u128 = 1 << 25;
+    pub(crate) const STYLE_MARGIN: u128 = 1 << 26;
+    pub(crate) const STYLE_PADDING: u128 = 1 << 27;
+    pub(crate) const STYLE_BORDER: u128 = 1 << 28;
+    pub(crate) const STYLE_POSITION: u128 = 1 << 29;
+    pub(crate) const STYLE_OVERFLOW: u128 = 1 << 30;
 
     // =========================================================================
     // STYLE 系: 配置・Flex レイアウト
     // =========================================================================
-    pub(crate) const STYLE_FLEX_DIRECTION: u128 = 1 << 30;
-    pub(crate) const STYLE_FLEX_WRAP: u128 = 1 << 31;
-    pub(crate) const STYLE_FLEX_BASIS: u128 = 1 << 32;
-    pub(crate) const STYLE_FLEX_GROW: u128 = 1 << 33;
-    pub(crate) const STYLE_FLEX_SHRINK: u128 = 1 << 34;
-    pub(crate) const STYLE_GAP: u128 = 1 << 35;
-    pub(crate) const STYLE_ALIGN_ITEMS: u128 = 1 << 36;
-    pub(crate) const STYLE_ALIGN_SELF: u128 = 1 << 37;
-    pub(crate) const STYLE_JUSTIFY_ITEMS: u128 = 1 << 38;
-    pub(crate) const STYLE_JUSTIFY_SELF: u128 = 1 << 39;
-    pub(crate) const STYLE_ALIGN_CONTENT: u128 = 1 << 40;
-    pub(crate) const STYLE_JUSTIFY_CONTENT: u128 = 1 << 41;
+    pub(crate) const STYLE_FLEX_DIRECTION: u128 = 1 << 31;
+    pub(crate) const STYLE_FLEX_WRAP: u128 = 1 << 32;
+    pub(crate) const STYLE_FLEX_BASIS: u128 = 1 << 33;
+    pub(crate) const STYLE_FLEX_GROW: u128 = 1 << 34;
+    pub(crate) const STYLE_FLEX_SHRINK: u128 = 1 << 35;
+    pub(crate) const STYLE_GAP: u128 = 1 << 36;
+    pub(crate) const STYLE_ALIGN_ITEMS: u128 = 1 << 37;
+    pub(crate) const STYLE_ALIGN_SELF: u128 = 1 << 38;
+    pub(crate) const STYLE_JUSTIFY_ITEMS: u128 = 1 << 39;
+    pub(crate) const STYLE_JUSTIFY_SELF: u128 = 1 << 40;
+    pub(crate) const STYLE_ALIGN_CONTENT: u128 = 1 << 41;
+    pub(crate) const STYLE_JUSTIFY_CONTENT: u128 = 1 << 42;
 
     // =========================================================================
     // STYLE 系: アニメーション / トランジション
     // =========================================================================
-    pub(crate) const STYLE_ANIMATIONS: u128 = 1 << 42;
-    pub(crate) const STYLE_TRANSITIONS: u128 = 1 << 43;
+    pub(crate) const STYLE_ANIMATIONS: u128 = 1 << 43;
+    pub(crate) const STYLE_TRANSITIONS: u128 = 1 << 44;
 
     // =========================================================================
     // STYLE 系: テキスト周り
     // =========================================================================
-    pub(crate) const STYLE_TEXT_ALIGN: u128 = 1 << 44;
-    pub(crate) const STYLE_TEXT_COLOR: u128 = 1 << 45;
-    pub(crate) const STYLE_FONT_SIZE: u128 = 1 << 46;
-    pub(crate) const STYLE_FONT_STYLE: u128 = 1 << 47;
-    pub(crate) const STYLE_TEXT_SPANS: u128 = 1 << 48;
-    pub(crate) const STYLE_AUTO_WRAP: u128 = 1 << 49;
+    pub(crate) const STYLE_TEXT_ALIGN: u128 = 1 << 45;
+    pub(crate) const STYLE_TEXT_COLOR: u128 = 1 << 46;
+    pub(crate) const STYLE_FONT_SIZE: u128 = 1 << 47;
+    pub(crate) const STYLE_FONT_STYLE: u128 = 1 << 48;
+    pub(crate) const STYLE_TEXT_SPANS: u128 = 1 << 49;
+    pub(crate) const STYLE_AUTO_WRAP: u128 = 1 << 50;
 
     // =========================================================================
-    // STYLE 系: インタラクション・イベント制御 (50..58)
+    // STYLE 系: インタラクション・イベント制御
     // =========================================================================
-    pub(crate) const STYLE_CURSOR: u128 = 1 << 50;
-    pub(crate) const STYLE_POINTER_EVENTS: u128 = 1 << 51;
-    pub(crate) const STYLE_USER_SELECT: u128 = 1 << 52;
-    pub(crate) const STYLE_FOCUSABLE: u128 = 1 << 53;
-    pub(crate) const STYLE_PREVENT_FOCUS_STEAL: u128 = 1 << 54;
-    pub(crate) const STYLE_PREVENT_FOCUS_STEAL_WITHIN: u128 = 1 << 55;
-    pub(crate) const STYLE_INTERACTION_WITHIN: u128 = 1 << 56;
-    pub(crate) const STYLE_INTERACTION_PARENT: u128 = 1 << 57;
+    pub(crate) const STYLE_CURSOR: u128 = 1 << 51;
+    pub(crate) const STYLE_POINTER_EVENTS: u128 = 1 << 52;
+    pub(crate) const STYLE_USER_SELECT: u128 = 1 << 53;
+    pub(crate) const STYLE_FOCUSABLE: u128 = 1 << 54;
+    pub(crate) const STYLE_PREVENT_FOCUS_STEAL: u128 = 1 << 55;
+    pub(crate) const STYLE_PREVENT_FOCUS_STEAL_WITHIN: u128 = 1 << 56;
+    pub(crate) const STYLE_INTERACTION_WITHIN: u128 = 1 << 57;
+    pub(crate) const STYLE_INTERACTION_PARENT: u128 = 1 << 58;
 
     // =========================================================================
     // STYLE 系: ビジュアル装飾・描画
     // =========================================================================
-    pub(crate) const STYLE_BG_COLOR: u128 = 1 << 58;
-    pub(crate) const STYLE_BORDER_COLOR: u128 = 1 << 59;
-    pub(crate) const STYLE_CORNER_RADIUS: u128 = 1 << 60;
-    pub(crate) const STYLE_OUTLINE: u128 = 1 << 61;
-    pub(crate) const STYLE_OPACITY: u128 = 1 << 62;
-    pub(crate) const STYLE_BOX_SHADOW: u128 = 1 << 63;
+    pub(crate) const STYLE_BG_COLOR: u128 = 1 << 59;
+    pub(crate) const STYLE_BORDER_COLOR: u128 = 1 << 60;
+    pub(crate) const STYLE_CORNER_RADIUS: u128 = 1 << 61;
+    pub(crate) const STYLE_OUTLINE: u128 = 1 << 62;
+    pub(crate) const STYLE_OPACITY: u128 = 1 << 63;
     // -------------------------------------------------------------------------
     // ↑ ここまでが下位 64 bit
     // ↓ ここからが上位 64 bit
     // -------------------------------------------------------------------------
-    pub(crate) const STYLE_BACKDROP: u128 = 1 << 64;
-    pub(crate) const STYLE_Z_INDEX: u128 = 1 << 65;
-    pub(crate) const STYLE_TRANSFORM: u128 = 1 << 66;
-    pub(crate) const STYLE_TRANSFORM_INHERIT: u128 = 1 << 67;
+    pub(crate) const STYLE_BOX_SHADOW: u128 = 1 << 64;
+    pub(crate) const STYLE_BACKDROP: u128 = 1 << 65;
+    pub(crate) const STYLE_Z_INDEX: u128 = 1 << 66;
+    pub(crate) const STYLE_TRANSFORM: u128 = 1 << 67;
+    pub(crate) const STYLE_TRANSFORM_INHERIT: u128 = 1 << 68;
 
     // =========================================================================
     // STYLE 系: 特殊・低頻度レイアウトプロパティ
     // =========================================================================
-    pub(crate) const STYLE_ASPECT_RATIO: u128 = 1 << 68;
-    pub(crate) const STYLE_ITEM_IS_TABLE: u128 = 1 << 69;
-    pub(crate) const STYLE_ITEM_IS_REPLACED: u128 = 1 << 70;
-    pub(crate) const STYLE_RESIZABLE: u128 = 1 << 71;
-    pub(crate) const STYLE_DIRECTION: u128 = 1 << 72;
-    pub(crate) const STYLE_INSET: u128 = 1 << 73;
-    pub(crate) const STYLE_SCROLLBAR: u128 = 1 << 74;
+    pub(crate) const STYLE_ASPECT_RATIO: u128 = 1 << 69;
+    pub(crate) const STYLE_ITEM_IS_TABLE: u128 = 1 << 70;
+    pub(crate) const STYLE_ITEM_IS_REPLACED: u128 = 1 << 71;
+    pub(crate) const STYLE_RESIZABLE: u128 = 1 << 72;
+    pub(crate) const STYLE_DIRECTION: u128 = 1 << 73;
+    pub(crate) const STYLE_INSET: u128 = 1 << 74;
+    pub(crate) const STYLE_SCROLLBAR: u128 = 1 << 75;
 
     // =========================================================================
     // STYLE 系: その他（DnD設定など）
     // =========================================================================
-    pub(crate) const STYLE_DND_DRAGGABLE: u128 = 1 << 75;
-    pub(crate) const STYLE_DND_DROPPABLE: u128 = 1 << 76;
-    pub(crate) const STYLE_GRADIENT: u128 = 1 << 77;
+    pub(crate) const STYLE_DND_DRAGGABLE: u128 = 1 << 76;
+    pub(crate) const STYLE_DND_DROPPABLE: u128 = 1 << 77;
+    pub(crate) const STYLE_GRADIENT: u128 = 1 << 78;
 
     // =========================================================================
     // 削除予定・レガシー (最後尾)
@@ -267,7 +275,8 @@ impl ComponentMask {
         | Self::STYLE_MARGIN
         | Self::STYLE_PADDING
         | Self::STYLE_BORDER
-        | Self::STYLE_RESIZABLE;
+        | Self::STYLE_RESIZABLE
+        | Self::STYLE_CONTENT_VISIBILITY;
 
     pub(crate) const STYLE_FLEX_LAYOUT: u128 = Self::STYLE_ALIGN_ITEMS
         | Self::STYLE_ALIGN_SELF
@@ -337,6 +346,7 @@ mod tests {
     const ALL_FLAGS: &[u128] = &[
         ComponentMask::STATE_QUEUED_LAYOUT,
         ComponentMask::STATE_QUEUED_RENDER,
+        ComponentMask::STYLE_CONTENT_VISIBILITY,
         ComponentMask::STATE_RENDER_VISIBLE,
         ComponentMask::STATE_TRANSFORM_ACTIVE,
         ComponentMask::STATE_HOVERED,

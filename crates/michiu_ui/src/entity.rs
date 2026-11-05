@@ -508,6 +508,20 @@ impl Entity {
         });
     }
 
+    /// Whether any part of visible area overlaps with the window area (i.e., whether it is visible).
+    #[inline]
+    #[must_use]
+    pub fn intersects_window(&self) -> bool {
+        with_context(|cx| cx.intersects_window(*self))
+    }
+
+    /// Whether the visible area of the specified `Entity` (`target`) overlaps with the window area, even partially.
+    #[inline]
+    #[must_use]
+    pub fn intersects_rect(&self, target: Entity) -> bool {
+        with_context(|cx| cx.intersects_rect(*self, target))
+    }
+
     /// 静的な値、または動的に変化する Prop を該当する `EffectCategory` を通じて自動バインド
     fn bind_prop<T: 'static>(
         self,

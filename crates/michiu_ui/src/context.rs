@@ -584,6 +584,19 @@ impl Context {
         self.outputs.out_clip_rects.find(e).copied()
     }
 
+    /// Whether any part of the `Entity`'s visible area overlaps with the window area (i.e., whether it is visible).
+    #[inline]
+    pub fn intersects_window(&self, id: Entity) -> bool {
+        let window_size = self.window.win_last_size.unwrap_or_default();
+        OutputStore::intersects_window(id, window_size, &self.outputs.out_rects)
+    }
+
+    /// Whether the visible area of the specified `Entity` (`target`) overlaps with the window area, even partially.
+    #[inline]
+    pub fn intersects_rect(&self, id: Entity, target: Entity) -> bool {
+        OutputStore::intersects_rect(id, target, &self.outputs.out_rects)
+    }
+
     /// Gets the selected text within the currently focused entity.
     #[inline]
     pub fn get_selected_text(&self) -> Option<String> {
