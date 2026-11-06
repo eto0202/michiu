@@ -1,10 +1,11 @@
 use crate::{
     AlignContent, AlignItems, AlignSelf, Backdrop, BaseVisualPropertiesSecondary, BorderAlignment,
-    BorderStyle, BoxShadow, BoxSizing, Color, ComponentMask, CornerRadius, CursorIcon, Direction,
-    Display, EdgeInsets, Entity, FlexDirection, FlexWrap, Focusable, FontDate, FontFamily,
-    FontStyle, FontWeight, IDENTITY_MATRIX, JustifyContent, KeyframeAnimation, LayoutOverflow,
-    Length, LetterSpacing, LinearGradient, MichiuSoA, ModTarget, Modifier, Point, PointerEvents,
-    Position, Rect, Size, TextAlign, Transition, UserSelect, Val, VisualPropertiesSecondary,
+    BorderStyle, BoxShadow, BoxSizing, Color, ComponentMask, ContentVisibility, CornerRadius,
+    CursorIcon, Direction, Display, EdgeInsets, Entity, FlexDirection, FlexWrap, Focusable,
+    FontDate, FontFamily, FontStyle, FontWeight, IDENTITY_MATRIX, JustifyContent,
+    KeyframeAnimation, LayoutOverflow, Length, LetterSpacing, LinearGradient, MichiuSoA, ModTarget,
+    Modifier, Point, PointerEvents, Position, Rect, Size, TextAlign, Transition, UserSelect, Val,
+    VisualPropertiesSecondary,
 };
 use std::sync::{Arc, LazyLock};
 
@@ -29,6 +30,8 @@ pub struct BasicLayout {
     pub margin: Rect<Val>,     // 32バイト
     pub padding: Rect<Length>, // Length(8バイト) * 4 = 32バイト
     pub border: Rect<Length>,
+
+    pub content_visibility: ContentVisibility,
 }
 
 pub(crate) static DEFAULT_BASIC: LazyLock<BasicLayout> = LazyLock::new(|| {
@@ -50,6 +53,7 @@ pub(crate) static DEFAULT_BASIC: LazyLock<BasicLayout> = LazyLock::new(|| {
         margin: default_style.margin.into(),
         padding: default_style.padding.into(),
         border: default_style.border.into(),
+        content_visibility: ContentVisibility::default(),
     }
 });
 
@@ -110,6 +114,9 @@ impl BasicLayout {
         }
         if mask.has(ComponentMask::STYLE_RESIZABLE) {
             self.resizable = other.resizable;
+        }
+        if mask.has_content_visibility() {
+            self.content_visibility = other.content_visibility;
         }
     }
 }

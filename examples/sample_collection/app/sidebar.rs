@@ -132,11 +132,13 @@ fn sidebar_item(name: String, item_type: ComponentType) -> Entity {
 
         ii().justify_center()
             .items_center()
+            .h(40.0)
             .p(10.0)
             .bg_color(bg)
             .border_left(BorderStyle::Solid, 4.0)
             .border_color(border_color)
             .hovered(ii().bg_color(h_bg))
+            .visibility_auto()
     })
     .tag::<a11y::AListItem>()
     .label_d(name, move |t: &Theme| {

@@ -1,12 +1,11 @@
-#![expect(unused)]
-
 use crate::{
-    AccessibilityStore, ActiveInteractionStates, BaseVisualPropertiesSecondary, CapacityConfig,
-    ClipRectsSecondary, ComponentMask, ContentStore, Context, DebugStore, DirtyLayoutEntitiesVec,
-    DirtyRenderEntitiesVec, Entity, EventStore, FlexLayoutsSecondary, IDENTITY_MATRIX, LayoutPoint,
-    LayoutRect, LayoutSize, LayoutStore, MichiuError, MichiuSoA, MichiuTagRegistry, OptionTraceExt,
-    OutputStore, PointerEvents, ReactiveStore, RectsSecondary, RenderStore, ResultTraceExt,
-    StateStore, SystemStore, TaffyNodesSecondary, TaffyResultTraceExt, TaffyTreeEntity,
+    AccessibilityStore, ActiveInteractionStates, BaseVisualPropertiesSecondary,
+    BasicLayoutsSecondary, CapacityConfig, ClipRectsSecondary, ComponentMask, ContentStore,
+    ContentVisibility, Context, DebugStore, DirtyLayoutEntitiesVec, DirtyRenderEntitiesVec, Entity,
+    EventStore, FlexLayoutsSecondary, IDENTITY_MATRIX, LayoutPoint, LayoutRect, LayoutSize,
+    LayoutStore, MichiuError, MichiuSoA, MichiuTagRegistry, OptionTraceExt, OutputStore,
+    PointerEvents, ReactiveStore, RectsSecondary, RenderStore, ResultTraceExt, StateStore,
+    SystemStore, TaffyNodesSecondary, TaffyResultTraceExt, TaffyTreeEntity,
     VisualPropertiesSecondary, WindowStore, a11y::A11yInferenceTag, define_secondary,
     define_smallvec, define_vec,
 };
@@ -38,7 +37,7 @@ define_secondary!(pub struct EffectiveZindicesSecondary(i32));
 define_vec!(pub struct ActiveEntitiesVec(Entity));
 define_vec!(pub struct SessionSpawnedVec(Entity));
 define_vec!(pub struct FlatDfsSequenceVec(Entity));
-define_vec!(pub struct SubtreeSizes(u32));
+define_vec!(pub struct SubtreeSizesVec(u32));
 define_vec!(pub struct SortedEntitiesVec(Entity));
 define_vec!(pub struct SortCacheVec((Entity, i32, u32)));
 
@@ -49,7 +48,7 @@ define_smallvec!(pub struct DespawnedQueueVec(Entity, 4));
 #[derive(Debug, Clone, Default)]
 pub struct FlatDfsSequence {
     pub(crate) entities: FlatDfsSequenceVec,
-    pub(crate) subtree_sizes: SubtreeSizes,
+    pub(crate) subtree_sizes: SubtreeSizesVec,
 }
 impl Deref for FlatDfsSequence {
     type Target = FlatDfsSequenceVec;
@@ -81,6 +80,7 @@ pub(crate) struct DfsSkippableIter<'a> {
 }
 impl DfsSkippableIter<'_> {
     /// 次の要素を取得し index を1つ進める
+    #[inline]
     pub(crate) fn next(&mut self) -> Option<Entity> {
         let entity = self.entities.get(self.index).copied()?;
         self.index += 1;
@@ -88,8 +88,9 @@ impl DfsSkippableIter<'_> {
     }
 
     /// 直前に返した要素の子孫をすべてスキップする
+    #[inline]
     pub(crate) fn skip_children(&mut self) {
-        // 直前の next() で index が +1 されているので、残りの子孫分だけ飛ばす
+        // 直前の next() で index が +1 されているので残りの子孫分だけ飛ばす
         let last_index = self.index - 1;
         let subtree_size = self.subtree_sizes[last_index] as usize;
         // subtree_size にはノード自身(1)が含まれているため、(subtree_size - 1) 分進める
@@ -144,7 +145,7 @@ impl TopologyStore {
             topo_session_roots: SessionRootsVec(SmallVec::new()),
             topo_flat_dfs_sequence: FlatDfsSequence {
                 entities: FlatDfsSequenceVec(Vec::new()),
-                subtree_sizes: SubtreeSizes(Vec::new()),
+                subtree_sizes: SubtreeSizesVec(Vec::new()),
             },
             topo_effective_z_indices: EffectiveZindicesSecondary(SecondaryMap::new()),
             topo_sorted_entities: SortedEntitiesVec(Vec::new()),
@@ -171,7 +172,7 @@ impl TopologyStore {
             topo_session_roots: SessionRootsVec(SmallVec::with_capacity(c.topo_session_roots)),
             topo_flat_dfs_sequence: FlatDfsSequence {
                 entities: FlatDfsSequenceVec(Vec::with_capacity(c.topo_flat_dfs_sequence)),
-                subtree_sizes: SubtreeSizes(Vec::with_capacity(c.topo_children)),
+                subtree_sizes: SubtreeSizesVec(Vec::with_capacity(c.topo_children)),
             },
             topo_effective_z_indices: EffectiveZindicesSecondary(SecondaryMap::with_capacity(
                 c.topo_effective_z_indices,
@@ -638,6 +639,77 @@ impl TopologyStore {
         });
     }
 
+    #[inline]
+    pub(crate) fn skip_content_children_if_needed(
+        id: Entity,
+        iter: &mut DfsSkippableIter,
+        win_last_size: Option<LayoutSize>,
+        win_visibility_margin: Option<LayoutSize>,
+        topo_active_masks: &ActiveMasksSecondary,
+        lay_basic: &BasicLayoutsSecondary,
+        out_rects: &RectsSecondary,
+    ) -> bool {
+        let mask = topo_active_masks.at(id);
+        if !mask.has_content_visibility() {
+            return false;
+        }
+        // 設定されている場合のみ BasicLayout を見に行く
+        let basic = lay_basic.at(id);
+
+        let should_skip = match basic.content_visibility {
+            ContentVisibility::Visible => false,
+            ContentVisibility::Hidden => true,
+
+            // 画面外にある場合のみスキップ
+            ContentVisibility::Auto => {
+                // 初回などで rect がまだ無いノードはスキップせず一度レイアウトさせる
+                if out_rects.find(id).is_some() {
+                    !OutputStore::intersects_window(
+                        id,
+                        win_visibility_margin,
+                        win_last_size.unwrap_or_default(),
+                        out_rects,
+                    )
+                } else {
+                    false
+                }
+            }
+        };
+
+        if should_skip {
+            iter.skip_children();
+        }
+
+        should_skip
+    }
+
+    #[inline]
+    pub(crate) fn for_each_visibility(
+        win_last_size: Option<LayoutSize>,
+        win_visibility_margin: Option<LayoutSize>,
+        topo_active_masks: &ActiveMasksSecondary,
+        topo_flat_dfs_sequence: &FlatDfsSequence,
+        lay_basic: &BasicLayoutsSecondary,
+        out_rects: &RectsSecondary,
+        mut f: impl FnMut(Entity),
+    ) {
+        let mut iter = topo_flat_dfs_sequence.iter_skippable();
+
+        while let Some(id) = iter.next() {
+            f(id);
+
+            let _ = TopologyStore::skip_content_children_if_needed(
+                id,
+                &mut iter,
+                win_last_size,
+                win_visibility_margin,
+                topo_active_masks,
+                lay_basic,
+                out_rects,
+            );
+        }
+    }
+
     /// 子孫要素のインタラクション状態を走査
     #[track_caller]
     #[inline]
@@ -766,6 +838,7 @@ impl TopologyStore {
     #[inline]
     pub(crate) fn prepare_sorted_entities(
         win_last_size: Option<LayoutSize>,
+        topo_entities: &EntitiesSlot,
         topo_active_masks: &mut ActiveMasksSecondary,
         topo_effective_z_indices: &mut EffectiveZindicesSecondary,
         topo_sorted_entities: &mut SortedEntitiesVec,
@@ -773,6 +846,7 @@ impl TopologyStore {
         topo_is_sort_dirty: &mut bool,
         topo_parents: &ParentsSecondary,
         topo_flat_dfs_sequence: &FlatDfsSequence,
+        lay_basic: &BasicLayoutsSecondary,
         rnd_visual: &VisualPropertiesSecondary,
         out_clip_rects: &mut ClipRectsSecondary,
         out_rects: &RectsSecondary,
@@ -787,12 +861,36 @@ impl TopologyStore {
         let default_clip = LayoutRect::new(0.0, 0.0, window_size.width, window_size.height);
 
         topo_effective_z_indices.clear();
-        // 忘れてたンゴ～
         topo_sort_cache.clear();
 
+        let seq_len = topo_flat_dfs_sequence.entities.len();
+        let mut i = 0;
+
         // DFS順配列を使って可視性フラグを高速に伝播、および出現インデックスの記録
-        for (index, &id) in topo_flat_dfs_sequence.iter().enumerate() {
+        while i < seq_len {
+            let id = topo_flat_dfs_sequence.entities[i];
+            let subtree_size = topo_flat_dfs_sequence.subtree_sizes[i] as usize;
+
+            // すでにデスポーンされた Entity はスキップ
+            if !topo_entities.contains_key(id) {
+                i += subtree_size.max(1);
+                continue;
+            }
+
             let parent_id = *topo_parents.at(id);
+
+            // content-visibility: Hidden の一括スキップ
+            let visibility = topo_active_masks.at(id).has_content_visibility();
+            if visibility
+                && let Some(basic) = lay_basic.find(id)
+                && basic.content_visibility == ContentVisibility::Hidden
+            {
+                topo_active_masks
+                    .at_mut(id)
+                    .unset(ComponentMask::STATE_RENDER_VISIBLE);
+                i += subtree_size;
+                continue;
+            }
 
             // 親がスタックのトップに一致するまで遡る
             while let Some(top) = stack.last() {
@@ -874,13 +972,26 @@ impl TopologyStore {
             let intersect = bounding_box.intersect(&eff_clip);
             let is_self_invisible = intersect.width <= 0.0 || intersect.height <= 0.0;
 
+            // content-visibility: Auto で画面外の場合の一括スキップ
+            if visibility
+                && (is_parent_invisible || is_self_invisible)
+                && let Some(basic) = lay_basic.find(id)
+                && basic.content_visibility == ContentVisibility::Auto
+            {
+                topo_active_masks
+                    .at_mut(id)
+                    .unset(ComponentMask::STATE_RENDER_VISIBLE);
+                i += subtree_size;
+                continue;
+            }
+
             let is_visible = !is_parent_invisible && !is_self_invisible;
 
             if is_visible {
                 topo_active_masks
                     .at_mut(id)
                     .set(ComponentMask::STATE_RENDER_VISIBLE);
-                topo_sort_cache.push((id, eff_z, u32::try_from(index).unwrap_or(u32::MAX)));
+                topo_sort_cache.push((id, eff_z, u32::try_from(i).unwrap_or(u32::MAX)));
             } else {
                 topo_active_masks
                     .at_mut(id)
@@ -891,6 +1002,10 @@ impl TopologyStore {
                 id,
                 matrix: eff_matrix,
             });
+
+            // !!!!!!!!!!!!!!!!!!!!!!!!!!
+            i += 1;
+            // !!!!!!!!!!!!!!!!!!!!!!!!!!
         }
 
         // 抽出された可視要素のみを z_index と出現順でソート
@@ -972,6 +1087,7 @@ impl TopologyStore {
         point: LayoutPoint,
         win_last_size: Option<LayoutSize>,
         evt_interaction_states: &ActiveInteractionStates,
+        topo_entities: &EntitiesSlot,
         topo_active_masks: &mut ActiveMasksSecondary,
         topo_effective_z_indices: &mut EffectiveZindicesSecondary,
         topo_sorted_entities: &mut SortedEntitiesVec,
@@ -979,6 +1095,7 @@ impl TopologyStore {
         topo_is_sort_dirty: &mut bool,
         topo_parents: &ParentsSecondary,
         topo_flat_dfs_sequence: &FlatDfsSequence,
+        lay_basic: &BasicLayoutsSecondary,
         rnd_visual: &VisualPropertiesSecondary,
         rnd_base_visual: &BaseVisualPropertiesSecondary,
         out_clip_rects: &mut ClipRectsSecondary,
@@ -987,6 +1104,7 @@ impl TopologyStore {
     ) -> Option<Entity> {
         TopologyStore::prepare_sorted_entities(
             win_last_size,
+            topo_entities,
             topo_active_masks,
             topo_effective_z_indices,
             topo_sorted_entities,
@@ -994,6 +1112,7 @@ impl TopologyStore {
             topo_is_sort_dirty,
             topo_parents,
             topo_flat_dfs_sequence,
+            lay_basic,
             rnd_visual,
             out_clip_rects,
             out_rects,
@@ -1099,14 +1218,9 @@ impl TopologyStore {
     pub(crate) fn try_query_descendant<T: 'static>(
         parent: Entity,
         topo_tag_registry: &MichiuTagRegistry,
-        topo_parents: &ParentsSecondary,
         topo_flat_dfs_sequence: &FlatDfsSequence,
     ) -> Option<Entity> {
-        topo_tag_registry.query_first_descendant_of_type::<T>(
-            parent,
-            topo_parents,
-            topo_flat_dfs_sequence,
-        )
+        topo_tag_registry.query_first_descendant_of_type::<T>(parent, topo_flat_dfs_sequence)
     }
 
     #[track_caller]
@@ -1114,12 +1228,11 @@ impl TopologyStore {
     pub(crate) fn query_descendant<T: 'static>(
         parent: Entity,
         topo_tag_registry: &MichiuTagRegistry,
-        topo_parents: &ParentsSecondary,
         topo_flat_dfs_sequence: &FlatDfsSequence,
         debug: &mut DebugStore,
     ) -> Entity {
         topo_tag_registry
-            .query_first_descendant_of_type::<T>(parent, topo_parents, topo_flat_dfs_sequence)
+            .query_first_descendant_of_type::<T>(parent, topo_flat_dfs_sequence)
             .unwrap_or_trace(None, debug, || MichiuError::TagNotFound {
                 type_name: std::any::type_name::<T>(),
             })
@@ -1129,14 +1242,9 @@ impl TopologyStore {
     pub(crate) fn query_descendants<'a, T: 'static>(
         parent: Entity,
         topo_tag_registry: &'a MichiuTagRegistry,
-        topo_parents: &'a ParentsSecondary,
         topo_flat_dfs_sequence: &'a FlatDfsSequence,
     ) -> impl Iterator<Item = Entity> + 'a {
-        topo_tag_registry.query_descendants_of_type::<T>(
-            parent,
-            topo_parents,
-            topo_flat_dfs_sequence,
-        )
+        topo_tag_registry.query_descendants_of_type::<T>(parent, topo_flat_dfs_sequence)
     }
 
     #[inline]

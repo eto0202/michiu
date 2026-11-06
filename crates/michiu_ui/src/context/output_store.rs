@@ -90,6 +90,7 @@ impl OutputStore {
     /// ウィンドウ範囲内に要素の可視領域が一部でも重なっているか（可視かどうか）
     pub(crate) fn intersects_window(
         id: Entity,
+        margin: Option<LayoutSize>,
         window_size: LayoutSize,
         out_rects: &RectsSecondary,
     ) -> bool {
@@ -106,18 +107,25 @@ impl OutputStore {
             return false;
         }
 
+        let m = margin.unwrap_or_default();
+
         let window_rect = LayoutRect {
             x: 0.0,
             y: 0.0,
-            width: window_size.width,
-            height: window_size.height,
+            width: window_size.width + m.width,
+            height: window_size.height + m.height,
         };
 
         self_rect.intersect(&window_rect).has_area()
     }
 
     /// 指定の要素（target）の可視領域と一部でも重なっているか
-    pub(crate) fn intersects_rect(id: Entity, target: Entity, out_rects: &RectsSecondary) -> bool {
+    pub(crate) fn intersects_rect(
+        id: Entity,
+        target: Entity,
+        margin: Option<LayoutSize>,
+        out_rects: &RectsSecondary,
+    ) -> bool {
         let Some(self_rect) = out_rects.find(id) else {
             return false;
         };
@@ -133,7 +141,16 @@ impl OutputStore {
             return false;
         }
 
-        self_rect.intersect(target_rect).has_area()
+        let m = margin.unwrap_or_default();
+
+        let margin_rect = LayoutRect {
+            x: target_rect.x,
+            y: target_rect.y,
+            width: target_rect.width + m.width,
+            height: target_rect.height + m.height,
+        };
+
+        self_rect.intersect(&margin_rect).has_area()
     }
 
     #[track_caller]

@@ -189,15 +189,15 @@
 use crate::{
     AccessibilitySnapshot, AccessibilityStore, ActiveEntitiesVec, ActiveFocusTrigger,
     ActiveMasksSecondary, BaseVisualPropertiesSecondary, BasicLayout, BasicLayoutsSecondary,
-    BatchType, BoxSizing, ClipRectsSecondary, Color, ComponentMask, Context, CornerRadius,
-    DEFAULT_BASIC, DEFAULT_FLEX, DebugStore, DirtyLayoutEntitiesVec, DrawBatch, EdgeInsets,
-    ElementState, Entity, EventStore, ExternalTextureAlphaMode, ExternalTextureCompositingMode,
-    ExternalTextureSparse, FlatDfsSequence, FlexLayout, FocusStore, GradientType, IDENTITY_MATRIX,
-    ImeState, InputContentsSparse, InteractionState, LayoutPoint, LayoutRect, LayoutSize,
-    LayoutStore, LinearGradientInner, MichiuError, MichiuSoA, Modifiers, MouseButton,
-    OptionTraceExt, OutputStore, ParentsSecondary, PrevClipRectsSecondary, PrevRectsSecondary,
-    QuadInstance, ReactiveStore, RectsSecondary, RenderData, RenderStore, RendererView,
-    ResolvedBasicSecondary, ResolvedFlexSecondary, ResolvedGeometry, ScrollBarState,
+    BatchType, BoxSizing, ClipRectsSecondary, Color, ComponentMask, ContentVisibility, Context,
+    CornerRadius, DEFAULT_BASIC, DEFAULT_FLEX, DebugStore, DirtyLayoutEntitiesVec, Display,
+    DrawBatch, EdgeInsets, ElementState, Entity, EventStore, ExternalTextureAlphaMode,
+    ExternalTextureCompositingMode, ExternalTextureSparse, FlatDfsSequence, FlexLayout, FocusStore,
+    GradientType, IDENTITY_MATRIX, ImeState, InputContentsSparse, InteractionState, LayoutPoint,
+    LayoutRect, LayoutSize, LayoutStore, LinearGradientInner, MichiuError, MichiuSoA, Modifiers,
+    MouseButton, OptionTraceExt, OutputStore, ParentsSecondary, PrevClipRectsSecondary,
+    PrevRectsSecondary, QuadInstance, ReactiveStore, RectsSecondary, RenderData, RenderStore,
+    RendererView, ResolvedBasicSecondary, ResolvedFlexSecondary, ResolvedGeometry, ScrollBarState,
     ScrollOffsetsSecondary, ScrollStore, ScrollbarStore, ScrollbarStylesSparse, StrikethroughStyle,
     SystemStore, TaffyNodesSecondary, TaffyResultTraceExt, TaffyTreeEntity, TextEditStore,
     TextEngine, TextLayoutSize, TextSpan, TopologyStore, TraceEventList, UnderlineStyle,
@@ -212,6 +212,7 @@ use crate::{
 use accesskit::{Node, Role};
 use cosmic_text::Buffer;
 use slotmap::SparseSecondaryMap;
+use smallvec::SmallVec;
 #[cfg(feature = "trace-lifecycle")]
 use std::sync::Arc;
 use std::{borrow::Cow, collections::HashSet, path::PathBuf};
@@ -723,21 +724,29 @@ impl Pipeline {
         cx.layouts.lay_resolved_basic.clear();
         cx.layouts.lay_resolved_flex.clear();
 
-        for &id in &cx.topology.topo_flat_dfs_sequence.entities {
-            LayoutStore::update_resolved_active_layout_cache(
-                id,
-                &cx.topology.topo_active_masks,
-                &cx.topology.topo_parents,
-                &mut cx.layouts.lay_resolved_basic,
-                &mut cx.layouts.lay_resolved_flex,
-                &cx.layouts.lay_basic,
-                &cx.layouts.lay_flex,
-                &cx.renders.rnd_visual,
-                &cx.renders.rnd_interaction,
-                &cx.renders.rnd_active_transitions,
-                &mut cx.debug,
-            );
-        }
+        TopologyStore::for_each_visibility(
+            Some(window_size),
+            cx.window.win_visibility_margin,
+            &cx.topology.topo_active_masks,
+            &cx.topology.topo_flat_dfs_sequence,
+            &cx.layouts.lay_basic,
+            &cx.outputs.out_rects,
+            |id| {
+                LayoutStore::update_resolved_active_layout_cache(
+                    id,
+                    &cx.topology.topo_active_masks,
+                    &cx.topology.topo_parents,
+                    &mut cx.layouts.lay_resolved_basic,
+                    &mut cx.layouts.lay_resolved_flex,
+                    &cx.layouts.lay_basic,
+                    &cx.layouts.lay_flex,
+                    &cx.renders.rnd_visual,
+                    &cx.renders.rnd_interaction,
+                    &cx.renders.rnd_active_transitions,
+                    &mut cx.debug,
+                );
+            },
+        );
 
         #[cfg(feature = "trace-lifecycle")]
         trace_lifecycle!(None, &mut cx.debug, || MichiuTrace::Layout {
@@ -806,6 +815,42 @@ impl Pipeline {
                 })
         };
 
+        let mut iter = cx.topology.topo_flat_dfs_sequence.iter_skippable();
+        while let Some(id) = iter.next() {
+            let taffy_node = *cx.layouts.lay_taffy_nodes.at(id);
+
+            if TopologyStore::skip_content_children_if_needed(
+                id,
+                &mut iter,
+                Some(window_size),
+                cx.window.win_visibility_margin,
+                &cx.topology.topo_active_masks,
+                &cx.layouts.lay_basic,
+                &cx.outputs.out_rects,
+            ) {
+                cx.layouts
+                    .lay_taffy_tree
+                    .set_children(taffy_node, &[])
+                    .unwrap_or_trace(Some(id), &mut cx.debug);
+
+                iter.skip_children();
+            } else {
+                // 通常表示のノードはトポロジー通りの実際の子ノードを接続しておく
+                let real_children: SmallVec<[taffy::NodeId; 8]> = cx
+                    .topology
+                    .topo_children
+                    .at(id)
+                    .iter()
+                    .map(|&child_id| *cx.layouts.lay_taffy_nodes.at(child_id))
+                    .collect();
+
+                cx.layouts
+                    .lay_taffy_tree
+                    .set_children(taffy_node, &real_children)
+                    .unwrap_or_trace(Some(id), &mut cx.debug);
+            }
+        }
+
         cx.layouts
             .lay_taffy_tree
             .compute_layout_with_measure(
@@ -844,6 +889,7 @@ impl Pipeline {
             &scrollbar_el_ids,
             window_size,
             window_resized,
+            cx.window.win_visibility_margin,
             &mut cx.contents.cont_input_contents,
             &mut cx.topology.topo_active_entities,
             &cx.topology.topo_active_masks,
@@ -868,33 +914,41 @@ impl Pipeline {
 
         // 全スクロールコンテナの scroll_size を事前計算
         cx.states.scroll.sc_sizes.clear();
-        for &id in &cx.topology.topo_flat_dfs_sequence.entities {
-            if cx
-                .topology
-                .topo_active_masks
-                .at(id)
-                .has(ComponentMask::STYLE_OVERFLOW)
-            {
-                let size = ScrollStore::get_scroll_size(
-                    id,
-                    &mut cx.system.sys_text_engine,
-                    &cx.system.sys_text_buffers,
-                    &cx.contents.cont_text_contents,
-                    &cx.contents.cont_text_spans,
-                    &cx.contents.cont_input_contents,
-                    &cx.topology.topo_active_masks,
-                    &cx.topology.topo_children,
-                    &cx.layouts.lay_resolved_basic,
-                    &cx.layouts.lay_resolved_flex,
-                    &cx.layouts.scrollbar.bar_styles,
-                    &cx.renders.rnd_visual,
-                    &cx.outputs.out_rects,
-                    &cx.states.scroll.sc_offsets,
-                    &mut cx.debug,
-                );
-                cx.states.scroll.sc_sizes.insert(id, size);
-            }
-        }
+        TopologyStore::for_each_visibility(
+            Some(window_size),
+            cx.window.win_visibility_margin,
+            &cx.topology.topo_active_masks,
+            &cx.topology.topo_flat_dfs_sequence,
+            &cx.layouts.lay_basic,
+            &cx.outputs.out_rects,
+            |id| {
+                if cx
+                    .topology
+                    .topo_active_masks
+                    .at(id)
+                    .has(ComponentMask::STYLE_OVERFLOW)
+                {
+                    let size = ScrollStore::get_scroll_size(
+                        id,
+                        &mut cx.system.sys_text_engine,
+                        &cx.system.sys_text_buffers,
+                        &cx.contents.cont_text_contents,
+                        &cx.contents.cont_text_spans,
+                        &cx.contents.cont_input_contents,
+                        &cx.topology.topo_active_masks,
+                        &cx.topology.topo_children,
+                        &cx.layouts.lay_resolved_basic,
+                        &cx.layouts.lay_resolved_flex,
+                        &cx.layouts.scrollbar.bar_styles,
+                        &cx.renders.rnd_visual,
+                        &cx.outputs.out_rects,
+                        &cx.states.scroll.sc_offsets,
+                        &mut cx.debug,
+                    );
+                    cx.states.scroll.sc_sizes.insert(id, size);
+                }
+            },
+        );
 
         #[cfg(feature = "trace-lifecycle")]
         trace_lifecycle!(None, &mut cx.debug, || MichiuTrace::Layout {
@@ -933,6 +987,40 @@ impl Pipeline {
 
         // Taffy の 2回目レイアウト計算（スクロールバー配置確定後）
         let root_node = *cx.layouts.lay_taffy_nodes.at(root);
+        let measure_func = |layout: taffy::LayoutInput,
+                            _node_id: taffy::NodeId,
+                            context: Option<&mut Entity>,
+                            _style: &taffy::Style|
+         -> taffy::LayoutOutput {
+            context
+                .as_deref()
+                .copied()
+                .map_or(taffy::LayoutOutput::HIDDEN, |id| {
+                    let known_dims = layout.known_dimensions;
+                    let is_input = cx.topology.topo_active_masks.at(id).has_input_content();
+                    if is_input {
+                        // マスクがあるなら Some のはず
+                        let contents = cx.contents.cont_input_contents.at(id);
+                        if let Some(layout_rect) = contents.last_layout {
+                            return taffy::LayoutOutput::from_outer_size(taffy::Size {
+                                width: known_dims.width.unwrap_or(layout_rect.width),
+                                height: known_dims.height.unwrap_or(layout_rect.height),
+                            });
+                        }
+                    }
+
+                    // 2回目パスはキャッシュサイズを即時引き出して高速マッピング
+                    cx.outputs
+                        .out_rects
+                        .find(id)
+                        .map_or(taffy::LayoutOutput::HIDDEN, |rect| {
+                            taffy::LayoutOutput::from_outer_size(taffy::Size {
+                                width: known_dims.width.unwrap_or(rect.width),
+                                height: known_dims.height.unwrap_or(rect.height),
+                            })
+                        })
+                })
+        };
         cx.layouts
             .lay_taffy_tree
             .compute_layout_with_measure(
@@ -941,40 +1029,7 @@ impl Pipeline {
                     width: taffy::AvailableSpace::Definite(window_size.width),
                     height: taffy::AvailableSpace::Definite(window_size.height),
                 },
-                |layout: taffy::LayoutInput,
-                 _node_id: taffy::NodeId,
-                 context: Option<&mut Entity>,
-                 _style: &taffy::Style|
-                 -> taffy::LayoutOutput {
-                    context
-                        .as_deref()
-                        .copied()
-                        .map_or(taffy::LayoutOutput::HIDDEN, |id| {
-                            let known_dims = layout.known_dimensions;
-                            let is_input = cx.topology.topo_active_masks.at(id).has_input_content();
-                            if is_input {
-                                // マスクがあるなら Some のはず
-                                let contents = cx.contents.cont_input_contents.at(id);
-                                if let Some(layout_rect) = contents.last_layout {
-                                    return taffy::LayoutOutput::from_outer_size(taffy::Size {
-                                        width: known_dims.width.unwrap_or(layout_rect.width),
-                                        height: known_dims.height.unwrap_or(layout_rect.height),
-                                    });
-                                }
-                            }
-
-                            // 2回目パスはキャッシュサイズを即時引き出して高速マッピング
-                            cx.outputs.out_rects.find(id).map_or(
-                                taffy::LayoutOutput::HIDDEN,
-                                |rect| {
-                                    taffy::LayoutOutput::from_outer_size(taffy::Size {
-                                        width: known_dims.width.unwrap_or(rect.width),
-                                        height: known_dims.height.unwrap_or(rect.height),
-                                    })
-                                },
-                            )
-                        })
-                },
+                measure_func,
             )
             .unwrap_or_trace(Some(root), &mut cx.debug);
 
@@ -987,6 +1042,7 @@ impl Pipeline {
         // スクロールバーも加えた、最終的な出力座標の決定
         Pipeline::resolve_final_pass_rects(
             window_size,
+            cx.window.win_visibility_margin,
             &mut cx.contents.cont_input_contents,
             &mut cx.topology.topo_active_entities,
             &cx.topology.topo_active_masks,
@@ -1008,37 +1064,39 @@ impl Pipeline {
         });
 
         // リサイズ追従に伴い、インプットのキャレット・選択ハイライトを同期
-        for &id in &cx.topology.topo_flat_dfs_sequence.entities {
-            let has_input = cx.topology.topo_active_masks.at(id).has_input_content();
-            let is_focused = cx.events.evt_interaction_states.focused == Some(id);
-            // フォーカスを得ている入力要素のみ、レイアウト確定後にキャレット・スクロールを同期
-            if has_input && is_focused {
-                TextEditStore::update_input_caret_position(
-                    id,
-                    cx.window.win_scale_factor,
-                    cx.window.win_last_size,
-                    &mut cx.system.sys_text_engine,
-                    &cx.system.sys_text_buffers,
-                    &mut cx.contents.cont_text_contents,
-                    &mut cx.contents.cont_input_contents,
-                    &cx.contents.cont_text_spans,
-                    &mut cx.topology.topo_active_masks,
-                    &cx.topology.topo_parents,
-                    &mut cx.layouts.lay_dirty_entities,
-                    &mut cx.layouts.lay_taffy_tree,
-                    &mut cx.layouts.scrollbar.bar_styles,
-                    &cx.layouts.lay_taffy_nodes,
-                    &cx.layouts.lay_resolved_basic,
-                    &cx.layouts.lay_resolved_flex,
-                    &mut cx.renders.rnd_visual,
-                    &cx.renders.rnd_base_visual,
-                    &mut cx.states.scroll.sc_offsets,
-                    &mut cx.states.edit.edit_selections,
-                    &cx.outputs.out_rects,
-                    &cx.states.scroll.sc_sizes,
-                    &mut cx.debug,
-                );
-            }
+        // フォーカスを得ている入力要素のみ、レイアウト確定後にキャレット・スクロールを同期
+        if let Some(focused_id) = cx.events.evt_interaction_states.focused
+            && cx
+                .topology
+                .topo_active_masks
+                .at(focused_id)
+                .has_input_content()
+        {
+            TextEditStore::update_input_caret_position(
+                focused_id,
+                cx.window.win_scale_factor,
+                cx.window.win_last_size,
+                &mut cx.system.sys_text_engine,
+                &cx.system.sys_text_buffers,
+                &mut cx.contents.cont_text_contents,
+                &mut cx.contents.cont_input_contents,
+                &cx.contents.cont_text_spans,
+                &mut cx.topology.topo_active_masks,
+                &cx.topology.topo_parents,
+                &mut cx.layouts.lay_dirty_entities,
+                &mut cx.layouts.lay_taffy_tree,
+                &mut cx.layouts.scrollbar.bar_styles,
+                &cx.layouts.lay_taffy_nodes,
+                &cx.layouts.lay_resolved_basic,
+                &cx.layouts.lay_resolved_flex,
+                &mut cx.renders.rnd_visual,
+                &cx.renders.rnd_base_visual,
+                &mut cx.states.scroll.sc_offsets,
+                &mut cx.states.edit.edit_selections,
+                &cx.outputs.out_rects,
+                &cx.states.scroll.sc_sizes,
+                &mut cx.debug,
+            );
         }
 
         #[cfg(feature = "trace-lifecycle")]
@@ -1048,7 +1106,8 @@ impl Pipeline {
         });
 
         // 全アクティブコンテナのスクロールオフセット自動クランプ同期
-        for &id in &cx.topology.topo_flat_dfs_sequence.entities {
+        let mut iter = cx.topology.topo_flat_dfs_sequence.iter_skippable();
+        while let Some(id) = iter.next() {
             if let Some(current) = cx.states.scroll.sc_offsets.find(id).copied() {
                 // 枠サイズの変更など、現在のスクロール位置からはみ出していれば自動クランプ調整
                 ScrollStore::scroll_to(
@@ -1069,6 +1128,15 @@ impl Pipeline {
                     &mut cx.debug,
                 );
             }
+            let _ = TopologyStore::skip_content_children_if_needed(
+                id,
+                &mut iter,
+                Some(window_size),
+                cx.window.win_visibility_margin,
+                &cx.topology.topo_active_masks,
+                &cx.layouts.lay_basic,
+                &cx.outputs.out_rects,
+            );
         }
 
         #[cfg(feature = "trace-lifecycle")]
@@ -1194,6 +1262,7 @@ impl Pipeline {
         let default_visual = VisualProperty::default();
         TopologyStore::prepare_sorted_entities(
             cx.window.win_last_size,
+            &cx.topology.topo_entities,
             &mut cx.topology.topo_active_masks,
             &mut cx.topology.topo_effective_z_indices,
             &mut cx.topology.topo_sorted_entities,
@@ -1201,6 +1270,7 @@ impl Pipeline {
             &mut cx.topology.topo_is_sort_dirty,
             &cx.topology.topo_parents,
             &cx.topology.topo_flat_dfs_sequence,
+            &cx.layouts.lay_basic,
             &cx.renders.rnd_visual,
             &mut cx.outputs.out_clip_rects,
             &cx.outputs.out_rects,
@@ -1706,15 +1776,24 @@ impl Pipeline {
         let mut buffer = cx.acce.take_buffer();
         buffer.clear();
 
-        let count = cx.topology.topo_flat_dfs_sequence.len();
+        let mut i = 0;
 
-        for i in 0..count {
-            debug_assert!(
-                i < cx.topology.topo_flat_dfs_sequence.len(),
-                "【Michiu A11y Error】Do not delete tree entities inside `inference()`! "
-            );
+        while i < cx.topology.topo_flat_dfs_sequence.entities.len() {
+            let id = cx.topology.topo_flat_dfs_sequence.entities[i];
+            let subtree_size = cx.topology.topo_flat_dfs_sequence.subtree_sizes[i] as usize;
 
-            let id = cx.topology.topo_flat_dfs_sequence[i];
+            // 非表示チェック（Display::None または content-visibility: Hidden）
+            if let Some(layout) = cx.layouts.lay_basic.find(id) {
+                let is_display_none = layout.display == Display::None;
+                let is_content_hidden = layout.content_visibility == ContentVisibility::Hidden;
+
+                if is_display_none || is_content_hidden {
+                    // 子孫を一括ジャンプ
+                    i += subtree_size;
+                    continue;
+                }
+            }
+
             let inferences = cx.topology.topo_tag_registry.collect_a11y_inferences(id);
             let user_node = if inferences.is_empty() {
                 None
@@ -1736,18 +1815,16 @@ impl Pipeline {
                 &cx.events.evt_listeners,
                 &cx.contents.cont_text_contents,
                 &cx.contents.cont_input_contents,
+                &cx.layouts.lay_basic,
                 &cx.layouts.lay_resolved_basic,
                 &cx.outputs.out_rects,
                 &mut cx.debug,
                 &cx.acce.acce_accessibility,
             );
-        }
 
-        debug_assert_eq!(
-            cx.topology.topo_flat_dfs_sequence.len(),
-            count,
-            "【Michiu A11y Error】Do not spawn new entities inside `inference()`!"
-        );
+            // 次のノードへ
+            i += 1;
+        }
 
         // バッファが空ならワーカーへ送らずに保持して抜ける
         if buffer.is_empty() {
@@ -1938,6 +2015,7 @@ impl Pipeline {
         scrollbar_el_ids: &HashSet<Entity>,
         window_size: LayoutSize,
         window_resized: bool,
+        win_visibility_margin: Option<LayoutSize>,
         cont_input_contents: &mut InputContentsSparse,
         topo_active_entities: &mut ActiveEntitiesVec,
         topo_active_masks: &ActiveMasksSecondary,
@@ -1955,7 +2033,9 @@ impl Pipeline {
     ) {
         topo_active_entities.clear();
 
-        for &id in &topo_flat_dfs_sequence.entities {
+        let mut iter = topo_flat_dfs_sequence.iter_skippable();
+
+        while let Some(id) = iter.next() {
             // スクロールバー専用子要素は手動で物理座標を強制更新するため、この走査ループから完全にスルー
             if scrollbar_el_ids.contains(&id) {
                 continue;
@@ -1982,6 +2062,16 @@ impl Pipeline {
                 out_rects.insert(id, cached_rect);
                 out_clip_rects.insert(id, cached_clip);
                 topo_active_entities.push(id);
+
+                let _ = TopologyStore::skip_content_children_if_needed(
+                    id,
+                    &mut iter,
+                    Some(window_size),
+                    win_visibility_margin,
+                    topo_active_masks,
+                    lay_basic,
+                    out_rects,
+                );
                 continue;
             }
 
@@ -2001,12 +2091,23 @@ impl Pipeline {
                 sc_offsets,
                 debug,
             );
+
+            let _ = TopologyStore::skip_content_children_if_needed(
+                id,
+                &mut iter,
+                Some(window_size),
+                win_visibility_margin,
+                topo_active_masks,
+                lay_basic,
+                out_rects,
+            );
         }
     }
 
     /// 最終的な出力領域とアクセシビリティ用のバッファの構築
     fn resolve_final_pass_rects(
         window_size: LayoutSize,
+        win_visibility_margin: Option<LayoutSize>,
         cont_input_contents: &mut InputContentsSparse,
         topo_active_entities: &mut ActiveEntitiesVec,
         topo_active_masks: &ActiveMasksSecondary,
@@ -2022,7 +2123,9 @@ impl Pipeline {
     ) {
         topo_active_entities.clear();
 
-        for &id in &topo_flat_dfs_sequence.entities {
+        let mut iter = topo_flat_dfs_sequence.iter_skippable();
+
+        while let Some(id) = iter.next() {
             Pipeline::update_entity_output_rect_and_clip(
                 id,
                 window_size,
@@ -2037,6 +2140,16 @@ impl Pipeline {
                 out_clip_rects,
                 sc_offsets,
                 debug,
+            );
+
+            let _ = TopologyStore::skip_content_children_if_needed(
+                id,
+                &mut iter,
+                Some(window_size),
+                win_visibility_margin,
+                topo_active_masks,
+                lay_basic,
+                out_rects,
             );
         }
     }

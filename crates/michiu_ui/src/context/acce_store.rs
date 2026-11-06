@@ -1,8 +1,8 @@
 use crate::{
-    ActiveMasksSecondary, CapacityConfig, ChildrenSecondary, ComponentMask, DEFAULT_BASIC,
-    DebugStore, Display, Entity, EventListenersSparse, InputContentsSparse, MichiuSoA,
-    MichiuTaskSender, Overflow, RectsSecondary, ResolvedBasicSecondary, TextContentsSparse,
-    define_sparse_secondary,
+    ActiveMasksSecondary, BasicLayoutsSecondary, CapacityConfig, ChildrenSecondary, ComponentMask,
+    ContentVisibility, DEFAULT_BASIC, DebugStore, Display, Entity, EventListenersSparse,
+    InputContentsSparse, MichiuSoA, MichiuTaskSender, Overflow, RectsSecondary,
+    ResolvedBasicSecondary, TextContentsSparse, define_sparse_secondary,
 };
 use accesskit::{
     Action, ActionHandler, ActionRequest, ActivationHandler, Node, NodeId, Role, Toggled, TreeId,
@@ -389,6 +389,7 @@ impl AccessibilityStore {
         evt_listeners: &EventListenersSparse,
         cont_text_contents: &TextContentsSparse,
         cont_input_contents: &InputContentsSparse,
+        lay_basic: &BasicLayoutsSecondary,
         lay_resolved_basic: &ResolvedBasicSecondary,
         out_rects: &RectsSecondary,
         debug: &mut DebugStore,
@@ -397,9 +398,21 @@ impl AccessibilityStore {
         let rect = out_rects.find_or_default(e, debug);
         let basic = lay_resolved_basic.find_or(e, &DEFAULT_BASIC, debug);
 
-        let children = topo_children
-            .find(e)
-            .map_or_else(Vec::new, |c| c.iter().copied().map(Into::into).collect());
+        let children = topo_children.find(e).map_or_else(Vec::new, |c| {
+            c.iter()
+                .copied()
+                .filter(|&child_id| {
+                    if let Some(child_basic) = lay_basic.find(child_id) {
+                        // Display::None または Hidden の子は A11y ツリーから除外
+                        child_basic.display != Display::None
+                            && child_basic.content_visibility != ContentVisibility::Hidden
+                    } else {
+                        true
+                    }
+                })
+                .map(Into::into)
+                .collect()
+        });
 
         let el_node = acce_accessibility
             .find(e)
@@ -462,7 +475,8 @@ impl AccessibilityStore {
             false
         };
 
-        let is_hidden = display || rect.width == 0.0 || rect.height == 0.0;
+        let is_content_hidden = basic.content_visibility == ContentVisibility::Hidden;
+        let is_hidden = display || is_content_hidden || rect.width == 0.0 || rect.height == 0.0;
 
         let scrollbar = mask.has(ComponentMask::STYLE_SCROLLBAR);
 

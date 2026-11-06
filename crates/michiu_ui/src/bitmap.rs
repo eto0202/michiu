@@ -92,7 +92,6 @@ impl ComponentMask {
         self.has(Self::STATE_QUEUED_RENDER)
     }
 
-    #[expect(unused)]
     #[inline]
     #[must_use]
     pub(crate) fn has_content_visibility(&self) -> bool {

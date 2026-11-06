@@ -1,7 +1,8 @@
 use crate::{
-    ActiveMasksSecondary, BasicLayoutsSecondary, ComponentMask, Context, Display, EntitiesSlot,
-    Entity, MichiuSoA, ParentsSecondary, Pipeline, SystemStore, TextEditStore,
-    VisualPropertiesSecondary, handle_on_blur, handle_on_focus,
+    ActiveMasksSecondary, BasicLayoutsSecondary, ComponentMask, ContentVisibility, Context,
+    Display, EntitiesSlot, Entity, LayoutSize, MichiuSoA, OutputStore, ParentsSecondary, Pipeline,
+    RectsSecondary, SystemStore, TextEditStore, VisualPropertiesSecondary, handle_on_blur,
+    handle_on_focus,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]
@@ -185,11 +186,13 @@ impl FocusStore {
     #[track_caller]
     pub(crate) fn is_keyboard_focusable(
         id: Entity,
+        window_size: LayoutSize,
         topo_entities: &EntitiesSlot,
         topo_active_masks: &ActiveMasksSecondary,
         topo_parents: &ParentsSecondary,
         lay_basic: &BasicLayoutsSecondary,
         rnd_visual: &VisualPropertiesSecondary,
+        out_rects: &RectsSecondary,
     ) -> bool {
         if !topo_entities.contains_key(id) {
             return false;
@@ -219,10 +222,30 @@ impl FocusStore {
         // 自分自身、および親先祖ツリーに非表示（Display::None）が1つも含まれていないか検証
         let mut curr = Some(id);
         while let Some(curr_id) = curr {
-            if let Some(layout) = lay_basic.find(curr_id)
-                && layout.display == Display::None
-            {
-                return false;
+            if let Some(layout) = lay_basic.find(curr_id) {
+                if layout.display == Display::None {
+                    return false;
+                }
+
+                match layout.content_visibility {
+                    // Hidden は無条件でフォーカス不可
+                    ContentVisibility::Hidden => return false,
+
+                    // Auto は画面外ならフォーカス不可（親先祖が画面外なら自分も画面外）
+                    ContentVisibility::Auto => {
+                        let is_visible = OutputStore::intersects_window(
+                            curr_id,
+                            None, // 厳密に画面内か判定
+                            window_size,
+                            out_rects,
+                        );
+                        if !is_visible {
+                            return false;
+                        }
+                    }
+
+                    ContentVisibility::Visible => {}
+                }
             }
             curr = *topo_parents.at(curr_id);
         }

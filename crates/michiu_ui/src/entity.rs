@@ -212,9 +212,9 @@ pub mod input_func;
 
 use crate::{
     BasicLayout, ComponentMask, Context, DebugStore, EffectCategory, ExternalTexture,
-    ExternalVisual, IntoOptionProp, MichiuError, MichiuSoA, MichiuTrace, ModTarget, Modifier,
-    ReadSignal, ResultTraceExt, ScrollBarState, ScrollbarDisplay, ScrollbarStyle, SystemStore, Val,
-    a11y::A11yInferenceTag, div_n, trace_error,
+    ExternalVisual, IntoOptionProp, LayoutSize, MichiuError, MichiuSoA, MichiuTrace, ModTarget,
+    Modifier, ReadSignal, ResultTraceExt, ScrollBarState, ScrollbarDisplay, ScrollbarStyle,
+    SystemStore, Val, a11y::A11yInferenceTag, div_n, trace_error,
 };
 #[cfg(feature = "trace-lifecycle")]
 use crate::{ContextState, trace_lifecycle};
@@ -511,8 +511,22 @@ impl Entity {
     /// Whether any part of visible area overlaps with the window area (i.e., whether it is visible).
     #[inline]
     #[must_use]
+    pub fn intersects_window_with_margin(&self, margin: LayoutSize) -> bool {
+        with_context(|cx| cx.intersects_window_with_margin(*self, margin))
+    }
+
+    /// Whether any part of visible area overlaps with the window area (i.e., whether it is visible).
+    #[inline]
+    #[must_use]
     pub fn intersects_window(&self) -> bool {
         with_context(|cx| cx.intersects_window(*self))
+    }
+
+    /// Whether the visible area of the specified `Entity` (`target`) overlaps with the window area, even partially.
+    #[inline]
+    #[must_use]
+    pub fn intersects_rect_with_margin(&self, target: Entity, margin: LayoutSize) -> bool {
+        with_context(|cx| cx.intersects_rect_with_margin(*self, target, margin))
     }
 
     /// Whether the visible area of the specified `Entity` (`target`) overlaps with the window area, even partially.

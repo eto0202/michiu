@@ -7,6 +7,7 @@ pub struct WindowStore {
     pub(crate) win_is_resized: bool,
     pub(crate) win_last_size: Option<LayoutSize>,
     pub(crate) win_default_himc: Option<HIMC>,
+    pub(crate) win_visibility_margin: Option<LayoutSize>,
 }
 
 impl Default for WindowStore {
@@ -24,6 +25,7 @@ impl WindowStore {
             win_is_resized: false,
             win_last_size: None,
             win_default_himc: None,
+            win_visibility_margin: Some(LayoutSize::all(200.0)),
         }
     }
 
@@ -33,6 +35,7 @@ impl WindowStore {
         self.win_is_resized = false;
         self.win_last_size = None;
         self.win_default_himc = None;
+        self.win_visibility_margin = Some(LayoutSize::all(200.0));
     }
 
     #[expect(clippy::unused_self)]

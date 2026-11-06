@@ -360,6 +360,25 @@ impl Context {
         );
     }
 
+    /// Sets the margin for visibility checks outside the window bounds (builder format).
+    ///
+    /// Primarily used for pre-rendering elements with [`ContentVisibility::Auto`](crate::ContentVisibility::Auto) specified.
+    /// By setting a margin (Default: 200px top and bottom), the element is laid out and rendered slightly before it appears on screen, preventing flickering during scrolling.
+    #[inline]
+    #[must_use]
+    pub fn with_visibility_margin(mut self, m: LayoutSize) -> Self {
+        self.window.win_visibility_margin = Some(m);
+        self
+    }
+
+    /// Updates the visibility margin outside the window boundaries.
+    ///
+    /// For details, see [`with_visibility_margin`](Self::with_visibility_margin).
+    #[inline]
+    pub fn set_visibility_margin(&mut self, m: LayoutSize) {
+        self.window.win_visibility_margin = Some(m);
+    }
+
     /// Retrieves the parent entity of the specified entity.
     #[track_caller]
     #[inline]
@@ -586,15 +605,33 @@ impl Context {
 
     /// Whether any part of the `Entity`'s visible area overlaps with the window area (i.e., whether it is visible).
     #[inline]
+    pub fn intersects_window_with_margin(&self, id: Entity, margin: LayoutSize) -> bool {
+        let window_size = self.window.win_last_size.unwrap_or_default();
+        OutputStore::intersects_window(id, Some(margin), window_size, &self.outputs.out_rects)
+    }
+
+    /// Whether any part of the `Entity`'s visible area overlaps with the window area (i.e., whether it is visible).
+    #[inline]
     pub fn intersects_window(&self, id: Entity) -> bool {
         let window_size = self.window.win_last_size.unwrap_or_default();
-        OutputStore::intersects_window(id, window_size, &self.outputs.out_rects)
+        OutputStore::intersects_window(id, None, window_size, &self.outputs.out_rects)
+    }
+
+    /// Whether the visible area of the specified `Entity` (`target`) overlaps with the window area, even partially.
+    #[inline]
+    pub fn intersects_rect_with_margin(
+        &self,
+        id: Entity,
+        target: Entity,
+        margin: LayoutSize,
+    ) -> bool {
+        OutputStore::intersects_rect(id, target, Some(margin), &self.outputs.out_rects)
     }
 
     /// Whether the visible area of the specified `Entity` (`target`) overlaps with the window area, even partially.
     #[inline]
     pub fn intersects_rect(&self, id: Entity, target: Entity) -> bool {
-        OutputStore::intersects_rect(id, target, &self.outputs.out_rects)
+        OutputStore::intersects_rect(id, target, None, &self.outputs.out_rects)
     }
 
     /// Gets the selected text within the currently focused entity.
@@ -782,7 +819,6 @@ impl Context {
         TopologyStore::try_query_descendant::<T>(
             parent,
             &self.topology.topo_tag_registry,
-            &self.topology.topo_parents,
             &self.topology.topo_flat_dfs_sequence,
         )
     }
@@ -795,7 +831,6 @@ impl Context {
         TopologyStore::query_descendant::<T>(
             parent,
             &self.topology.topo_tag_registry,
-            &self.topology.topo_parents,
             &self.topology.topo_flat_dfs_sequence,
             &mut self.debug,
         )
@@ -810,7 +845,6 @@ impl Context {
         TopologyStore::query_descendants::<T>(
             parent,
             &self.topology.topo_tag_registry,
-            &self.topology.topo_parents,
             &self.topology.topo_flat_dfs_sequence,
         )
     }
@@ -1053,6 +1087,7 @@ impl Context {
             point,
             self.window.win_last_size,
             &self.events.evt_interaction_states,
+            &self.topology.topo_entities,
             &mut self.topology.topo_active_masks,
             &mut self.topology.topo_effective_z_indices,
             &mut self.topology.topo_sorted_entities,
@@ -1060,6 +1095,7 @@ impl Context {
             &mut self.topology.topo_is_sort_dirty,
             &self.topology.topo_parents,
             &self.topology.topo_flat_dfs_sequence,
+            &self.layouts.lay_basic,
             &self.renders.rnd_visual,
             &self.renders.rnd_base_visual,
             &mut self.outputs.out_clip_rects,

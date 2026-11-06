@@ -195,6 +195,15 @@ impl LayoutSize {
     pub const fn new(width: f32, height: f32) -> Self {
         Self { width, height }
     }
+
+    #[inline]
+    #[must_use]
+    pub const fn all(v: f32) -> Self {
+        Self {
+            width: v,
+            height: v,
+        }
+    }
 }
 
 #[repr(C)]

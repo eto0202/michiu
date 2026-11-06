@@ -1,15 +1,15 @@
 use crate::{
     AlignContent, AlignItems, AlignSelf, AnimationCurve, Backdrop, BasicLayout, BorderAlignment,
-    BorderStyle, BoxShadow, BoxSizing, Color, ComponentMask, Context, Convert, CornerRadius,
-    CursorIcon, Direction, Display, DndDragMode, DndDragPlaceholderParent, DndDragProperty,
-    DndDropProperty, DndDropTarget, EdgeInsets, Entity, FlexDirection, FlexLayout, FlexWrap,
-    FocusTrigger, Focusable, FontStyle, GlobalCursorIcon, InteractionName, InteractionStyles,
-    IntoModConvert, IntoModCornerRadius, IntoModFamily, IntoModPoint, IntoModRect,
-    IntoModResizable, IntoModSize, IntoModSpacing, IntoModValue, IntoModWeight, JustifyContent,
-    KeyframeAnimation, LayoutOverflow, LayoutPoint, Length, LineHeight, LinearGradient, MichiuSoA,
-    Overflow, PointerEvents, Position, PropertyList, Rect, ScrollbarDisplay, ScrollbarMode,
-    ScrollbarStyle, TargetStyle, TextAlign, Transform, Transition, UserSelect, Val, VisualProperty,
-    auto, fill, pct,
+    BorderStyle, BoxShadow, BoxSizing, Color, ComponentMask, ContentVisibility, Context, Convert,
+    CornerRadius, CursorIcon, Direction, Display, DndDragMode, DndDragPlaceholderParent,
+    DndDragProperty, DndDropProperty, DndDropTarget, EdgeInsets, Entity, FlexDirection, FlexLayout,
+    FlexWrap, FocusTrigger, Focusable, FontStyle, GlobalCursorIcon, InteractionName,
+    InteractionStyles, IntoModConvert, IntoModCornerRadius, IntoModFamily, IntoModPoint,
+    IntoModRect, IntoModResizable, IntoModSize, IntoModSpacing, IntoModValue, IntoModWeight,
+    JustifyContent, KeyframeAnimation, LayoutOverflow, LayoutPoint, Length, LineHeight,
+    LinearGradient, MichiuSoA, Overflow, PointerEvents, Position, PropertyList, Rect,
+    ScrollbarDisplay, ScrollbarMode, ScrollbarStyle, TargetStyle, TextAlign, Transform, Transition,
+    UserSelect, Val, VisualProperty, auto, fill, pct,
 };
 use std::{sync::Arc, time::Duration};
 
@@ -230,6 +230,54 @@ impl Modifier {
     #[must_use]
     pub fn block(self) -> Self {
         self.display(Display::Block)
+    }
+
+    /// Sets the Entity's `content-visibility` (subtree visibility and computation skip).
+    ///
+    /// Default is [`ContentVisibility::Visible`].
+    #[inline]
+    #[must_use]
+    pub fn content_visibility(mut self, value: impl IntoModValue<ContentVisibility>) -> Self {
+        match value.into_mod_value() {
+            ModValue::Static(v) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.basic_layout.content_visibility = v;
+                inner.mask.set(ComponentMask::STYLE_CONTENT_VISIBILITY);
+            }
+            ModValue::Dynamic(getter) => {
+                let inner = Arc::make_mut(&mut self.inner);
+                inner.mask.set(ComponentMask::STYLE_CONTENT_VISIBILITY);
+                inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
+                    if target == ModTarget::Base {
+                        let val = getter();
+                        cx.get_basic_layout_mut(id, target).content_visibility = val;
+                        cx.mark_layout_dirty(id);
+                    }
+                }));
+            }
+        }
+        self
+    }
+
+    /// Set the visibility to a [`ContentVisibility::Auto`].
+    #[inline]
+    #[must_use]
+    pub fn visibility_auto(self) -> Self {
+        self.content_visibility(ContentVisibility::Auto)
+    }
+
+    /// Set the visibility to a [`ContentVisibility::Visible`].
+    #[inline]
+    #[must_use]
+    pub fn visibility_visible(self) -> Self {
+        self.content_visibility(ContentVisibility::Visible)
+    }
+
+    /// Set the visibility to a [`ContentVisibility::Hidden`].
+    #[inline]
+    #[must_use]
+    pub fn visibility_hidden(self) -> Self {
+        self.content_visibility(ContentVisibility::Hidden)
     }
 
     /// Normally, you don't need to change this value.

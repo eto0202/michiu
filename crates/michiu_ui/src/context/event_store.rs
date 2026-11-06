@@ -226,6 +226,7 @@ impl EventStore {
             logical_pos,
             cx.window.win_last_size,
             &cx.events.evt_interaction_states,
+            &cx.topology.topo_entities,
             &mut cx.topology.topo_active_masks,
             &mut cx.topology.topo_effective_z_indices,
             &mut cx.topology.topo_sorted_entities,
@@ -233,6 +234,7 @@ impl EventStore {
             &mut cx.topology.topo_is_sort_dirty,
             &cx.topology.topo_parents,
             &cx.topology.topo_flat_dfs_sequence,
+            &cx.layouts.lay_basic,
             &cx.renders.rnd_visual,
             &cx.renders.rnd_base_visual,
             &mut cx.outputs.out_clip_rects,
@@ -986,11 +988,13 @@ impl EventStore {
 
             if FocusStore::is_keyboard_focusable(
                 candidate_id,
+                cx.window.win_last_size.unwrap_or_default(),
                 &cx.topology.topo_entities,
                 &cx.topology.topo_active_masks,
                 &cx.topology.topo_parents,
                 &cx.layouts.lay_basic,
                 &cx.renders.rnd_visual,
+                &cx.outputs.out_rects,
             ) {
                 target_id = Some(candidate_id);
                 break;

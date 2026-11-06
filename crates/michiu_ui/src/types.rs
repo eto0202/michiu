@@ -222,6 +222,36 @@ pub enum BorderAlignment {
     Center = 2, // 中心が基準 (中心から両方向へ対称に広がる)
 }
 
+/// Controls whether to skip the layout and rendering of an element and its descendant subtree.
+///
+/// This is equivalent to the CSS `content-visibility` property and speeds up the rendering of large lists and tables by skipping the calculation of off-screen or hidden subtrees in one go.
+///
+/// # Note
+/// When specifying `Auto` or `Hidden`, it is recommended to set an explicit `size` (width or height) on the element
+/// to prevent layout breaks caused by the height becoming 0px when the element is off-screen.
+///
+/// If there is a brief rendering delay when scrolling quickly while using `Auto`,
+/// set the window's visibility margin ([`set_visibility_margin`](crate::Context::set_visibility_margin) /
+/// [`with_visibility_margin`](crate::Context::with_visibility_margin)),
+/// so that rendering begins in advance, starting from just before the content enters the viewport (Default: 200px top and bottom).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ContentVisibility {
+    /// Skips layout calculations and rendering for descendants while the element is off-screen (outside the viewport).
+    ///
+    /// The element is automatically made visible when it enters the viewport.
+    /// It remains in the accessibility tree (e.g., for screen readers) even when off-screen.
+    ///
+    /// If you want to pre-render content just before it enters the screen, set the window's `visibility_margin`.
+    Auto,
+
+    /// Always layout and renders child elements as usual (default).
+    #[default]
+    Visible,
+
+    /// Completely skips the layout and rendering of descendants, whether they are on-screen or off-screen. Descendants are also excluded from the accessibility tree.
+    Hidden,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

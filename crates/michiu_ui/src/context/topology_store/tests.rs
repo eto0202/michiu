@@ -844,11 +844,14 @@ fn test_prepare_sorted_entities() {
 
     let mut dfs_seq = FlatDfsSequence::default();
     dfs_seq.entities.extend([root, c1, c2]);
+    dfs_seq.subtree_sizes.extend([3, 1, 1]);
 
     let mut effective_z = EffectiveZindicesSecondary::default();
     let mut sorted = SortedEntitiesVec::default();
     let mut sort_cache = SortCacheVec::default();
     let mut is_sort_dirty = true;
+
+    let lay_basic = BasicLayoutsSecondary::default();
 
     let mut rnd_visual = VisualPropertiesSecondary::default();
     // c1 に z_index = 10、c2 に z_index = 1 を付与
@@ -889,6 +892,7 @@ fn test_prepare_sorted_entities() {
 
     TopologyStore::prepare_sorted_entities(
         win_size,
+        &f.topo_entities,
         &mut f.topo_active_masks,
         &mut effective_z,
         &mut sorted,
@@ -896,6 +900,7 @@ fn test_prepare_sorted_entities() {
         &mut is_sort_dirty,
         &f.topo_parents,
         &dfs_seq,
+        &lay_basic,
         &rnd_visual,
         &mut out_clip_rects,
         &out_rects,
@@ -924,11 +929,14 @@ fn test_hit_test() {
 
     let mut dfs_seq = FlatDfsSequence::default();
     dfs_seq.entities.extend([root, e1, e2]);
+    dfs_seq.subtree_sizes.extend([3, 1, 1]);
 
     let mut effective_z = EffectiveZindicesSecondary::default();
     let mut sorted = SortedEntitiesVec::default();
     let mut sort_cache = SortCacheVec::default();
     let mut is_sort_dirty = true;
+
+    let lay_basic = BasicLayoutsSecondary::default();
 
     let rnd_visual = VisualPropertiesSecondary::default();
     let rnd_base_visual = BaseVisualPropertiesSecondary::default();
@@ -958,6 +966,7 @@ fn test_hit_test() {
         p_overlap,
         win_size,
         &interaction_states,
+        &f.topo_entities,
         &mut f.topo_active_masks,
         &mut effective_z,
         &mut sorted,
@@ -965,6 +974,7 @@ fn test_hit_test() {
         &mut is_sort_dirty,
         &f.topo_parents,
         &dfs_seq,
+        &lay_basic,
         &rnd_visual,
         &rnd_base_visual,
         &mut out_clip_rects,
@@ -980,6 +990,7 @@ fn test_hit_test() {
         p_overlap,
         win_size,
         &interaction_states,
+        &f.topo_entities,
         &mut f.topo_active_masks,
         &mut effective_z,
         &mut sorted,
@@ -987,6 +998,7 @@ fn test_hit_test() {
         &mut is_sort_dirty,
         &f.topo_parents,
         &dfs_seq,
+        &lay_basic,
         &rnd_visual,
         &rnd_base_visual,
         &mut out_clip_rects,
@@ -1003,6 +1015,7 @@ fn test_hit_test() {
         p_out,
         win_size,
         &interaction_states,
+        &f.topo_entities,
         &mut f.topo_active_masks,
         &mut effective_z,
         &mut sorted,
@@ -1010,6 +1023,7 @@ fn test_hit_test() {
         &mut is_sort_dirty,
         &f.topo_parents,
         &dfs_seq,
+        &lay_basic,
         &rnd_visual,
         &rnd_base_visual,
         &mut out_clip_rects,
@@ -1086,6 +1100,7 @@ fn test_topology_query_descendants() {
 
     let mut dfs_seq = FlatDfsSequence::default();
     dfs_seq.entities.extend([root, c1, gc1, c2]);
+    dfs_seq.subtree_sizes.extend([4, 2, 1, 1]);
 
     let mut registry = MichiuTagRegistry::default();
     // gc1（c1の子孫）と c2（rootの子孫だがc1の子孫ではない）にタグを付与
@@ -1094,47 +1109,33 @@ fn test_topology_query_descendants() {
 
     // 1. try_query_descendant
     assert_eq!(
-        TopologyStore::try_query_descendant::<TestTag1>(c1, &registry, &f.topo_parents, &dfs_seq),
+        TopologyStore::try_query_descendant::<TestTag1>(c1, &registry, &dfs_seq),
         Some(gc1)
     );
     assert_eq!(
-        TopologyStore::try_query_descendant::<TestTag1>(c2, &registry, &f.topo_parents, &dfs_seq),
+        TopologyStore::try_query_descendant::<TestTag1>(c2, &registry, &dfs_seq),
         None
     );
 
     // 2. query_descendant (正常系)
     assert_eq!(
-        TopologyStore::query_descendant::<TestTag1>(
-            c1,
-            &registry,
-            &f.topo_parents,
-            &dfs_seq,
-            &mut f.debug
-        ),
+        TopologyStore::query_descendant::<TestTag1>(c1, &registry, &dfs_seq, &mut f.debug),
         gc1
     );
 
     // 3. query_descendant (異常系: 見つからない場合パニック)
     let panic_res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let mut dbg = DebugStore::new();
-        TopologyStore::query_descendant::<TestTagUnregistered>(
-            root,
-            &registry,
-            &f.topo_parents,
-            &dfs_seq,
-            &mut dbg,
-        );
+        TopologyStore::query_descendant::<TestTagUnregistered>(root, &registry, &dfs_seq, &mut dbg);
     }));
     assert!(panic_res.is_err());
 
     // 4. query_descendants (複数ヒットの走査)
     let root_descendants: Vec<Entity> =
-        TopologyStore::query_descendants::<TestTag1>(root, &registry, &f.topo_parents, &dfs_seq)
-            .collect();
+        TopologyStore::query_descendants::<TestTag1>(root, &registry, &dfs_seq).collect();
     assert_eq!(root_descendants, vec![gc1, c2]);
 
     let c1_descendants: Vec<Entity> =
-        TopologyStore::query_descendants::<TestTag1>(c1, &registry, &f.topo_parents, &dfs_seq)
-            .collect();
+        TopologyStore::query_descendants::<TestTag1>(c1, &registry, &dfs_seq).collect();
     assert_eq!(c1_descendants, vec![gc1]);
 }

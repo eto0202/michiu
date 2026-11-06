@@ -1,5 +1,5 @@
 use crate::{
-    Entity, FlatDfsSequence, ParentsSecondary,
+    Entity, FlatDfsSequence,
     a11y::{A11yInferenceTag, InferenceFn},
 };
 use rustc_hash::FxHashMap;
@@ -63,37 +63,32 @@ impl MichiuTagRegistry {
     pub(crate) fn query_descendants_of_type<'a, T: 'static>(
         &'a self,
         parent: Entity,
-        topo_parents: &'a ParentsSecondary,
         topo_flat_dfs_sequence: &'a FlatDfsSequence,
     ) -> Box<dyn Iterator<Item = Entity> + 'a> {
         let type_id = TypeId::of::<T>();
 
         // 親エンティティのインデックスを探す
-        let Some(start_idx) = topo_flat_dfs_sequence.iter().position(|&id| id == parent) else {
-            // 見つからなければ空のイテレータを即座に返す
+        let Some(start_idx) = topo_flat_dfs_sequence
+            .entities
+            .iter()
+            .position(|&id| id == parent)
+        else {
             return Box::new(std::iter::empty());
         };
 
+        // subtree_size を使って子孫スライスの範囲を特定
+        let subtree_size = topo_flat_dfs_sequence.subtree_sizes[start_idx] as usize;
         let scan_start = start_idx + 1;
+        let end_idx = start_idx + subtree_size;
 
-        // 子孫の終端インデックスを特定
-        let mut end_idx = topo_flat_dfs_sequence.len();
-        for (i, &id) in topo_flat_dfs_sequence.iter().enumerate().skip(scan_start) {
-            if !Self::is_descendant_of(id, parent, topo_parents) {
-                end_idx = i;
-                break;
-            }
-        }
+        // 子孫が存在しない場合（subtree_size == 1）は scan_start == end_idx になり空スライスになる
+        let descendants = &topo_flat_dfs_sequence.entities[scan_start..end_idx];
 
-        // 子孫スライスをフィルターして Box に包んで返す
-        let iter = topo_flat_dfs_sequence[scan_start..end_idx]
-            .iter()
-            .copied()
-            .filter(move |&id| {
-                self.entity_to_types
-                    .get(&id)
-                    .is_some_and(|types| types.contains(&type_id))
-            });
+        let iter = descendants.iter().copied().filter(move |&id| {
+            self.entity_to_types
+                .get(&id)
+                .is_some_and(|types| types.contains(&type_id))
+        });
 
         Box::new(iter)
     }
@@ -103,49 +98,27 @@ impl MichiuTagRegistry {
     pub(crate) fn query_first_descendant_of_type<T: 'static>(
         &self,
         parent: Entity,
-        topo_parents: &ParentsSecondary,
         topo_flat_dfs_sequence: &FlatDfsSequence,
     ) -> Option<Entity> {
         let type_id = TypeId::of::<T>();
 
-        // 親の位置
-        let start_idx = topo_flat_dfs_sequence.iter().position(|&id| id == parent)?;
+        let start_idx = topo_flat_dfs_sequence
+            .entities
+            .iter()
+            .position(|&id| id == parent)?;
+        let subtree_size = topo_flat_dfs_sequence.subtree_sizes[start_idx] as usize;
+
         let scan_start = start_idx + 1;
+        let end_idx = start_idx + subtree_size;
 
-        // 最初に見つかったものを即座に返す
-        for &id in topo_flat_dfs_sequence.iter().skip(scan_start) {
-            // 子孫スコープから外れた瞬間に探索を打ち切り
-            if !Self::is_descendant_of(id, parent, topo_parents) {
-                break;
-            }
-
-            // 型のチェック
-            let has_type = self
-                .entity_to_types
-                .get(&id)
-                .is_some_and(|types| types.contains(&type_id));
-
-            if has_type {
-                return Some(id);
-            }
-        }
-
-        None
-    }
-
-    #[inline]
-    fn is_descendant_of(
-        mut id: Entity,
-        target_parent: Entity,
-        topo_parents: &ParentsSecondary,
-    ) -> bool {
-        while let Some(&Some(parent)) = topo_parents.get(id) {
-            if target_parent == parent {
-                return true;
-            }
-            id = parent;
-        }
-        false
+        topo_flat_dfs_sequence.entities[scan_start..end_idx]
+            .iter()
+            .copied()
+            .find(|&id| {
+                self.entity_to_types
+                    .get(&id)
+                    .is_some_and(|types| types.contains(&type_id))
+            })
     }
 
     #[inline]
@@ -264,47 +237,15 @@ mod tests {
     }
 
     #[test]
-    fn test_is_descendant_of() {
-        let (_sm, e) = setup_entities(4);
-        let root = e[0];
-        let child = e[1];
-        let grandchild = e[2];
-        let sibling = e[3];
-
-        let mut parents = ParentsSecondary::default();
-        parents.insert(root, None);
-        parents.insert(child, Some(root));
-        parents.insert(grandchild, Some(child));
-        parents.insert(sibling, Some(root));
-
-        // 深さ1
-        assert!(MichiuTagRegistry::is_descendant_of(child, root, &parents));
-        // 深さ2
-        assert!(MichiuTagRegistry::is_descendant_of(
-            grandchild, root, &parents
-        ));
-        assert!(MichiuTagRegistry::is_descendant_of(
-            grandchild, child, &parents
-        ));
-
-        // 自分自身、兄弟、逆向きは false
-        assert!(!MichiuTagRegistry::is_descendant_of(root, root, &parents));
-        assert!(!MichiuTagRegistry::is_descendant_of(
-            sibling, child, &parents
-        ));
-        assert!(!MichiuTagRegistry::is_descendant_of(root, child, &parents));
-    }
-
-    #[test]
     fn test_query_descendants_of_type() {
         let (_sm, e) = setup_entities(6);
         // ツリー構造:
-        // root (e[0])
-        //   ├─ parent_a (e[1])
-        //   │    ├─ child_a1 (e[2])  [TagA]
-        //   │    └─ child_a2 (e[3])  [TagB]
-        //   └─ parent_b (e[4])
-        //        └─ child_b1 (e[5])  [TagA]
+        // root (e[0])               size: 6
+        //   ├─ parent_a (e[1])      size: 3
+        //   │    ├─ child_a1 (e[2]) size: 1  [TagA]
+        //   │    └─ child_a2 (e[3]) size: 1  [TagB]
+        //   └─ parent_b (e[4])      size: 2
+        //        └─ child_b1 (e[5]) size: 1  [TagA]
         let root = e[0];
         let parent_a = e[1];
         let child_a1 = e[2];
@@ -312,18 +253,11 @@ mod tests {
         let parent_b = e[4];
         let child_b1 = e[5];
 
-        let mut parents = ParentsSecondary::default();
-        parents.insert(root, None);
-        parents.insert(parent_a, Some(root));
-        parents.insert(child_a1, Some(parent_a));
-        parents.insert(child_a2, Some(parent_a));
-        parents.insert(parent_b, Some(root));
-        parents.insert(child_b1, Some(parent_b));
-
         let mut dfs_seq = FlatDfsSequence::default();
         dfs_seq
             .entities
             .extend([root, parent_a, child_a1, child_a2, parent_b, child_b1]);
+        dfs_seq.subtree_sizes.extend([6, 3, 1, 1, 2, 1]);
 
         let mut registry = MichiuTagRegistry::default();
         registry.register_entity::<TagA>(child_a1);
@@ -332,7 +266,7 @@ mod tests {
 
         // parent_a の子孫で TagA を持つものをクエリ
         let result: Vec<Entity> = registry
-            .query_descendants_of_type::<TagA>(parent_a, &parents, &dfs_seq)
+            .query_descendants_of_type::<TagA>(parent_a, &dfs_seq)
             .collect();
 
         // child_b1 は parent_b の配下なので含まれず、child_a1 のみ返る
@@ -346,25 +280,22 @@ mod tests {
         let child = e[1];
         let outside = e[2];
 
-        let mut parents = ParentsSecondary::default();
-        parents.insert(root, None);
-        parents.insert(child, Some(root));
-
         let mut dfs_seq = FlatDfsSequence::default();
         dfs_seq.entities.extend([root, child]);
+        dfs_seq.subtree_sizes.extend([2, 1]);
 
         let mut registry = MichiuTagRegistry::default();
         registry.register_entity::<TagA>(child);
 
         // DFS シーケンスに含まれないエンティティを指定した場合は空イテレータ
         let result: Vec<Entity> = registry
-            .query_descendants_of_type::<TagA>(outside, &parents, &dfs_seq)
+            .query_descendants_of_type::<TagA>(outside, &dfs_seq)
             .collect();
         assert_eq!(result, [] as [Entity; 0]);
 
         // 一致するタグを持つ子孫が存在しない場合は空イテレータ
         let result_no_tag: Vec<Entity> = registry
-            .query_descendants_of_type::<TagC>(root, &parents, &dfs_seq)
+            .query_descendants_of_type::<TagC>(root, &dfs_seq)
             .collect();
         assert_eq!(result_no_tag, [] as [Entity; 0]);
     }
@@ -372,35 +303,34 @@ mod tests {
     #[test]
     fn test_query_first_descendant_of_type() {
         let (_sm, e) = setup_entities(4);
+        // ツリー構造:
+        // root (e[0])               size: 4
+        //   ├─ child1 (e[1])        size: 2
+        //   │    └─ grandchild (e[2]) size: 1  [TagA]
+        //   └─ child2 (e[3])        size: 1  [TagA]
         let root = e[0];
         let child1 = e[1];
         let grandchild = e[2];
         let child2 = e[3];
 
-        let mut parents = ParentsSecondary::default();
-        parents.insert(root, None);
-        parents.insert(child1, Some(root));
-        parents.insert(grandchild, Some(child1));
-        parents.insert(child2, Some(root));
-
         let mut dfs_seq = FlatDfsSequence::default();
         dfs_seq.entities.extend([root, child1, grandchild, child2]);
+        dfs_seq.subtree_sizes.extend([4, 2, 1, 1]);
 
         let mut registry = MichiuTagRegistry::default();
         registry.register_entity::<TagA>(grandchild);
         registry.register_entity::<TagA>(child2);
 
         // root 配下で最初に見つかる TagA は DFS順で grandchild
-        let found = registry.query_first_descendant_of_type::<TagA>(root, &parents, &dfs_seq);
+        let found = registry.query_first_descendant_of_type::<TagA>(root, &dfs_seq);
         assert_eq!(found, Some(grandchild));
 
         // child1 の配下で探す場合も grandchild
-        let found_in_child1 =
-            registry.query_first_descendant_of_type::<TagA>(child1, &parents, &dfs_seq);
+        let found_in_child1 = registry.query_first_descendant_of_type::<TagA>(child1, &dfs_seq);
         assert_eq!(found_in_child1, Some(grandchild));
 
         // 該当タグがない場合は None
-        let not_found = registry.query_first_descendant_of_type::<TagC>(root, &parents, &dfs_seq);
+        let not_found = registry.query_first_descendant_of_type::<TagC>(root, &dfs_seq);
         assert_eq!(not_found, None);
     }
 

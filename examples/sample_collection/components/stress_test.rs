@@ -32,14 +32,19 @@ fn entity_1() -> Vec<Entity> {
 fn base_el(i: i32) -> Entity {
     let label_str = DIGITS.get(i as usize).copied().unwrap_or("");
 
-    flex(ii().hovered(ii().bg_color(dynamic(|t: &Theme| t.accent))))
-        .label(
-            label_str,
-            ii().font_size(16.0)
-                .text_color(dynamic(|t: &Theme| t.text))
-                .pressed_parent(ii().font_size(20.0)),
-        )
-        .on_click_with(|cx| println!("Current ID: {:?}", cx.current()))
+    flex(
+        ii().hovered(
+            ii().visibility_auto()
+                .bg_color(dynamic(|t: &Theme| t.accent)),
+        ),
+    )
+    .label(
+        label_str,
+        ii().font_size(16.0)
+            .text_color(dynamic(|t: &Theme| t.text))
+            .pressed_parent(ii().font_size(20.0)),
+    )
+    .on_click_with(|cx| println!("Current ID: {:?}", cx.current()))
 }
 
 #[inline]
