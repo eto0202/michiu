@@ -8,7 +8,7 @@ use michiu_ui::prelude::*;
 
 pub fn create_root() -> Entity {
     let (theme, _) = create_signal(Theme::dark());
-    let (comp_type, _) = create_signal(ComponentType::Div);
+    let (comp_type, _) = create_signal(ComponentType::Button);
 
     let (search_text, _) = create_signal(SearchText(String::new()));
     let (sort_order, _) = create_signal(SidebarSortOrder::Ascending);
