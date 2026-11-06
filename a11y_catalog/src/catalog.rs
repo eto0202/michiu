@@ -1,3 +1,5 @@
+#![allow(unused)]
+
 mod a11y_theme;
 mod components;
 mod inference_tag;

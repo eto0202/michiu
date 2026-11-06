@@ -54,6 +54,12 @@ fn sort_toggle() -> Entity {
             .bg_color(t.header)
             .cursor_pointer()
             .hovered(ii().bg_color(t.header_hover))
+            .focusable_self_both()
+            .focused_visible(
+                ii().outline_solid(2.0)
+                    .outline_offset(2.0)
+                    .outline_color(t.focus_ring),
+            )
     })
     .on_click(move || {
         let order = use_provided::<SidebarSortOrder>();

@@ -23,7 +23,12 @@ fn search_box() -> Entity {
             .max_size((600.0, 26.0))
             .bg_color(dynamic(|t: &Theme| t.surface))
             .r(3.0)
-            .p_x(16.0),
+            .p_x(16.0)
+            .focused_visible_within(
+                ii().outline_solid(2.0)
+                    .outline_offset(2.0)
+                    .outline_color(dynamic(|t: &Theme| t.focus_ring)),
+            ),
     );
 
     let text_input = div_n()
@@ -96,11 +101,11 @@ fn toggle_btn() -> Entity {
             .bg_color(dynamic(|t: &Theme| t.surface))
             .absolute()
             .right(160.0)
-            .focusable_self_keyboard()
-            .focused(
-                ii().outline_solid(1.0)
+            .focusable_self_both()
+            .focused_visible(
+                ii().outline_solid(2.0)
                     .outline_offset(2.0)
-                    .outline_color(dynamic(|t: &Theme| t.text)),
+                    .outline_color(dynamic(|t: &Theme| t.focus_ring)),
             ),
     )
     .a11y_label(Role::Button, "Theme Toggle")
@@ -129,7 +134,14 @@ fn window_controll() -> Entity {
         )
     };
 
-    let style = ii().hovered(ii().bg_color(dynamic(|t: &Theme| t.background_hover)));
+    let style = ii()
+        .focusable_self_both()
+        .focused_visible(
+            ii().outline_solid(2.0)
+                .outline_offset(-3.0)
+                .outline_color(dynamic(|t: &Theme| t.focus_ring)),
+        )
+        .hovered(ii().bg_color(dynamic(|t: &Theme| t.background_hover)));
 
     h_flex(ii().absolute().right(0.0).h_full().w(141.0)).children([
         base_btn("－")
@@ -150,7 +162,15 @@ fn window_controll() -> Entity {
             }),
         base_btn("✕")
             .a11y_label(Role::Button, "Window Close Button")
-            .modify(ii().hovered(ii().bg_color(rgb(232, 17, 35))))
+            .modify(
+                ii().hovered(ii().bg_color(rgb(232, 17, 35)))
+                    .focusable_self_both()
+                    .focused_visible(
+                        ii().outline_solid(2.0)
+                            .outline_offset(-3.0)
+                            .outline_color(dynamic(|t: &Theme| t.focus_ring)),
+                    ),
+            )
             .on_click_with(|cx| {
                 let handle = cx.use_provided::<WindowHandle>().get();
                 handle.destroy();

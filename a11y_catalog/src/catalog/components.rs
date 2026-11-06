@@ -1,7 +1,8 @@
 use crate::app::theme::Theme;
 use michiu::prelude::*;
 
-pub mod button;
+mod group_button;
+mod simple_button;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, strum::Display, strum::EnumIter)]
 pub enum ComponentType {
@@ -10,9 +11,10 @@ pub enum ComponentType {
 
 pub(crate) fn create_component_entity(comp_type: ComponentType) -> Entity {
     match comp_type {
-        ComponentType::Button => {
-            wrapper([section([button::button_1_light(), button::button_1_dark()])])
-        }
+        ComponentType::Button => wrapper([section([
+            simple_button::button_1_light(),
+            simple_button::button_1_dark(),
+        ])]),
     }
 }
 

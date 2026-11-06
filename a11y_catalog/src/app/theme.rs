@@ -7,16 +7,16 @@ use std::borrow::Cow;
 pub struct Theme {
     pub is_dark: bool,
 
-    // Source HSL
-    pub accent_hsl: (f32, f32, f32),
-    pub background_hsl: (f32, f32, f32),
+    // Source OKLCH (L: 0.0..1.0, C: 0.0..0.4, H: 0.0..360.0)
+    pub accent_oklch: (f32, f32, f32),
+    pub background_oklch: (f32, f32, f32),
 
-    // Accent Colors
+    // Accent Colors (Step 9 & 10)
     pub accent: Color,
     pub accent_hover: Color,
     pub text_on_accent: Color,
 
-    // Layout Colors (Header > Sidebar > Main)
+    // Layout Colors (Header > Sidebar / Surface > Background)
     pub header: Color,
     pub header_hover: Color,
     pub sidebar: Color,
@@ -26,11 +26,16 @@ pub struct Theme {
     pub surface: Color,
     pub surface_hover: Color,
 
+    // Borders (Step 7 & 8)
     pub border: Color,
     pub border_hover: Color,
+    pub focus_ring: Color,
+
+    // Text (Step 11 & 12)
     pub text: Color,
     pub text_muted: Color,
 
+    // Typography
     pub font_family: Cow<'static, str>,
     pub font_size_sm: f32,
     pub font_size_base: f32,
@@ -38,98 +43,77 @@ pub struct Theme {
 }
 
 impl Theme {
-    pub fn from_hsl(
+    pub fn from_oklch(
         is_dark: bool,
-        accent_hsl: (f32, f32, f32),
-        background_hsl: (f32, f32, f32),
+        accent_oklch: (f32, f32, f32),
+        background_oklch: (f32, f32, f32),
     ) -> Self {
-        let (ha, sa, la) = accent_hsl;
-        let (hb, sb, lb) = background_hsl;
+        let (la, ca, ha) = accent_oklch;
+        let (_lb, cb, hb) = background_oklch;
 
-        // Accent
-        let adjusted_la = if is_dark {
-            la
-        } else {
-            (la - 5.0).clamp(0.0, 100.0)
-        };
-        let accent = Color::hsl(ha, sa, adjusted_la);
-        let accent_hover = if is_dark {
-            Color::hsl(ha, sa, (adjusted_la + 7.0).min(100.0))
-        } else {
-            Color::hsl(ha, sa, (adjusted_la - 7.0).max(0.0))
-        };
-        let text_on_accent = Color::WHITE;
+        // UI 背景・枠線の微小なティント
+        let bg_c = cb.min(0.012);
 
-        // Layout
-        // Header > Sidebar / Surface > Background
-        let (l_bg, l_side, l_head) = if is_dark {
-            let bg = lb;
-            let side = (lb + 4.5).min(100.0);
-            let head = (lb + 9.0).min(100.0);
-            (bg, side, head)
+        let (l_bg, l_side, l_head, l_hover) = if is_dark {
+            (0.1785, 0.2143, 0.2559, 0.2856)
         } else {
-            let bg = lb;
-            let side = (lb + 5.0).min(90.0);
-            let head = 98.0;
-            (bg, side, head)
+            (0.9521, 0.9401, 0.9850, 0.9097)
         };
 
         // Main Background
-        let background = Color::hsl(hb, sb, l_bg);
-        let background_hover = if is_dark {
-            Color::hsl(hb, sb * 1.1, (l_bg + 2.0).min(100.0))
-        } else {
-            Color::hsl(hb, sb, (l_bg - 6.0).max(0.0))
-        };
+        let background = Color::oklch(l_bg, bg_c, hb);
+        let background_hover = Color::oklch(l_hover, bg_c, hb);
 
-        // Sidebar
-        let sidebar = Color::hsl(hb, sb * 0.95, l_side);
-        let sidebar_hover = if is_dark {
-            Color::hsl(hb, sb * 0.9, (l_side + 3.0).min(100.0))
-        } else {
-            Color::hsl(hb, sb * 0.95, (l_side - 5.0).max(0.0))
-        };
-
-        // Surface = Sidebar or Background
+        // Sidebar & Surface
+        let sidebar = Color::oklch(l_side, bg_c, hb);
+        let sidebar_hover = Color::oklch(l_hover, bg_c, hb);
         let surface = sidebar;
         let surface_hover = sidebar_hover;
 
         // Header
-        let header = Color::hsl(hb, sb * 0.9, l_head);
+        let header = Color::oklch(l_head, bg_c * 0.8, hb);
         let header_hover = if is_dark {
-            Color::hsl(hb, sb * 0.9, (l_head + 3.0).min(100.0))
+            Color::oklch(l_head + 0.03, bg_c * 0.8, hb)
         } else {
-            Color::hsl(hb, sb * 0.9, (l_head - 5.0).max(0.0))
+            Color::oklch(l_head - 0.03, bg_c * 0.8, hb)
         };
 
-        // Border & Border Hover
-        let border = if is_dark {
-            Color::hsl(hb, sb * 0.7, (l_head + 6.0).min(100.0))
+        let (l_border, l_border_hover) = if is_dark {
+            (0.4024, 0.4800)
         } else {
-            Color::hsl(hb, sb * 0.5, (l_bg - 18.0).max(0.0))
+            (0.7952, 0.7000)
         };
-        let border_hover = if is_dark {
-            Color::hsl(hb, sb * 0.7, (l_head + 16.0).min(100.0))
-        } else {
-            Color::hsl(hb, sb * 0.5, (l_bg - 22.0).max(0.0))
-        };
+        let border = Color::oklch(l_border, bg_c * 1.5, hb);
+        let border_hover = Color::oklch(l_border_hover, bg_c * 1.5, hb);
 
-        // Text & Text Muted
-        let text = if is_dark {
-            Color::hsl(hb, sb * 0.15, 96.0)
+        // Focus Ring
+        let l_focus = if is_dark { la.max(0.48) } else { la.min(0.62) };
+        let focus_ring = Color::oklch(l_focus, ca, ha);
+
+        let (l_text, l_text_muted) = if is_dark {
+            (0.9497, 0.7690)
         } else {
-            Color::hsl(hb, sb * 0.25, 10.0)
+            (0.2435, 0.4459)
         };
-        let text_muted = if is_dark {
-            Color::hsl(hb, sb * 0.2, 65.0)
+        let text = Color::oklch(l_text, bg_c * 0.5, hb);
+        let text_muted = Color::oklch(l_text_muted, bg_c * 0.8, hb);
+
+        let accent = Color::oklch(la, ca, ha);
+        let accent_hover = if is_dark {
+            Color::oklch((la + 0.05).min(1.0), ca, ha)
         } else {
-            Color::hsl(hb, sb * 0.25, 40.0)
+            Color::oklch((la - 0.05).max(0.0), ca, ha)
+        };
+        let text_on_accent = if la >= 0.65 {
+            Color::oklch(0.20, 0.01, hb)
+        } else {
+            Color::WHITE
         };
 
         Self {
             is_dark,
-            accent_hsl,
-            background_hsl,
+            accent_oklch,
+            background_oklch,
             accent,
             accent_hover,
             text_on_accent,
@@ -143,6 +127,7 @@ impl Theme {
             surface_hover,
             border,
             border_hover,
+            focus_ring,
             text,
             text_muted,
             font_family: "Segoe UI".into(),
@@ -152,23 +137,23 @@ impl Theme {
         }
     }
 
-    /// Default Dark Theme
-    pub fn dark() -> Self {
-        Self::from_hsl(true, (318.0, 56.0, 59.0), (215.0, 6.0, 10.0))
-    }
-
-    /// Default Light Theme
+    /// Default Light Theme (`SimpleTheme1` 準拠)
     pub fn light() -> Self {
-        Self::from_hsl(false, (318.0, 56.0, 59.0), (213.0, 6.0, 85.0))
+        Self::from_oklch(false, (0.65, 0.24, 328.0), (0.9521, 0.0041, 271.37))
+    }
+
+    /// Default Dark Theme (`SimpleTheme1` 準拠)
+    pub fn dark() -> Self {
+        Self::from_oklch(true, (0.68, 0.24, 328.0), (0.1785, 0.0041, 285.98))
     }
 
     #[must_use]
-    pub fn with_accent_hsl(self, h: f32, s: f32, l: f32) -> Self {
-        Self::from_hsl(self.is_dark, (h, s, l), self.background_hsl)
+    pub fn with_accent_oklch(self, l: f32, c: f32, h: f32) -> Self {
+        Self::from_oklch(self.is_dark, (l, c, h), self.background_oklch)
     }
 
     #[must_use]
-    pub fn with_background_hsl(self, h: f32, s: f32, l: f32) -> Self {
-        Self::from_hsl(self.is_dark, self.accent_hsl, (h, s, l))
+    pub fn with_background_oklch(self, l: f32, c: f32, h: f32) -> Self {
+        Self::from_oklch(self.is_dark, self.accent_oklch, (l, c, h))
     }
 }
