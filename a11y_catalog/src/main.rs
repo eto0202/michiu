@@ -27,6 +27,7 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
 
     let scale_factor = window.scale_factor() as f32;
     let handle = window.handle().assume_valid();
+    handle.frame_changed();
 
     let client_rect = handle.client_rect();
 
@@ -98,24 +99,40 @@ fn event_loop(app: &mut MichiuApp, pump: &mut MichiuEventPump) -> michiu::Result
 
 use windows::Win32::{
     Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM},
-    Graphics::Gdi::ScreenToClient,
+    Graphics::Gdi::{
+        GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromWindow, ScreenToClient,
+    },
     UI::{
         HiDpi::GetDpiForWindow,
         WindowsAndMessaging::{
             GetClientRect, HTBOTTOM, HTBOTTOMLEFT, HTBOTTOMRIGHT, HTCAPTION, HTCLIENT, HTLEFT,
-            HTMAXBUTTON, HTRIGHT, HTTOP, HTTOPLEFT, HTTOPRIGHT, WM_ERASEBKGND, WM_NCCALCSIZE,
-            WM_NCHITTEST,
+            HTMAXBUTTON, HTRIGHT, HTTOP, HTTOPLEFT, HTTOPRIGHT, IsZoomed, NCCALCSIZE_PARAMS,
+            WM_ERASEBKGND, WM_NCCALCSIZE, WM_NCHITTEST,
         },
     },
 };
 
-fn filter(hwnd: HWND, msg: u32, _wparam: WPARAM, lparam: LPARAM) -> Option<LRESULT> {
+fn filter(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> Option<LRESULT> {
     if msg == WM_ERASEBKGND {
-        // OSによるデフォルト背景の塗りつぶしを阻止する
         return Some(LRESULT(1));
     }
 
-    if msg == WM_NCCALCSIZE {
+    if msg == WM_NCCALCSIZE && wparam.0 != 0 {
+        unsafe {
+            let params = &mut *(lparam.0 as *mut NCCALCSIZE_PARAMS);
+
+            if IsZoomed(hwnd).as_bool() {
+                let monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+                let mut monitor_info = MONITORINFO {
+                    cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+                    ..Default::default()
+                };
+
+                if GetMonitorInfoW(monitor, &mut monitor_info).as_bool() {
+                    params.rgrc[0] = monitor_info.rcWork;
+                }
+            }
+        }
         return Some(LRESULT(0));
     }
 

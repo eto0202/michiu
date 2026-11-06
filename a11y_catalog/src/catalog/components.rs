@@ -14,6 +14,8 @@ pub(crate) fn create_component_entity(comp_type: ComponentType) -> Entity {
         ComponentType::Button => wrapper([section([
             simple_button::button_1_light(),
             simple_button::button_1_dark(),
+            simple_button::button_2_light(),
+            simple_button::button_2_dark(),
         ])]),
     }
 }

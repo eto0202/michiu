@@ -786,10 +786,10 @@ impl WindowHandle {
     pub fn disable_default_frame_rendering(&self) {
         if self.is_on_ui_thread() {
             let margins = MARGINS {
-                cxLeftWidth: -1,
-                cxRightWidth: -1,
-                cyTopHeight: -1,
-                cyBottomHeight: -1,
+                cxLeftWidth: 1,
+                cxRightWidth: 1,
+                cyTopHeight: 1,
+                cyBottomHeight: 1,
             };
             let _ = unsafe { DwmExtendFrameIntoClientArea(self.hwnd, &raw const margins) };
         } else {

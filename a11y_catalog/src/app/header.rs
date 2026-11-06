@@ -24,7 +24,7 @@ fn search_box() -> Entity {
             .bg_color(dynamic(|t: &Theme| t.surface))
             .r(3.0)
             .p_x(16.0)
-            .focused_visible_within(
+            .focused_within(
                 ii().outline_solid(2.0)
                     .outline_offset(2.0)
                     .outline_color(dynamic(|t: &Theme| t.focus_ring)),
@@ -53,6 +53,7 @@ fn search_box() -> Entity {
                 .select_text()
                 .overflow_scroll()
                 .cursor_text()
+                .focusable_self_both()
         })
         .a11y_role(Role::SearchInput);
 

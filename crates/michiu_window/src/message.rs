@@ -687,10 +687,10 @@ pub(crate) fn translate_and_dispatch(
                     }
                     SetWindowCommand::DefaultFrameRendering => {
                         let margins = MARGINS {
-                            cxLeftWidth: -1,
-                            cxRightWidth: -1,
-                            cyTopHeight: -1,
-                            cyBottomHeight: -1,
+                            cxLeftWidth: 1,
+                            cxRightWidth: 1,
+                            cyTopHeight: 1,
+                            cyBottomHeight: 1,
                         };
                         let _ = unsafe { DwmExtendFrameIntoClientArea(hwnd, &raw const margins) };
                     }
