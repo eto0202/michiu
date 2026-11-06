@@ -33,6 +33,7 @@ junit = { path = "junit.xml" }
 
 # ドキュメントテストだけ標準の cargo test で実行
 # cargo test --doc --workspace
+# cargo test --doc --all-features
 
 # 失敗したテストだけ自動リトライ
 # cargo nextest run --retries 2

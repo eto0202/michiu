@@ -1,4 +1,4 @@
-//#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use crate::logger::logger;
 use michiu::{
@@ -19,7 +19,7 @@ pub struct CratesVisual(WebView2Visual);
 // これ起動めちゃ遅くなるので注意
 // Be careful—this makes startup really slow.
 pub const ALLOW_STRESS_TEST: bool = false;
-pub const ALLOW_LIST_TEST: bool = true;
+pub const ALLOW_LIST_TEST: bool = false;
 
 pub const ALLOW_LOG: bool = ALLOW_STRESS_TEST || ALLOW_LIST_TEST;
 

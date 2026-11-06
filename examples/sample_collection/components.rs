@@ -28,7 +28,7 @@ pub mod transform;
 use crate::{ALLOW_LIST_TEST, ALLOW_STRESS_TEST, app::theme::Theme};
 use michiu::prelude::*;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, strum::Display, strum::EnumIter)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, strum::Display, strum::EnumIter, Default)]
 pub enum ComponentType {
     Button,
     Input,
@@ -36,6 +36,7 @@ pub enum ComponentType {
     Border,
     ContextMenu,
     Background,
+    #[default]
     Div,
     Flexbox,
     Transform,

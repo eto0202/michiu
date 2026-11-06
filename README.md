@@ -29,7 +29,7 @@ Add the following to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-michiu = "0.2.0"
+michiu = "0.2.2"
 pollster = "1.0.1"
 ```
 
@@ -153,7 +153,7 @@ cargo run --release
     <img 
         width="600" 
         alt="WebView2 (External Visual) Sample" 
-        src="https://github.com/user-attachments/assets/4f06183f-a2ec-48ba-b26a-83c8b1dc7259" />
+        src="https://github.com/user-attachments/assets/f988e5fd-667f-4e53-9d48-b6a9688a4a9d" />
 </p>
 
 ## License
