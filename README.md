@@ -148,7 +148,7 @@ cargo run --release
     <img 
         width="600" 
         alt="Quick Start Sample" 
-        src="https://github.com/user-attachments/assets/55aad95b-4c9c-4d68-9fc9-3ce441cb436f" />
+        src="https://github.com/user-attachments/assets/4ccf50dd-cd40-4880-958e-ecff40c98970" />
 </p>
 
 #### Flexbox Sample
