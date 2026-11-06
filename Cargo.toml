@@ -25,9 +25,10 @@ michiu_window = { version = "0.2.1", path = "crates/michiu_window" }
 serde = { version = "1.0.228", features = ["derive", "rc"] }
 
 [profile.release]
-debug = 2
-strip = "none"
-split-debuginfo = "packed"
+opt-level = 3
+strip = true
+lto = true
+panic = "abort"
 
 [workspace.lints.clippy]
 pedantic = { level = "warn", priority = -1 }

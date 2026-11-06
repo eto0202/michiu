@@ -1,4 +1,4 @@
-#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+//#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use crate::logger::logger;
 use michiu::{
@@ -16,10 +16,12 @@ pub struct GitHubVisual(WebView2Visual);
 #[derive(Clone)]
 pub struct CratesVisual(WebView2Visual);
 
-pub const ALLOW_LOG: bool = false;
 // これ起動めちゃ遅くなるので注意
 // Be careful—this makes startup really slow.
 pub const ALLOW_STRESS_TEST: bool = false;
+pub const ALLOW_LIST_TEST: bool = true;
+
+pub const ALLOW_LOG: bool = ALLOW_STRESS_TEST || ALLOW_LIST_TEST;
 
 #[cfg(feature = "dhat-heap")]
 #[global_allocator]
@@ -82,7 +84,7 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     // 状況に応じて設定
     // Adjust the settings as needed
     let (mut app, mut pump) = MichiuAppBuilder::new(window)
-        .with_accessibility_support(true)
+        .with_accessibility_support(!ALLOW_LOG)
         .with_capacity_config(CapacityConfig::from_base_nodes(1024))
         .with_inspector(inspector)
         .with_sync_mode(AutoSyncMode::DwmFlush)

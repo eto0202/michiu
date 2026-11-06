@@ -1,4 +1,3 @@
-#[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CapacityConfig {
     pub sys_text_buffers: usize,

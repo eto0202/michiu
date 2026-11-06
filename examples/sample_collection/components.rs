@@ -16,6 +16,7 @@ pub mod font;
 pub mod gradient;
 pub mod hover;
 pub mod input;
+pub mod list_test;
 pub mod outline;
 pub mod position;
 pub mod resizable;
@@ -24,7 +25,7 @@ pub mod size;
 pub mod stress_test;
 pub mod transform;
 
-use crate::{ALLOW_STRESS_TEST, app::theme::Theme};
+use crate::{ALLOW_LIST_TEST, ALLOW_STRESS_TEST, app::theme::Theme};
 use michiu::prelude::*;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, strum::Display, strum::EnumIter)]
@@ -48,6 +49,7 @@ pub enum ComponentType {
     Outline,
     Focusable,
     StressTest,
+    ListTest,
     ExternalTexture,
     ExternalVisual,
     Accessibility,
@@ -82,6 +84,13 @@ pub(crate) fn create_component_entity(comp_type: ComponentType) -> Entity {
         ComponentType::Transform => wrapper(transform::container()),
         ComponentType::Position => wrapper(position::container()),
         ComponentType::Font => wrapper(font::container()),
+        ComponentType::ListTest => {
+            if ALLOW_LIST_TEST {
+                wrapper(list_test::container())
+            } else {
+                text("ListTest")
+            }
+        }
         ComponentType::StressTest => {
             if ALLOW_STRESS_TEST {
                 wrapper(stress_test::container())

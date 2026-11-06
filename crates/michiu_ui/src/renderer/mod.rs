@@ -462,7 +462,6 @@ pub(crate) const VERTICES: &[Vertex] = &[
 #[expect(unused)]
 pub(crate) const INDICES: &[u16] = &[0, 1, 2, 2, 3, 0];
 
-#[non_exhaustive]
 #[derive(Debug, Clone)]
 pub struct RendererUserConfig {
     pub memory_hints: wgpu::MemoryHints,
