@@ -4,6 +4,22 @@
 
 - _(michiu_window)_ Implement file open and save dialogs.
   - Add `open_file_dialog` and `save_file_dialog` to `FileDialog`, `WindowHandle`, and `MichiuWindow`.
+- Implement file open and save dialogs
+- Add `STYLE_CONTENT_VISIBILITY` and the `intersects_*` methods
+- Implement `ContentVisibility` and subtree skip optimization
+
+### 🐛 Bug Fixes
+
+- Fix docs
+
+### 🚜 Refactor
+
+- Add a subtree size property to `FlatDfsSequence`
+
+### ⚙️ Miscellaneous Tasks
+
+- Update `CHANGELOG.md`
+- Cargo fmt
 
 ## [0.2.1] - 2026-11-04
 
