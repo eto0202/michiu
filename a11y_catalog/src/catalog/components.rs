@@ -1,6 +1,7 @@
 use crate::app::theme::Theme;
 use michiu::prelude::*;
 
+mod simple_accordion;
 mod simple_button;
 mod simple_checkbox;
 mod simple_group_button;
@@ -8,6 +9,7 @@ mod simple_input;
 mod simple_list;
 mod simple_modal;
 mod simple_popover;
+mod simple_slider;
 mod simple_tab;
 mod simple_toggle;
 
@@ -32,7 +34,10 @@ pub(crate) fn create_component_entity(comp_type: ComponentType) -> Entity {
                 simple_button::button_2_light(),
                 simple_button::button_2_dark(),
             ]),
-            section([text("SimpleGroupButton")]),
+            section([
+                simple_group_button::group_button_1_light(),
+                simple_group_button::group_button_1_dark(),
+            ]),
         ]),
         ComponentType::Input => wrapper([section([text("SimpleInput")])]),
         ComponentType::List => wrapper([section([text("SimpleList")])]),
