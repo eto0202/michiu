@@ -121,7 +121,7 @@ fn list_container() -> Entity {
 fn sidebar_item(name: String, item_type: ComponentType) -> Entity {
     h_flex_d(move |t: &Theme| {
         let active_bg = t.background_hover;
-        let hover_bg = t.sidebar_hover;
+        let hover_bg = t.sidebar_hover.with_alpha(0.5);
 
         let current = use_provided::<ComponentType>().get();
         let is_active = current == item_type;
@@ -142,6 +142,7 @@ fn sidebar_item(name: String, item_type: ComponentType) -> Entity {
 
         ii().justify_center()
             .items_center()
+            .h(40.0)
             .p(10.0)
             .bg_color(bg)
             .border_left(BorderStyle::Solid, 4.0)
@@ -149,9 +150,10 @@ fn sidebar_item(name: String, item_type: ComponentType) -> Entity {
             .hovered(ii().bg_color(h_bg))
     })
     .tag::<a11y::AListItem>()
-    .label_d(name, move |t: &Theme| {
-        ii().text_color(t.text).font_size(t.font_size_base)
-    })
+    .label(
+        name,
+        ii().text_color(dynamic(|t: &Theme| t.text)).font_size(14.0),
+    )
     .on_click_with(move |cx| {
         let setter = cx.use_provided_setter::<ComponentType>();
         setter.set(item_type);
