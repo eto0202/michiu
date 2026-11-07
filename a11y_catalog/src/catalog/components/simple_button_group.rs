@@ -21,6 +21,16 @@ impl<S: Into<String>> From<S> for ButtonGroupItem {
     }
 }
 
+/// Visual appearance variants for [`SimpleButtonGroup`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ButtonVariant {
+    /// Filled background using `theme.bg_ui()` / `theme.solid()`.
+    #[default]
+    Solid,
+    /// Transparent background with an outline border using `theme.border()`.
+    Outline,
+}
+
 /// Accessible grouped buttons / segmented controls compliant with WAI-ARIA and WCAG 2.2 AA.
 ///
 /// # Scope
@@ -68,6 +78,8 @@ pub struct SimpleButtonGroup {
     pub direction: FlexDirection,
     /// List of buttons and separators.
     pub items: Vec<ButtonGroupItem>,
+    /// Visual style variant (Solid, Outline).
+    pub variant: ButtonVariant,
 }
 
 impl SimpleButtonGroup {
@@ -78,7 +90,14 @@ impl SimpleButtonGroup {
         Self {
             direction: FlexDirection::Row,
             items: items.into_iter().map(Into::into).collect(),
+            variant: ButtonVariant::default(),
         }
+    }
+
+    /// Sets the visual style variant.
+    pub fn variant(mut self, variant: ButtonVariant) -> Self {
+        self.variant = variant;
+        self
     }
 
     /// Sets the layout direction of the button group.
@@ -105,6 +124,25 @@ impl MichiuWidget for SimpleButtonGroup {
     }
 
     fn build(&self, theme: &dyn MichiuTheme) -> Entity {
+        let (bg, hover, active, border, text_color, focus_ring) = match self.variant {
+            ButtonVariant::Solid => (
+                theme.accent_solid(),
+                theme.accent_solid_hover(),
+                theme.accent_8(),
+                Color::TRANSPARENT,
+                theme.text_on_solid(),
+                theme.text_on_solid(),
+            ),
+            ButtonVariant::Outline => (
+                Color::TRANSPARENT,
+                theme.gray_bg_ui_hover(),
+                theme.gray_bg_ui_active(),
+                theme.gray_border(),
+                theme.gray_text_high(),
+                theme.focus_ring(),
+            ),
+        };
+
         let btn_modifier = ii()
             .justify_center()
             .items_center()
@@ -112,14 +150,14 @@ impl MichiuWidget for SimpleButtonGroup {
             .r(3.0)
             .cursor_pointer()
             .bg_color(Color::TRANSPARENT)
-            .hovered(ii().bg_color(theme.bg_ui_hover()))
-            .pressed(ii().bg_color(theme.bg_ui_active()))
+            .hovered(ii().bg_color(hover))
+            .pressed(ii().bg_color(active))
             .focusable_self_both()
             .focused_visible(
                 ii().border_color(Color::TRANSPARENT)
                     .outline_solid(2.0)
                     .outline_offset(0.0)
-                    .outline_color(theme.focus_ring()),
+                    .outline_color(focus_ring),
             );
 
         let separator_size = match self.direction {
@@ -137,17 +175,11 @@ impl MichiuWidget for SimpleButtonGroup {
                     children.push(
                         flex(&btn_modifier)
                             .tag::<a11y::AButton>()
-                            .label(
-                                label_text,
-                                ii().font_size(14.0).text_color(theme.text_high()),
-                            )
-                            .on_click(move || println!("Group Button Clicked: {click_text}")),
+                            .label(label_text, ii().font_size(14.0).text_color(text_color)),
                     );
                 }
                 ButtonGroupItem::Separator => {
-                    children.push(
-                        div(separator_size.clone().bg_color(theme.border())).a11y(NO_A11Y_NODE),
-                    );
+                    children.push(div(separator_size.clone().bg_color(border)).a11y(NO_A11Y_NODE));
                 }
             }
         }
@@ -159,9 +191,9 @@ impl MichiuWidget for SimpleButtonGroup {
                 .p(2.0)
                 .gap(2.0)
                 .r(3.0)
-                .bg_color(theme.bg_ui())
+                .bg_color(bg)
                 .border_solid(1.0)
-                .border_color(theme.border()),
+                .border_color(border),
         )
         .children(children)
     }

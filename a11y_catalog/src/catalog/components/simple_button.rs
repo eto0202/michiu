@@ -132,13 +132,30 @@ impl MichiuWidget for SimpleButton {
             ButtonSize::Lg => (120.0, 44.0),
         };
 
-        let (bg, border) = match self.variant {
-            ButtonVariant::Solid => (theme.bg_ui(), Color::TRANSPARENT),
-            ButtonVariant::Outline => (Color::TRANSPARENT, theme.border()),
-            ButtonVariant::Ghost => (Color::TRANSPARENT, Color::TRANSPARENT),
+        let (bg, hover, active, border, text_color) = match self.variant {
+            ButtonVariant::Solid => (
+                theme.accent_solid(),
+                theme.accent_solid_hover(),
+                theme.accent_8(),
+                Color::TRANSPARENT,
+                theme.text_on_solid(),
+            ),
+            ButtonVariant::Outline => (
+                Color::TRANSPARENT,
+                theme.gray_bg_ui_hover(),
+                theme.gray_border(),
+                theme.gray_bg_ui_active(),
+                theme.gray_text_high(),
+            ),
+            ButtonVariant::Ghost => (
+                Color::TRANSPARENT,
+                theme.gray_bg_ui_hover(),
+                theme.gray_bg_ui_active(),
+                Color::TRANSPARENT,
+                theme.gray_text_high(),
+            ),
         };
 
-        let text_color = theme.text_high();
         let offset = theme.focus_ring_offset(self.variant == ButtonVariant::Solid);
 
         let mut modifier = ii()
@@ -150,8 +167,8 @@ impl MichiuWidget for SimpleButton {
             .border_solid(1.0)
             .border_color(border)
             .cursor_pointer()
-            .hovered(ii().bg_color(theme.bg_ui_hover()))
-            .pressed(ii().bg_color(theme.bg_ui_active()))
+            .hovered(ii().bg_color(hover))
+            .pressed(ii().bg_color(active))
             .focusable_self_both()
             .focused_visible(
                 ii().border_color(Color::TRANSPARENT)

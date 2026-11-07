@@ -44,7 +44,7 @@ a11y_catalog/
     ├── assets/                  # Static assets such as cursor icons and images
     │
     ├── catalog/                 # Exportable component, theme, tag...etc.
-    │   ├── core.rs              # [Core Trait] MichiuWidget & MichiuTheme
+    │   ├── core.rs              # [Core Trait] MichiuWidget & MichiuTheme & Oklch
     │   ├── a11y_theme.rs        # Theme module declarations
     │   ├── components.rs        # Component module declarations & registry
     │   ├── inference_tag.rs     # Module declarations
@@ -73,7 +73,7 @@ Integrating components into your project is designed to be straightforward and m
 
 ```text
 Step 1: Copy core.rs
-        └── Brings MichiuWidget & MichiuTheme traits
+        └── Brings MichiuWidget & MichiuTheme traits & Oklch
 Step 2: Prepare Theme
         └── Copy from a11y_theme/ OR implement MichiuTheme on your own theme struct
 Step 3: Copy Components
@@ -82,13 +82,13 @@ Step 3: Copy Components
 
 ### Step 1: Copy `core.rs` into Your Project
 
-First, copy `src/catalog/core.rs` into your project. This file defines the core traits (`MichiuWidget`, `MichiuTheme`) and has zero heavy external dependencies.
+First, copy `src/catalog/core.rs` into your project. This file defines the core traits (`MichiuWidget`, `MichiuTheme`, `Oklch`) and has zero heavy external dependencies.
 
 ### Step 2: Prepare Your Theme
 
 Prepare a theme conforming to `MichiuTheme`:
 
-- **Option A**: Copy an existing WCAG AA theme from `catalog/a11y_theme/` (e.g., `SimpleTheme1`).
+- **Option A**: Copy an existing WCAG AA theme from `catalog/a11y_theme/` (e.g., `SimpleBlueTheme`).
 - **Option B**: Implement `MichiuTheme` on your existing application theme struct.
 
 ### Step 3: Copy Components from `components/`
@@ -259,7 +259,7 @@ a11y_catalog/
     ├── assets/                  # カーソルアイコンや画像などの静的リソース
     │
     ├── catalog/                 # ユーザーが持ち帰るコンポーネント・テーマ構造体など
-    │   ├── core.rs              # [必須コア] MichiuWidget & MichiuTheme トレイト定義
+    │   ├── core.rs              # [必須コア] MichiuWidget & MichiuTheme トレイト & Oklch 定義
     │   ├── a11y_theme.rs        # a11y_theme 配下のモジュール宣言
     │   ├── components.rs        # components 配下のモジュール宣言・カタログ一覧
     │   ├── inference_tag.rs     # inference_tag 配下のモジュール宣言
@@ -288,7 +288,7 @@ a11y_catalog/
 
 ```text
 ステップ 1: core.rs を持ち帰る
-            └── MichiuWidget, MichiuTheme トレイトを配置
+            └── MichiuWidget, MichiuTheme トレイト, Oklch を配置
 ステップ 2: テーマを用意する
             └── a11y_theme/ からコピペ、または自前テーマに MichiuTheme を実装
 ステップ 3: コンポーネントを持ち帰る
@@ -297,13 +297,13 @@ a11y_catalog/
 
 ### ステップ 1: `core.rs` を配置する
 
-最初に `src/catalog/core.rs` を自分のプロジェクトへコピーします。コンポーネントとテーマの境界となる最小限のトレイト（`MichiuWidget`, `MichiuTheme`）が定義されています。
+最初に `src/catalog/core.rs` を自分のプロジェクトへコピーします。コンポーネントとテーマの境界となる最小限のトレイト（`MichiuWidget`, `MichiuTheme`, `Oklch`）が定義されています。
 
 ### ステップ 2: テーマを用意する
 
 `MichiuTheme` を満たすテーマを準備します：
 
-- **方法 A**: `catalog/a11y_theme/`（例: `SimpleTheme1`）からそのままファイルをコピーして使う。
+- **方法 A**: `catalog/a11y_theme/`（例: `SimpleBlueTheme`）からそのままファイルをコピーして使う。
 - **方法 B**: 自前アプリの既存テーマ構造体に `MichiuTheme` トレイトを実装する。
 
 ### ステップ 3: `components/` からコンポーネントを配置する
