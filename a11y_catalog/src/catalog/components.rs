@@ -5,6 +5,7 @@ use crate::{
         components::{simple_button::SimpleButton, simple_button_group::SimpleButtonGroup},
         core::MichiuWidget,
     },
+    simple_button_group,
 };
 use michiu::prelude::*;
 
@@ -32,36 +33,31 @@ pub enum ComponentType {
     Toggle,
 }
 
-pub(crate) fn create_component_entity(comp_type: ComponentType) -> Entity {
+pub(crate) fn create_component_entity(comp_type: ComponentType, is_dark: bool) -> Entity {
+    let theme = if is_dark {
+        SimpleBlueTheme::dark()
+    } else {
+        SimpleBlueTheme::light()
+    };
     match comp_type {
         ComponentType::Button => wrapper([
             section([
-                SimpleButton::new("Solid").build(&SimpleBlueTheme::light()),
-                SimpleButton::new("Solid").build(&SimpleBlueTheme::dark()),
+                SimpleButton::new("Solid").build(&theme),
                 SimpleButton::new("Outline")
                     .variant(simple_button::ButtonVariant::Outline)
-                    .build(&SimpleBlueTheme::light()),
-                SimpleButton::new("Outline")
-                    .variant(simple_button::ButtonVariant::Outline)
-                    .build(&SimpleBlueTheme::dark()),
+                    .build(&theme),
                 SimpleButton::new("Ghost")
                     .variant(simple_button::ButtonVariant::Ghost)
-                    .build(&SimpleBlueTheme::light()),
-                SimpleButton::new("Ghost")
-                    .variant(simple_button::ButtonVariant::Ghost)
-                    .build(&SimpleBlueTheme::dark()),
+                    .build(&theme),
             ]),
             section([
-                SimpleButtonGroup::default().build(&SimpleBlueTheme::light()),
-                SimpleButtonGroup::default().build(&SimpleBlueTheme::dark()),
-            ]),
-            section([
-                SimpleButtonGroup::default()
+                simple_button_group!["1", "|", "2", "3", "4", "|", "5",].build(&theme),
+                simple_button_group!["1", "|", "2", "3", "4", "|", "5",]
                     .variant(simple_button_group::ButtonVariant::Outline)
-                    .build(&SimpleBlueTheme::light()),
-                SimpleButtonGroup::default()
-                    .variant(simple_button_group::ButtonVariant::Outline)
-                    .build(&SimpleBlueTheme::dark()),
+                    .build(&theme),
+                simple_button_group!["1", "|", "2", "3", "4", "|", "5",]
+                    .variant(simple_button_group::ButtonVariant::Ghost)
+                    .build(&theme),
             ]),
         ]),
         ComponentType::Input => wrapper([section([text("SimpleInput")])]),

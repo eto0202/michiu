@@ -1,4 +1,7 @@
-use crate::{app::ComponentType, catalog::create_component_entity};
+use crate::{
+    app::{ComponentType, theme::Theme},
+    catalog::create_component_entity,
+};
 use michiu::{prelude::*, ui::a11y};
 use strum::IntoEnumIterator;
 
@@ -7,8 +10,6 @@ pub fn main_area() -> Entity {
 
     let mut children = Vec::new();
     for comp_type in ComponentType::iter() {
-        let child_el = create_component_entity(comp_type);
-
         let styled_child = flex_d(move |active: &ComponentType| {
             if *active == comp_type {
                 ii().size_full().flex()
@@ -16,7 +17,7 @@ pub fn main_area() -> Entity {
                 ii().hidden()
             }
         })
-        .child(child_el);
+        .child_d(move |t: &Theme| create_component_entity(comp_type, t.is_dark));
 
         children.push(styled_child);
     }

@@ -31,7 +31,7 @@ pub enum ButtonSize {
 ///
 /// # Scope
 /// - **Stand-alone**: Can be used by copying only this file (or struct and its `impl` blocks),
-///   provided `core.rs` (`MichiuWidget`, `MichiuTheme`) is present in your project.
+///   provided `core.rs` (`MichiuWidget`, `MichiuTheme`, `Oklch`) is present in your project.
 ///
 /// # Required Assets
 /// - None
@@ -52,7 +52,7 @@ pub enum ButtonSize {
 ///     maintaining >= 3.0:1 contrast ratio against the background (WCAG 1.4.11, 2.4.7, 2.4.11).
 ///   - **Offset**: Automatically applies an external 2px offset for `Solid` buttons to guarantee
 ///     visual separation and contrast against surrounding containers.
-/// - **Customization (Last-Write-Wins)**:
+/// - **Customization**:
 ///   - To attach event listeners (e.g., `.on_click(...)`) or override layout styles,
 ///     chain modifiers **directly after calling `.build(&theme)`**.
 ///   - Any modifiers appended after `build()` will take precedence over defaults.

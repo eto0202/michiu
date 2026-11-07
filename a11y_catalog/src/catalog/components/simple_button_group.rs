@@ -1,26 +1,6 @@
 use crate::catalog::core::{MichiuTheme, MichiuWidget};
 use michiu::{accessibility::*, prelude::*, ui::FlexDirection};
 
-/// An item within a [`SimpleButtonGroup`], representing either an interactive button or an accessible separator.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ButtonGroupItem {
-    /// Interactive button with a label.
-    Button(String),
-    /// Visual separator line hidden from screen readers (`NO_A11Y_NODE`).
-    Separator,
-}
-
-impl<S: Into<String>> From<S> for ButtonGroupItem {
-    fn from(s: S) -> Self {
-        let string = s.into();
-        if string == "|" {
-            ButtonGroupItem::Separator
-        } else {
-            ButtonGroupItem::Button(string)
-        }
-    }
-}
-
 /// Visual appearance variants for [`SimpleButtonGroup`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ButtonVariant {
@@ -29,9 +9,24 @@ pub enum ButtonVariant {
     Solid,
     /// Transparent background with an outline border using `theme.border()`.
     Outline,
+    /// Fully transparent background that subtly highlights on hover.
+    Ghost,
 }
 
-/// Accessible grouped buttons / segmented controls compliant with WAI-ARIA and WCAG 2.2 AA.
+/// An item within a [`SimpleButtonGroup`].
+pub enum ButtonGroupItem {
+    /// An interactive button (custom `Entity`, with events, icons, etc.).
+    Button(Entity),
+    /// A simple text label button (automatically styled by the group).
+    Label(String),
+    /// A visual separator line hidden from screen readers (`NO_A11Y_NODE`).
+    Separator,
+}
+
+/// Accessible grouped buttons / segmented controls widget compliant with WAI-ARIA and WCAG 2.2 AA.
+///
+/// This component provides a unified container with standardized sizing, hover effects,
+/// and keyboard focus rings, while allowing child items to be raw labels or custom interactive [`Entity`] instances.
 ///
 /// # Scope
 /// - **Stand-alone**: Can be used by copying only this file, provided `core.rs`
@@ -41,76 +36,106 @@ pub enum ButtonVariant {
 /// - None
 ///
 /// # Event Loop Requirements
-/// - None (Self-contained within widget tree).
+/// - None (Self-contained within the widget tree).
 ///
 /// # Feature Details
-/// - **Direction**: Switch between horizontal and vertical layouts via `.direction(...)`.
-///   Separators automatically adapt their aspect ratio and margins.
+/// - **Direction**:
+///   - Supports horizontal (`Row`) and vertical (`Column`) layouts via `.direction(...)`.
+///   - Separator orientation, thickness, and margins adapt dynamically based on direction.
 /// - **Keyboard**:
-///   - `Tab` / `Shift + Tab`: Move focus between buttons within the group.
-///   - `Space` / `Enter`: Activate the focused button.
+///   - `Tab` / `Shift + Tab`: Moves focus sequentially between interactive buttons within the group.
+///   - `Space` / `Enter`: Activates the currently focused button.
 /// - **Screen Reader**:
-///   - Role: `Role::Button` for each interactive button item.
-///   - Separator lines are explicitly marked with `NO_A11Y_NODE` to avoid cluttering announcements.
+///   - Role: `Role::Button` for each interactive child item.
+///   - Separators are excluded from the accessibility tree via `NO_A11Y_NODE` to prevent announcement noise.
 /// - **Visual / WCAG**:
-///   - **Target Size**: 28x28px per button (exceeds WCAG 2.5.8 minimum target size of 24x24px).
-///   - **Focus Ring**: 2px outline displayed only on keyboard focus (`focused_visible`),
-///     maintaining >= 3.0:1 contrast ratio against container background.
-///   - **Contrast Ratio**:
-///     - Text: approx. 12.2:1 (Dark) / 12.3:1 (Light) against `bg_ui` (meets WCAG AAA >= 7.0:1).
-///     - Focus ring: approx. 3.05:1 (Light) / 3.84:1 (Dark) against `bg_ui` (meets WCAG 1.4.11 & 2.4.11 >= 3.0:1).
-/// - **Customization (Last-Write-Wins)**:
-///   - Chain modifier methods directly after `.build(&theme)` to override outer container styles.
+///   - **Target Size**: Minimum 28x28px per button slot (exceeds WCAG 2.5.8 minimum of 24x24px).
+///   - **Focus Indicator**: 2px outline displayed only on keyboard focus (`focused_visible`),
+///     maintaining >= 3.0:1 contrast ratio against the container background (WCAG 1.4.11, 2.4.11).
+///   - **Slot Encapsulation**: Injected child [`Entity`] items are wrapped in a standardized
+///     slot modifier to guarantee uniform size, corner radius, and focus outlines regardless of child contents.
+/// - **Customization**:
+///   - Chain modifier methods directly after `.build(&theme)` to override outer container styles,
+///     padding, gap, or border properties.
 ///
 /// # Example
 ///
 /// ```rust
-/// // 1. Default horizontal pagination-style group
-/// let group = SimpleButtonGroup::default().build(&theme);
+/// // 1. Simple text & separator layout
+/// let group = SimpleButtonGroup::new(["1".into(), "|".into(), "2".into()])
+///     .variant(ButtonVariant::Outline)
+///     .build(&theme);
 ///
-/// // 2. Vertical toolbar layout with custom items
-/// let vertical_toolbar = SimpleButtonGroup::new(["Cut", "Copy", "|", "Paste"])
+/// let group = simple_button_group!["1", "|", "2", "3", "4", "|", "5",].build(&theme);
+///
+/// // 2. Mixing custom clickable entities with labels
+/// let custom_group = SimpleButtonGroup::new([
+///     // Custom entity with click handler
+///     text("☆").on_click(|| println!("Star!")).into(),
+///     // Separator
+///     "|".into(),
+///     // Simple labels
+///     "☆".into(),
+/// ])
+/// .variant(ButtonVariant::Solid)
+/// .build(&theme);
+///
+/// // 3. Vertical toolbar
+/// let vertical_toolbar = simple_button_group!["1", "2", "|", "3"]
 ///     .direction(FlexDirection::Column)
 ///     .build(&theme);
 /// ```
 pub struct SimpleButtonGroup {
     /// Layout direction of the group (Row, Column, etc.).
     pub direction: FlexDirection,
-    /// List of buttons and separators.
+    /// List of buttons, labels, and separators.
     pub items: Vec<ButtonGroupItem>,
-    /// Visual style variant (Solid, Outline).
+    /// Visual style variant (Solid, Outline, Ghost).
     pub variant: ButtonVariant,
 }
 
 impl SimpleButtonGroup {
-    /// Creates a new button group from an iterator of items.
+    /// Creates a new button group.
     ///
-    /// Passing `"|"` will automatically be converted into an accessible separator.
-    pub fn new(items: impl IntoIterator<Item = impl Into<ButtonGroupItem>>) -> Self {
+    /// Accepts any combination of:
+    /// - Custom `Entity` (e.g. `button.on_click(...)`)
+    /// - `&str` labels (e.g. `"1"`, `"2"`)
+    /// - `"|"` for separators
+    pub fn new<I>(items: I) -> Self
+    where
+        I: IntoIterator<Item = ButtonGroupItem>,
+    {
         Self {
             direction: FlexDirection::Row,
-            items: items.into_iter().map(Into::into).collect(),
+            items: items.into_iter().collect(),
             variant: ButtonVariant::default(),
         }
     }
 
-    /// Sets the visual style variant.
-    pub fn variant(mut self, variant: ButtonVariant) -> Self {
-        self.variant = variant;
-        self
-    }
-
-    /// Sets the layout direction of the button group.
+    /// Sets the layout direction of the group.
     pub fn direction(mut self, direction: FlexDirection) -> Self {
         self.direction = direction;
         self
     }
-}
 
+    /// Sets the visual style variant (Solid, Outline, Ghost).
+    pub fn variant(mut self, variant: ButtonVariant) -> Self {
+        self.variant = variant;
+        self
+    }
+}
 impl Default for SimpleButtonGroup {
     /// Creates a default pagination-style button group (`["1", "|", "2", "3", "4", "|", "5"]`).
     fn default() -> Self {
-        Self::new(["1", "|", "2", "3", "4", "|", "5"])
+        Self::new([
+            "1".into(),
+            "|".into(),
+            "2".into(),
+            "3".into(),
+            "4".into(),
+            "|".into(),
+            "5".into(),
+        ])
     }
 }
 
@@ -124,12 +149,13 @@ impl MichiuWidget for SimpleButtonGroup {
     }
 
     fn build(&self, theme: &dyn MichiuTheme) -> Entity {
-        let (bg, hover, active, border, text_color, focus_ring) = match self.variant {
+        let (bg, hover, active, border, separator, text_color, focus_ring) = match self.variant {
             ButtonVariant::Solid => (
                 theme.accent_solid(),
                 theme.accent_solid_hover(),
                 theme.accent_8(),
                 Color::TRANSPARENT,
+                theme.text_on_solid().with_lightness(0.8),
                 theme.text_on_solid(),
                 theme.text_on_solid(),
             ),
@@ -138,11 +164,22 @@ impl MichiuWidget for SimpleButtonGroup {
                 theme.gray_bg_ui_hover(),
                 theme.gray_bg_ui_active(),
                 theme.gray_border(),
+                theme.gray_border(),
+                theme.gray_text_high(),
+                theme.focus_ring(),
+            ),
+            ButtonVariant::Ghost => (
+                Color::TRANSPARENT,
+                theme.gray_bg_ui_hover(),
+                theme.gray_bg_ui_active(),
+                Color::TRANSPARENT,
+                theme.gray_border(),
                 theme.gray_text_high(),
                 theme.focus_ring(),
             ),
         };
 
+        // ボタンの外枠・サイズ・ホバー・フォーカス枠を統一するモディファイア
         let btn_modifier = ii()
             .justify_center()
             .items_center()
@@ -169,17 +206,26 @@ impl MichiuWidget for SimpleButtonGroup {
 
         for item in &self.items {
             match item {
-                ButtonGroupItem::Button(text) => {
-                    let label_text = text.clone();
-                    let click_text = text.clone();
+                // ユーザーが渡したカスタム Entity
+                ButtonGroupItem::Button(user_entity) => {
                     children.push(
                         flex(&btn_modifier)
                             .tag::<a11y::AButton>()
-                            .label(label_text, ii().font_size(14.0).text_color(text_color)),
+                            .child(*user_entity),
                     );
                 }
+                // 単純なテキストラベル
+                ButtonGroupItem::Label(text) => {
+                    children.push(
+                        flex(&btn_modifier)
+                            .tag::<a11y::AButton>()
+                            .label(text.clone(), ii().font_size(14.0).text_color(text_color)),
+                    );
+                }
+                // セパレーター
                 ButtonGroupItem::Separator => {
-                    children.push(div(separator_size.clone().bg_color(border)).a11y(NO_A11Y_NODE));
+                    children
+                        .push(div(separator_size.clone().bg_color(separator)).a11y(NO_A11Y_NODE));
                 }
             }
         }
@@ -197,4 +243,59 @@ impl MichiuWidget for SimpleButtonGroup {
         )
         .children(children)
     }
+}
+
+impl From<Entity> for ButtonGroupItem {
+    /// Converts a custom [`Entity`] directly into a [`ButtonGroupItem::Button`].
+    fn from(entity: Entity) -> Self {
+        ButtonGroupItem::Button(entity)
+    }
+}
+
+fn str_to_item(s: &str) -> ButtonGroupItem {
+    if s == "|" {
+        ButtonGroupItem::Separator
+    } else {
+        ButtonGroupItem::Label(s.to_string())
+    }
+}
+impl From<&str> for ButtonGroupItem {
+    /// Converts a string-like type into a [`ButtonGroupItem`].
+    ///
+    /// Passing `"|"` produces a [`ButtonGroupItem::Separator`]; any other string
+    /// produces a [`ButtonGroupItem::Label`].
+    fn from(s: &str) -> Self {
+        str_to_item(s)
+    }
+}
+impl From<String> for ButtonGroupItem {
+    /// Converts a string-like type into a [`ButtonGroupItem`].
+    ///
+    /// Passing `"|"` produces a [`ButtonGroupItem::Separator`]; any other string
+    /// produces a [`ButtonGroupItem::Label`].
+    fn from(s: String) -> Self {
+        if s == "|" {
+            ButtonGroupItem::Separator
+        } else {
+            ButtonGroupItem::Label(s)
+        }
+    }
+}
+
+/// Creates a new button group.
+/// 
+/// # Example
+///
+/// ```rust
+/// let group = simple_button_group!["1", "|", "2", "3", "4", "|", "5",].build(&theme);
+/// ```
+#[macro_export]
+macro_rules! simple_button_group {
+    ($($item:expr),* $(,)?) => {
+        SimpleButtonGroup::new([
+            $(
+                $crate::catalog::components::simple_button_group::ButtonGroupItem::from($item),
+            )*
+        ])
+    };
 }
