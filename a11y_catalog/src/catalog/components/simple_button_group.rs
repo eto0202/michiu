@@ -283,7 +283,7 @@ impl From<String> for ButtonGroupItem {
 }
 
 /// Creates a new button group.
-/// 
+///
 /// # Example
 ///
 /// ```rust
