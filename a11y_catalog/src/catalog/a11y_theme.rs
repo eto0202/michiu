@@ -1,5 +1,7 @@
 mod simple_theme;
 
+pub use simple_theme::*;
+
 #[cfg(test)]
 mod tests {
     use crate::catalog::a11y_theme::*;

@@ -1,5 +1,7 @@
 use michiu::{accessibility::*, prelude::*};
 
+use crate::catalog::core::MichiuTheme;
+
 /// A theme palette compliant with WCAG 2.2 AA standards for both light and dark modes,
 /// based on the 12-level scale from [Radix Colors](https://www.radix-ui.com/colors).
 ///
@@ -165,5 +167,60 @@ impl SimpleTheme1 {
 impl Default for SimpleTheme1 {
     fn default() -> Self {
         Self::light()
+    }
+}
+
+impl MichiuTheme for SimpleTheme1 {
+    fn name(&self) -> &'static str {
+        if self.is_dark {
+            "SimpleTheme1 (Dark)"
+        } else {
+            "SimpleTheme1 (Light)"
+        }
+    }
+
+    fn is_dark(&self) -> bool {
+        self.is_dark
+    }
+
+    fn bg_app(&self) -> Color {
+        self.bg_app
+    }
+    fn bg_subtle(&self) -> Color {
+        self.bg_subtle
+    }
+
+    fn bg_ui(&self) -> Color {
+        self.bg_ui
+    }
+    fn bg_ui_hover(&self) -> Color {
+        self.bg_ui_hover
+    }
+    fn bg_ui_active(&self) -> Color {
+        self.bg_ui_active
+    }
+
+    fn border_subtle(&self) -> Color {
+        self.border_subtle
+    }
+    fn border(&self) -> Color {
+        self.border
+    }
+    fn focus_ring(&self) -> Color {
+        self.focus_ring
+    }
+
+    fn solid(&self) -> Color {
+        self.solid
+    }
+    fn solid_hover(&self) -> Color {
+        self.solid_hover
+    }
+
+    fn text_low(&self) -> Color {
+        self.text_low
+    }
+    fn text_high(&self) -> Color {
+        self.text_high
     }
 }

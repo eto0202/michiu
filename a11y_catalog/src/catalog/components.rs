@@ -1,10 +1,17 @@
-use crate::app::theme::Theme;
+use crate::{
+    app::theme::Theme,
+    catalog::{
+        a11y_theme::SimpleTheme1,
+        components::{simple_button::SimpleButton, simple_button_group::SimpleButtonGroup},
+        core::MichiuWidget,
+    },
+};
 use michiu::prelude::*;
 
 mod simple_accordion;
 mod simple_button;
+mod simple_button_group;
 mod simple_checkbox;
-mod simple_group_button;
 mod simple_input;
 mod simple_list;
 mod simple_modal;
@@ -29,14 +36,24 @@ pub(crate) fn create_component_entity(comp_type: ComponentType) -> Entity {
     match comp_type {
         ComponentType::Button => wrapper([
             section([
-                simple_button::button_1_light(),
-                simple_button::button_1_dark(),
-                simple_button::button_2_light(),
-                simple_button::button_2_dark(),
+                SimpleButton::new("Solid").build(&SimpleTheme1::light()),
+                SimpleButton::new("Solid").build(&SimpleTheme1::dark()),
+                SimpleButton::new("Outline")
+                    .variant(simple_button::ButtonVariant::Outline)
+                    .build(&SimpleTheme1::light()),
+                SimpleButton::new("Outline")
+                    .variant(simple_button::ButtonVariant::Outline)
+                    .build(&SimpleTheme1::dark()),
+                SimpleButton::new("Ghost")
+                    .variant(simple_button::ButtonVariant::Ghost)
+                    .build(&SimpleTheme1::light()),
+                SimpleButton::new("Ghost")
+                    .variant(simple_button::ButtonVariant::Ghost)
+                    .build(&SimpleTheme1::dark()),
             ]),
             section([
-                simple_group_button::group_button_1_light(),
-                simple_group_button::group_button_1_dark(),
+                SimpleButtonGroup::default().build(&SimpleTheme1::light()),
+                SimpleButtonGroup::default().build(&SimpleTheme1::dark()),
             ]),
         ]),
         ComponentType::Input => wrapper([section([text("SimpleInput")])]),

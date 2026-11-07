@@ -1,226 +1,168 @@
+use crate::catalog::core::{MichiuTheme, MichiuWidget};
 use michiu::{accessibility::*, prelude::*};
 
-/// Simple accessible button (Light Theme).
-///
-/// # Scope
-/// - **Stand-alone**: Can be used by copying only this function.
-///
-/// # Required Assets
-/// - None
-///
-/// # Event Loop Requirements
-/// - None
-///
-/// # Feature Details
-///   - `Tab` / `Shift + Tab`: Move focus
-///   - `Space` / `Enter`: Click the button (trigger `on_click`)
-/// - **Screen Reader**:
-///   - Role: `Role::Button` (inferred via `tag::<a11y::AButton>()`)
-///   - Label: `"Button 1 L"`
-/// - **Visual / WCAG**:
-///   - `focused_visible`: Outline hidden when clicked with the mouse; border displayed only when keyboard focus is active (WCAG 2.4.7)
-///   - Contrast ratio: Text approx. 12.5:1 (meets WCAG AAA), focus border approx. 3.1:1 (meets WCAG 1.4.11)
-/// - **Customization**:
-///   - Please modify the text, size, and `on_click` closure to suit your app.
-pub fn button_1_light() -> Entity {
-    let bg_ui = oklch(0.9097, 0.0, 0.0);
-    let bg_ui_hover = oklch(0.8822, 0.0, 0.0);
-    let bg_ui_active = oklch(0.8576, 0.0, 0.0);
-    let focus_ring = oklch(0.58, 0.1155, 251.64);
-    let text_high = oklch(0.2435, 0.0, 0.0);
-
-    flex(
-        ii().justify_center()
-            .items_center()
-            .size((96.0, 36.0))
-            .r(3.0)
-            .bg_color(bg_ui)
-            .cursor_pointer()
-            .hovered(ii().bg_color(bg_ui_hover))
-            .pressed(ii().bg_color(bg_ui_active))
-            .focusable_self_both()
-            .focused_visible(
-                ii().outline_solid(2.0)
-                    .outline_offset(2.0)
-                    .outline_color(focus_ring),
-            ),
-    )
-    .tag::<a11y::AButton>()
-    .label("Button 1 L", ii().font_size(14.0).text_color(text_high))
-    .on_click(|| println!("Button 1 L: Clicked!"))
+/// Visual appearance variants for [`SimpleButton`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ButtonVariant {
+    /// Filled background using `theme.bg_ui()` / `theme.solid()`.
+    #[default]
+    Solid,
+    /// Transparent background with an outline border using `theme.border()`.
+    Outline,
+    /// Fully transparent background that subtly highlights on hover.
+    Ghost,
 }
 
-/// Simple accessible button (Dark Theme).
+/// Sizing options for [`SimpleButton`].
+///
+/// All sizes strictly satisfy the WCAG 2.5.8 minimum target size requirement (>= 24x24px).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ButtonSize {
+    /// Compact square size: 28x28px (exceeds WCAG 2.5.8 minimum of 24x24px).
+    Sm,
+    /// Standard size: 96x36px.
+    #[default]
+    Md,
+    /// Large size: 120x44px (meets WCAG AAA target size of 44x44px vertically).
+    Lg,
+}
+
+/// Accessible button widget compliant with the WAI-ARIA Button Pattern and WCAG 2.2 AA.
 ///
 /// # Scope
-/// - **Stand-alone**: Can be used by copying only this function.
+/// - **Stand-alone**: Can be used by copying only this file (or struct and its `impl` blocks),
+///   provided `core.rs` (`MichiuWidget`, `MichiuTheme`) is present in your project.
 ///
 /// # Required Assets
 /// - None
 ///
 /// # Event Loop Requirements
-/// - None
+/// - None (Self-contained within the widget tree).
 ///
 /// # Feature Details
 /// - **Keyboard**:
-///   - `Tab` / `Shift + Tab`: Move focus
-///   - `Space` / `Enter`: Click the button (triggers `on_click`)
+///   - `Tab` / `Shift + Tab`: Moves focus into and out of the button.
+///   - `Space` / `Enter`: Activates the button.
 /// - **Screen Reader**:
-///   - Role: `Role::Button` (inferred via `tag::<a11y::AButton>()`)
-///   - Label: `"Button 1 D"`
+///   - Role: `Role::Button` (automatically inferred via `tag::<a11y::AButton>()`).
+///   - Accessible Name: Inferred from `self.label`.
 /// - **Visual / WCAG**:
-///   - `focused_visible`: Outline hidden when clicked with the mouse; border displayed only when keyboard focus is active (WCAG 2.4.7)
-///   - Contrast ratio: Text approx. 13.5:1 (meets WCAG AAA), focus border approx. 2.8:1 (3.8:1 against bg_app)
-/// - **Customization**:
-///   - Please customize the text, size, and `on_click` closure to suit your app.
-pub fn button_1_dark() -> Entity {
-    let bg_ui = oklch(0.2559, 0.004, 264.5);
-    let bg_ui_hover = oklch(0.2856, 0.0074, 274.7);
-    let bg_ui_active = oklch(0.3141, 0.009, 276.85);
-    let focus_ring = oklch(0.5032, 0.1377, 266.68);
-    let text_high = oklch(0.9497, 0.0027, 286.35);
-
-    flex(
-        ii().justify_center()
-            .items_center()
-            .size((96.0, 36.0))
-            .r(3.0)
-            .bg_color(bg_ui)
-            .cursor_pointer()
-            .hovered(ii().bg_color(bg_ui_hover))
-            .pressed(ii().bg_color(bg_ui_active))
-            .focusable_self_both()
-            .focused_visible(
-                ii().outline_solid(2.0)
-                    .outline_offset(2.0)
-                    .outline_color(focus_ring),
-            ),
-    )
-    .tag::<a11y::AButton>()
-    .label("Button 1 D", ii().font_size(14.0).text_color(text_high))
-    .on_click(|| println!("Button 1 D: Clicked!"))
+///   - **Target Size**: Minimum 28x28px across all variants (WCAG 2.5.8 Level AA compliant).
+///   - **Focus Indicator**: 2px focus ring displayed only during keyboard navigation (`focused_visible`),
+///     maintaining >= 3.0:1 contrast ratio against the background (WCAG 1.4.11, 2.4.7, 2.4.11).
+///   - **Offset**: Automatically applies an external 2px offset for `Solid` buttons to guarantee
+///     visual separation and contrast against surrounding containers.
+/// - **Customization (Last-Write-Wins)**:
+///   - To attach event listeners (e.g., `.on_click(...)`) or override layout styles,
+///     chain modifiers **directly after calling `.build(&theme)`**.
+///   - Any modifiers appended after `build()` will take precedence over defaults.
+///
+/// # Example
+///
+/// ```rust
+/// // 1. Basic button
+/// let button = SimpleButton::new("Save").build(&theme);
+///
+/// // 2. Customizing variant, events, and styles (overwritten after build)
+/// let delete_button = SimpleButton::new("Delete")
+///     .variant(ButtonVariant::Outline)
+///     .size(ButtonSize::Md)
+///     .build(&theme)
+///     .modify(ii().bg_color(Color::WHITE)) // Overwrites default border
+///     .on_click(|| println!("Delete clicked!"));
+/// ```
+pub struct SimpleButton {
+    /// Accessible button label text.
+    pub label: String,
+    /// Visual style variant (Solid, Outline, Ghost).
+    pub variant: ButtonVariant,
+    /// Button dimensions.
+    pub size: ButtonSize,
+    /// Whether the button is disabled.
+    pub disabled: bool,
 }
 
-/// Accessible outline button (Light Theme).
-///
-/// # Scope
-/// - **Stand-alone**: Can be used by copying only this function.
-///
-/// # Required Assets
-/// - None
-///
-/// # Event Loop Requirements
-/// - None
-///
-/// # Feature Details
-/// - **Keyboard**:
-///   - `Tab` / `Shift + Tab`: Move focus
-///   - `Space` / `Enter`: Click the button (trigger `on_click`)
-/// - **Screen Reader**:
-///   - Role: `Role::Button` (inferred via `tag::<a11y::AButton>()`)
-///   - Label: `"Button 2 L"`
-/// - **Visual / WCAG**:
-///   - **Transparent Background Notice**: This button has a transparent background by default.
-///     To guarantee WCAG AA/AAA compliance, it **must be placed on light surfaces**.
-///     Placing it over dark surfaces, colored banners, or images will break text and focus contrast.
-///   - `focused_visible`: Outline hidden when clicked with mouse; 2px focus ring displayed on keyboard focus (WCAG 2.4.7, 2.4.11)
-///   - Contrast ratio (tested against `bg_app`):
-///     - Text: approx. 14.1:1 (meets WCAG AAA >= 7.0:1)
-///     - Focus ring: approx. 3.5:1 (meets WCAG 1.4.11 & 2.4.11 >= 3.0:1)
-///     - Hover border: approx. 4.2:1 (meets WCAG 1.4.11 >= 3.0:1)
-///     - Default border: approx. 1.7:1 (subtle outline; button is primarily identified by the high-contrast label)
-/// - **Customization**:
-///   - If placing on non-standard backgrounds, explicitly add `.bg_color(...)` to ensure predictable contrast.
-///   - Please modify the text, size, and `on_click` closure to suit your app.
-pub fn button_2_light() -> Entity {
-    let border = oklch(0.7952, 0.0, 0.0);
-    let solid = oklch(0.556, 0.0, 0.0);
-    let bg_ui_active = oklch(0.3141, 0.009, 276.85);
-    let focus_ring = oklch(0.58, 0.1155, 251.64);
-    let text_high = oklch(0.2435, 0.0, 0.0);
+impl SimpleButton {
+    /// Creates a new accessible button with the specified label and default options.
+    pub fn new(label: impl Into<String>) -> Self {
+        Self {
+            label: label.into(),
+            variant: ButtonVariant::default(),
+            size: ButtonSize::default(),
+            disabled: false,
+        }
+    }
 
-    flex(
-        ii().justify_center()
+    /// Sets the visual style variant.
+    pub fn variant(mut self, variant: ButtonVariant) -> Self {
+        self.variant = variant;
+        self
+    }
+
+    /// Sets the dimensions of the button.
+    pub fn size(mut self, size: ButtonSize) -> Self {
+        self.size = size;
+        self
+    }
+
+    /// Sets whether the button is disabled.
+    pub fn disabled(mut self, disabled: bool) -> Self {
+        self.disabled = disabled;
+        self
+    }
+}
+
+impl MichiuWidget for SimpleButton {
+    fn name(&self) -> &'static str {
+        "Button"
+    }
+
+    fn a11y_spec(&self) -> &'static str {
+        "WAI-ARIA Button Pattern / WCAG 2.2 AA (Target Size >= 24px, Focus Ring >= 3:1)"
+    }
+
+    /// Builds and returns the underlying accessible UI entity.
+    ///
+    /// Additional styling or event handlers (such as `.on_click(...)`) can be chained
+    /// onto the returned `Entity` to overwrite defaults.
+    fn build(&self, theme: &dyn MichiuTheme) -> Entity {
+        let size = match self.size {
+            ButtonSize::Sm => (28.0, 28.0),
+            ButtonSize::Md => (96.0, 36.0),
+            ButtonSize::Lg => (120.0, 44.0),
+        };
+
+        let (bg, border) = match self.variant {
+            ButtonVariant::Solid => (theme.bg_ui(), Color::TRANSPARENT),
+            ButtonVariant::Outline => (Color::TRANSPARENT, theme.border()),
+            ButtonVariant::Ghost => (Color::TRANSPARENT, Color::TRANSPARENT),
+        };
+
+        let text_color = theme.text_high();
+        let offset = theme.focus_ring_offset(self.variant == ButtonVariant::Solid);
+
+        let mut modifier = ii()
+            .justify_center()
             .items_center()
-            .size((96.0, 36.0))
+            .size(size)
             .r(3.0)
-            .bg_color(Color::TRANSPARENT)
+            .bg_color(bg)
             .border_solid(1.0)
             .border_color(border)
             .cursor_pointer()
-            .hovered(ii().border_color(solid))
-            .pressed(ii().bg_color(bg_ui_active.with_alpha(0.1)))
+            .hovered(ii().bg_color(theme.bg_ui_hover()))
+            .pressed(ii().bg_color(theme.bg_ui_active()))
             .focusable_self_both()
             .focused_visible(
                 ii().border_color(Color::TRANSPARENT)
                     .outline_solid(2.0)
-                    .outline_offset(0.0)
-                    .outline_color(focus_ring),
-            ),
-    )
-    .tag::<a11y::AButton>()
-    .label("Button 2 L", ii().font_size(14.0).text_color(text_high))
-    .on_click(|| println!("Button 2 L: Clicked!"))
-}
+                    .outline_offset(offset)
+                    .outline_color(theme.focus_ring()),
+            );
 
-/// Accessible outline button (Dark Theme).
-///
-/// # Scope
-/// - **Stand-alone**: Can be used by copying only this function.
-///
-/// # Required Assets
-/// - None
-///
-/// # Event Loop Requirements
-/// - None
-///
-/// # Feature Details
-/// - **Keyboard**:
-///   - `Tab` / `Shift + Tab`: Move focus
-///   - `Space` / `Enter`: Click the button (trigger `on_click`)
-/// - **Screen Reader**:
-///   - Role: `Role::Button` (inferred via `tag::<a11y::AButton>()`)
-///   - Label: `"Button 2 D"`
-/// - **Visual / WCAG**:
-///   - **Transparent Background Notice**: This button has a transparent background by default.
-///     To guarantee WCAG AA/AAA compliance, it **must be placed on dark surfaces**.
-///     Placing it over light surfaces or colored banners will break text and focus contrast.
-///   - `focused_visible`: Outline hidden when clicked with mouse; 2px focus ring displayed on keyboard focus (WCAG 2.4.7, 2.4.11)
-///   - Contrast ratio (tested against dark `bg_app`):
-///     - Text: approx. 16.2:1 (meets WCAG AAA >= 7.0:1)
-///     - Focus ring: approx. 5.1:1 (meets WCAG 1.4.11 & 2.4.11 >= 3.0:1)
-///     - Default border: approx. 3.3:1 (meets WCAG 1.4.11 >= 3.0:1)
-///     - Hover border: approx. 3.7:1 (meets WCAG 1.4.11 >= 3.0:1)
-/// - **Customization**:
-///   - If placing on non-standard backgrounds, explicitly add `.bg_color(...)` to ensure predictable contrast.
-///   - Please modify the text, size, and `on_click` closure to suit your app.
-pub fn button_2_dark() -> Entity {
-    let border = oklch(0.4024, 0.012, 273.12);
-    let solid = oklch(0.5403, 0.0172, 277.6);
-    let bg_ui_active = oklch(0.3141, 0.009, 276.85);
-    let focus_ring = oklch(0.5032, 0.1377, 266.68);
-    let text_high = oklch(0.9497, 0.0027, 286.35);
-
-    flex(
-        ii().justify_center()
-            .items_center()
-            .size((96.0, 36.0))
-            .r(3.0)
-            .bg_color(Color::TRANSPARENT)
-            .border_solid(1.0)
-            .border_color(border)
-            .cursor_pointer()
-            .hovered(ii().border_color(solid))
-            .pressed(ii().bg_color(bg_ui_active.with_alpha(0.2)))
-            .focusable_self_both()
-            .focused_visible(
-                ii().border_color(Color::TRANSPARENT)
-                    .outline_solid(2.0)
-                    .outline_offset(0.0)
-                    .outline_color(focus_ring),
-            ),
-    )
-    .tag::<a11y::AButton>()
-    .label("Button 2 D", ii().font_size(14.0).text_color(text_high))
-    .on_click(|| println!("Button 2 D: Clicked!"))
+        flex(modifier).tag::<a11y::AButton>().label(
+            self.label.clone(),
+            ii().font_size(14.0).text_color(text_color),
+        )
+    }
 }
