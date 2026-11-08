@@ -1,3 +1,21 @@
+## [unreleased]
+
+### 🚀 Features
+
+- Add `SimpleTheme1` to `a11y_catalog`.
+- Update `a11y_catalog`
+- _(a11y_catalog)_ Add `group_button_1_light` and `group_button_1_dark`
+- Setting up the pipeline for `ExternalMask` and adding samples (`external_mask.rs`)
+  - Add `push_external_mask_instance`
+  - Rendered using the same Draw call as text, etc.
+  - Color is specified by `text_color`.
+
+### ⚙️ Miscellaneous Tasks
+
+- Updated `minimal_sample` and `README`
+- Update `README.md`
+- Cargo fmt
+
 ## [0.2.2] - 2026-11-06
 
 ### 🚀 Features
