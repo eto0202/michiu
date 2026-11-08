@@ -38,15 +38,17 @@ iu_ui/
 │       ├── logger.rs            # Error logging
 │       └── app/                 # Catalog app UI (header, sidebar, etc.)
 │
-└── src/                         # Exportable library & catalog
-    ├── lib.rs                   # Library entry point & module re-exports
-    ├── core.rs                  # [Core Trait] MichiuWidget & MichiuTheme & Oklch
+└── src/                 # Exportable library & catalog
+    ├── lib.rs               # Library entry point & module re-exports
+    ├── core.rs              # [Core Trait] MichiuWidget & MichiuTheme & Oklch
     │
-    ├── theme/              # Accessible themes meeting contrast ratios
+    ├── assets/              # Static assets such as cursor icons and images
+    │
+    ├── theme/               # Accessible themes meeting contrast ratios
     │   ├── mod.rs
     │   └── simple_theme.rs      # Default 12-scale WCAG AA palette
     │
-    ├── components/              # Exportable component collection
+    ├── components/          # Exportable component collection
     │   ├── mod.rs
     │   ├── simple_button.rs     # [Single File] Self-contained components
     │   ├── tabs/                # [Folder Module] Complex multi-file components
@@ -55,11 +57,11 @@ iu_ui/
     │   │   └── panel.rs
     │   └── ...                  # (accordion, checkbox, modal, slider, etc.)
     │
-    ├── tag/           # Reusable inference tags (A11yInferenceTag implementations)
+    ├── tag/                 # Reusable inference tags (A11yInferenceTag implementations)
     │   ├── mod.rs
     │   └── simple_tag.rs
     │
-    └── utils/                   # Shared internal helpers
+    └── utils/               # Shared internal helpers
         ├── mod.rs
         └── helper.rs
 ```
@@ -254,15 +256,17 @@ iu_ui/
 │       ├── logger.rs            # エラーログ出力
 │       └── app/                 # カタログアプリ自身の UI 実装（header, sidebar 等）
 │
-└── src/                         # 配布用ライブラリ・コンポーネント本体
-    ├── lib.rs                   # ライブラリエントリーポイント & モジュール公開
-    ├── core.rs                  # [必須コア] MichiuWidget & MichiuTheme トレイト & Oklch 定義
+└── src/                 # 配布用ライブラリ・コンポーネント本体
+    ├── lib.rs               # ライブラリエントリーポイント & モジュール公開
+    ├── core.rs              # [必須コア] MichiuWidget & MichiuTheme トレイト & Oklch 定義
     │
-    ├── theme/              # コントラスト比等を満たしたアクセシブルなテーマ定義
+    ├── assets/              # カーソルアイコンや画像などの静的リソース
+    │
+    ├── theme/               # コントラスト比等を満たしたアクセシブルなテーマ定義
     │   ├── mod.rs
     │   └── simple_theme.rs      # 12段階スケールに基づく WCAG AA 準拠テーマ
     │
-    ├── components/              # ユーザーが持ち帰るコンポーネント集
+    ├── components/          # ユーザーが持ち帰るコンポーネント集
     │   ├── mod.rs
     │   ├── simple_button.rs     # [単一ファイル] 自己完結コンポーネント
     │   ├── tabs/                # [フォルダモジュール] 肥大化・複数ファイル分割コンポーネント
@@ -271,11 +275,11 @@ iu_ui/
     │   │   └── panel.rs
     │   └── ...                  # (accordion, checkbox, modal, slider 等)
     │
-    ├── tag/           # 再利用可能な推論タグ (A11yInferenceTag 実装)
+    ├── tag/                 # 再利用可能な推論タグ (A11yInferenceTag 実装)
     │   ├── mod.rs
     │   └── simple_tag.rs
     │
-    └── utils/                   # その他内部ヘルパー・ユーティリティ
+    └── utils/               # その他内部ヘルパー・ユーティリティ
         ├── mod.rs
         └── helper.rs
 ```
