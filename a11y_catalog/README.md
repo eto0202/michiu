@@ -15,54 +15,53 @@ Instead of enforcing a heavy library-level dependency, it is designed around the
 You can directly preview and verify component appearance, keyboard interactions, and screen reader behavior (e.g., Windows Narrator).
 
 ```bash
-# Run from the workspace root
-cargo run -p a11y_catalog
+# Run catalog preview app from workspace root
+cargo run -p a11y_catalog --example catalog_app
 ```
 
 ---
 
 ## Directory Structure
 
-Components are managed as single files or folder modules depending on their complexity, all unified under lightweight core traits.
+Components are managed as single files or modules, completely decoupled from the preview application and unified under lightweight core traits.
 
 ```text
 a11y_catalog/
 ├── Cargo.toml
 ├── README.md
-└── src/
-    ├── main.rs                  # Application entry point
-    ├── app.rs                   # Application root setup
-    ├── logger.rs                # Error logging
-    ├── catalog.rs               # Module declarations
+│
+├── examples/
+│   └── catalog_app/             # Internal catalog preview app
+│       ├── main.rs              # Application entry point
+│       ├── app.rs               # Application root setup
+│       ├── components.rs        # Component preview registry
+│       ├── logger.rs            # Error logging
+│       └── app/                 # Catalog app UI (header, sidebar, etc.)
+│
+└── src/                         # Exportable library & catalog
+    ├── lib.rs                   # Library entry point & module re-exports
+    ├── core.rs                  # [Core Trait] MichiuWidget & MichiuTheme & Oklch
     │
-    ├── app/                     # Internal catalog app UI
-    │   ├── header.rs
-    │   ├── main_area.rs
-    │   ├── sidebar.rs
-    │   └── theme.rs
+    ├── a11y_theme/              # Accessible themes meeting contrast ratios
+    │   ├── mod.rs
+    │   └── simple_theme.rs      # Default 12-scale WCAG AA palette
     │
-    ├── assets/                  # Static assets such as cursor icons and images
+    ├── components/              # Exportable component collection
+    │   ├── mod.rs
+    │   ├── simple_button.rs     # [Single File] Self-contained components
+    │   ├── tabs/                # [Folder Module] Complex multi-file components
+    │   │   ├── mod.rs
+    │   │   ├── item.rs
+    │   │   └── panel.rs
+    │   └── ...                  # (accordion, checkbox, modal, slider, etc.)
     │
-    ├── catalog/                 # Exportable component, theme, tag...etc.
-    │   ├── core.rs              # [Core Trait] MichiuWidget & MichiuTheme & Oklch
-    │   ├── a11y_theme.rs        # Theme module declarations
-    │   ├── components.rs        # Component module declarations & registry
-    │   ├── inference_tag.rs     # Module declarations
-    │   ├── utils.rs             # Module declarations
-    │   │
-    │   ├── a11y_theme/          # Accessible themes meeting contrast ratios
-    │   │   └── simple_theme.rs # Default 12-scale WCAG AA palette
-    │   │
-    │   ├── inference_tag/       # Reusable inference tags (A11yInferenceTag implementations)
-    │   │
-    │   ├── utils/               # Internal helpers and utilities
-    │   │
-    │   ├── components/          # Exportable component collection
-    │   │   ├── simple_button.rs        # [Single File] Self-contained components
-    │   │   ├── tabs/            # [Folder Module] Complex multi-file components
-    │   │   │   ├── mod.rs
-    │   │   │   ├── item.rs
-    │   │   │   └── panel.rs
+    ├── inference_tag/           # Reusable inference tags (A11yInferenceTag implementations)
+    │   ├── mod.rs
+    │   └── simple_tag.rs
+    │
+    └── utils/                   # Shared internal helpers
+        ├── mod.rs
+        └── helper.rs
 ```
 
 ---
@@ -77,27 +76,29 @@ Step 1: Copy core.rs
 Step 2: Prepare Theme
         └── Copy from a11y_theme/ OR implement MichiuTheme on your own theme struct
 Step 3: Copy Components
-        └── Copy from components/ (by file, folder, or struct block)
+        └── Copy from components/ (by file/folder or struct block)
 ```
 
 ### Step 1: Copy `core.rs` into Your Project
 
-First, copy `src/catalog/core.rs` into your project. This file defines the core traits (`MichiuWidget`, `MichiuTheme`, `Oklch`) and has zero heavy external dependencies.
+First, copy `src/core.rs` into your project. This file defines the core traits (`MichiuWidget`, `MichiuTheme`, `Oklch`) and has zero heavy external dependencies.
 
 ### Step 2: Prepare Your Theme
 
 Prepare a theme conforming to `MichiuTheme`:
 
-- **Option A**: Copy an existing WCAG AA theme from `catalog/a11y_theme/` (e.g., `SimpleBlueTheme`).
+- **Option A**: Copy an existing WCAG AA theme from `src/a11y_theme/` (e.g., `simple_theme.rs`).
 - **Option B**: Implement `MichiuTheme` on your existing application theme struct.
 
 ### Step 3: Copy Components from `components/`
 
 Copy the components you need:
 
-- **Single file**: Copy files like `components/button.rs` into your project.
+- **Single file**: Copy files like `src/components/simple_button.rs` into your project.
 - **Folder module**: Copy directories like `components/tabs/` into your project.
 - **Snippet**: Copy only the target struct and its `MichiuWidget` impl directly into your code.
+
+````
 
 ---
 
@@ -119,7 +120,7 @@ let customized_button = SimpleButton::new("Delete")
     .modify(ii().bg_color(Color::WHITE))
     // Attach event handlers
     .on_click(|| println!("Deleted!"));
-```
+````
 
 ---
 
@@ -231,53 +232,52 @@ When copying, modifying, or integrating code and assets from this catalog (inclu
 
 ```bash
 # ワークスペースルートから実行
-cargo run -p a11y_catalog
+cargo run -p a11y_catalog --example catalog_app
 ```
 
 ---
 
 ## ディレクトリ構成
 
-コンポーネントは規模に応じて単一ファイルまたはフォルダ（モジュール）で管理され、すべて軽量なコアトレイト（`core.rs`）を基準に設計されています。
+コンポーネントはプレビューアプリと完全に分離され、すべて軽量なコアトレイト（`core.rs`）を基準に設計されています。
 
 ```text
 a11y_catalog/
 ├── Cargo.toml
 ├── README.md
-└── src/
-    ├── main.rs                  # アプリエントリーポイント
-    ├── app.rs                   # アプリケーションのルート構築
-    ├── logger.rs                # エラーログ出力
-    ├── catalog.rs               # catalog 配下のモジュール宣言
+│
+├── examples/
+│   └── catalog_app/             # カタログ検証用プレビューアプリ
+│       ├── main.rs              # アプリエントリーポイント
+│       ├── app.rs               # アプリケーションのルート構築
+│       ├── components.rs        # プレビュー表示用カタログ一覧
+│       ├── logger.rs            # エラーログ出力
+│       └── app/                 # カタログアプリ自身の UI 実装（header, sidebar 等）
+│
+└── src/                         # 配布用ライブラリ・コンポーネント本体
+    ├── lib.rs                   # ライブラリエントリーポイント & モジュール公開
+    ├── core.rs                  # [必須コア] MichiuWidget & MichiuTheme トレイト & Oklch 定義
     │
-    ├── app/                     # カタログアプリ自身の UI 実装
-    │   ├── header.rs
-    │   ├── main_area.rs
-    │   ├── sidebar.rs
-    │   └── theme.rs
+    ├── a11y_theme/              # コントラスト比等を満たしたアクセシブルなテーマ定義
+    │   ├── mod.rs
+    │   └── simple_theme.rs      # 12段階スケールに基づく WCAG AA 準拠テーマ
     │
-    ├── assets/                  # カーソルアイコンや画像などの静的リソース
+    ├── components/              # ユーザーが持ち帰るコンポーネント集
+    │   ├── mod.rs
+    │   ├── simple_button.rs     # [単一ファイル] 自己完結コンポーネント
+    │   ├── tabs/                # [フォルダモジュール] 肥大化・複数ファイル分割コンポーネント
+    │   │   ├── mod.rs
+    │   │   ├── item.rs
+    │   │   └── panel.rs
+    │   └── ...                  # (accordion, checkbox, modal, slider 等)
     │
-    ├── catalog/                 # ユーザーが持ち帰るコンポーネント・テーマ構造体など
-    │   ├── core.rs              # [必須コア] MichiuWidget & MichiuTheme トレイト & Oklch 定義
-    │   ├── a11y_theme.rs        # a11y_theme 配下のモジュール宣言
-    │   ├── components.rs        # components 配下のモジュール宣言・カタログ一覧
-    │   ├── inference_tag.rs     # inference_tag 配下のモジュール宣言
-    │   ├── utils.rs             # utils 配下のモジュール宣言
-    │   │
-    │   ├── a11y_theme/          # コントラスト比等を満たしたアクセシブルなテーマ定義
-    │   │   └── simple_theme.rs # 12段階スケールに基づく WCAG AA 準拠テーマ
-    │   │
-    │   ├── inference_tag/       # 再利用可能な推論タグ (A11yInferenceTag 実装)
-    │   │
-    │   ├── utils/               # その他ヘルパー・ユーティリティ
-    │   │
-    │   ├── components/          # ユーザーが持ち帰るコンポーネント集
-    │   │   ├── simple_button.rs        # [単一ファイル] 小規模・自己完結コンポーネント
-    │   │   ├── tabs/            # [フォルダモジュール] 肥大化・複数ファイル分割コンポーネント
-    │   │   │   ├── mod.rs
-    │   │   │   ├── item.rs
-    │   │   │   └── panel.rs
+    ├── inference_tag/           # 再利用可能な推論タグ (A11yInferenceTag 実装)
+    │   ├── mod.rs
+    │   └── simple_tag.rs
+    │
+    └── utils/                   # その他内部ヘルパー・ユーティリティ
+        ├── mod.rs
+        └── helper.rs
 ```
 
 ---
@@ -292,27 +292,29 @@ a11y_catalog/
 ステップ 2: テーマを用意する
             └── a11y_theme/ からコピペ、または自前テーマに MichiuTheme を実装
 ステップ 3: コンポーネントを持ち帰る
-            └── components/ からファイル単位、フォルダ単位、または構造体をコピペ
+            └── components/ からファイル/フォルダ単位、または構造体をコピペ
 ```
 
 ### ステップ 1: `core.rs` を配置する
 
-最初に `src/catalog/core.rs` を自分のプロジェクトへコピーします。コンポーネントとテーマの境界となる最小限のトレイト（`MichiuWidget`, `MichiuTheme`, `Oklch`）が定義されています。
+最初に `src/core.rs` を自分のプロジェクトへコピーします。コンポーネントとテーマの境界となる最小限のトレイト（`MichiuWidget`, `MichiuTheme`, `Oklch`）が定義されています。
 
 ### ステップ 2: テーマを用意する
 
 `MichiuTheme` を満たすテーマを準備します：
 
-- **方法 A**: `catalog/a11y_theme/`（例: `SimpleBlueTheme`）からそのままファイルをコピーして使う。
+- **方法 A**: `src/a11y_theme/`（例: `simple_theme.rs`）からそのままファイルをコピーして使う。
 - **方法 B**: 自前アプリの既存テーマ構造体に `MichiuTheme` トレイトを実装する。
 
 ### ステップ 3: `components/` からコンポーネントを配置する
 
 使いたい UI コンポーネントを持ち帰ります：
 
-- **単一ファイルの場合**: `components/button.rs` などを自分のプロジェクトに配置します。
+- **単一ファイルの場合**: `src/components/simple_button.rs` などを自分のプロジェクトに配置します。
 - **フォルダモジュールの場合**: `components/tabs/` などのフォルダを丸ごと配置します。
 - **スニペット利用の場合**: 必要な構造体とその `impl MichiuWidget` ブロックだけをコピペして取り込みます。
+
+````
 
 ---
 
@@ -334,7 +336,7 @@ let custom_button = SimpleButton::new("削除")
     .modify(ii().bg_color(Color::WHITE))
     // イベントハンドラを接続
     .on_click(|| println!("Deleted!"));
-```
+````
 
 ---
 

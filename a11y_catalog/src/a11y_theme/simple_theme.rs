@@ -1,5 +1,5 @@
-use crate::catalog::{Oklch, core::MichiuTheme};
-use michiu::{accessibility::*, prelude::*};
+use crate::{Oklch, core::MichiuTheme};
+use michiu::prelude::*;
 
 /// An accessible blue-accented theme compliant with WCAG 2.2 AA standards.
 ///

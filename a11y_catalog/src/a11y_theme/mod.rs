@@ -1,3 +1,3 @@
-mod simple_theme;
+pub mod simple_theme;
 
 pub use simple_theme::*;

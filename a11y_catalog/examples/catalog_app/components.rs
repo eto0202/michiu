@@ -1,26 +1,6 @@
-use crate::{
-    app::theme::Theme,
-    catalog::{
-        a11y_theme::SimpleBlueTheme,
-        components::{simple_button::SimpleButton, simple_button_group::SimpleButtonGroup},
-        core::MichiuWidget,
-    },
-    simple_button_group,
-};
+use crate::app::theme::Theme;
+use a11y_catalog::{components::*, simple_theme::SimpleBlueTheme, *};
 use michiu::prelude::*;
-
-mod simple_accordion;
-mod simple_button;
-mod simple_button_group;
-mod simple_checkbox;
-mod simple_icon;
-mod simple_input;
-mod simple_list;
-mod simple_modal;
-mod simple_popover;
-mod simple_slider;
-mod simple_tab;
-mod simple_toggle;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, strum::Display, strum::EnumIter)]
 #[allow(clippy::enum_variant_names)]
@@ -45,19 +25,19 @@ pub(crate) fn create_component_entity(comp_type: ComponentType, is_dark: bool) -
             section([
                 SimpleButton::new("Solid").build(&theme),
                 SimpleButton::new("Outline")
-                    .variant(simple_button::ButtonVariant::Outline)
+                    .variant(ButtonVariant::Outline)
                     .build(&theme),
                 SimpleButton::new("Ghost")
-                    .variant(simple_button::ButtonVariant::Ghost)
+                    .variant(ButtonVariant::Ghost)
                     .build(&theme),
             ]),
             section([
                 simple_button_group!["1", "|", "2", "3", "4", "|", "5",].build(&theme),
                 simple_button_group!["1", "|", "2", "3", "4", "|", "5",]
-                    .variant(simple_button_group::ButtonVariant::Outline)
+                    .variant(ButtonGroupVariant::Outline)
                     .build(&theme),
                 simple_button_group!["1", "|", "2", "3", "4", "|", "5",]
-                    .variant(simple_button_group::ButtonVariant::Ghost)
+                    .variant(ButtonGroupVariant::Ghost)
                     .build(&theme),
             ]),
         ]),

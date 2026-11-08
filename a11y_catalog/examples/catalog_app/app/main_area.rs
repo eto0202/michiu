@@ -1,6 +1,6 @@
 use crate::{
     app::{ComponentType, theme::Theme},
-    catalog::create_component_entity,
+    components::create_component_entity,
 };
 use michiu::{prelude::*, ui::a11y};
 use strum::IntoEnumIterator;

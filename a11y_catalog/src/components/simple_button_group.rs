@@ -1,9 +1,9 @@
-use crate::catalog::core::{MichiuTheme, MichiuWidget};
+use crate::{MichiuTheme, MichiuWidget};
 use michiu::{accessibility::*, prelude::*, ui::FlexDirection};
 
 /// Visual appearance variants for [`SimpleButtonGroup`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum ButtonVariant {
+pub enum ButtonGroupVariant {
     /// Filled background using `theme.bg_ui()` / `theme.solid()`.
     #[default]
     Solid,
@@ -63,7 +63,7 @@ pub enum ButtonGroupItem {
 /// ```rust
 /// // 1. Simple text & separator layout
 /// let group = SimpleButtonGroup::new(["1".into(), "|".into(), "2".into()])
-///     .variant(ButtonVariant::Outline)
+///     .variant(ButtonGroupVariant::Outline)
 ///     .build(&theme);
 ///
 /// let group = simple_button_group!["1", "|", "2", "3", "4", "|", "5",].build(&theme);
@@ -77,7 +77,7 @@ pub enum ButtonGroupItem {
 ///     // Simple labels
 ///     "☆".into(),
 /// ])
-/// .variant(ButtonVariant::Solid)
+/// .variant(ButtonGroupVariant::Solid)
 /// .build(&theme);
 ///
 /// // 3. Vertical toolbar
@@ -91,7 +91,7 @@ pub struct SimpleButtonGroup {
     /// List of buttons, labels, and separators.
     pub items: Vec<ButtonGroupItem>,
     /// Visual style variant (Solid, Outline, Ghost).
-    pub variant: ButtonVariant,
+    pub variant: ButtonGroupVariant,
 }
 
 impl SimpleButtonGroup {
@@ -108,7 +108,7 @@ impl SimpleButtonGroup {
         Self {
             direction: FlexDirection::Row,
             items: items.into_iter().collect(),
-            variant: ButtonVariant::default(),
+            variant: ButtonGroupVariant::default(),
         }
     }
 
@@ -119,7 +119,7 @@ impl SimpleButtonGroup {
     }
 
     /// Sets the visual style variant (Solid, Outline, Ghost).
-    pub fn variant(mut self, variant: ButtonVariant) -> Self {
+    pub fn variant(mut self, variant: ButtonGroupVariant) -> Self {
         self.variant = variant;
         self
     }
@@ -150,7 +150,7 @@ impl MichiuWidget for SimpleButtonGroup {
 
     fn build(&self, theme: &dyn MichiuTheme) -> Entity {
         let (bg, hover, active, border, separator, text_color, focus_ring) = match self.variant {
-            ButtonVariant::Solid => (
+            ButtonGroupVariant::Solid => (
                 theme.accent_solid(),
                 theme.accent_solid_hover(),
                 theme.accent_8(),
@@ -159,7 +159,7 @@ impl MichiuWidget for SimpleButtonGroup {
                 theme.text_on_solid(),
                 theme.text_on_solid(),
             ),
-            ButtonVariant::Outline => (
+            ButtonGroupVariant::Outline => (
                 Color::TRANSPARENT,
                 theme.gray_bg_ui_hover(),
                 theme.gray_bg_ui_active(),
@@ -168,7 +168,7 @@ impl MichiuWidget for SimpleButtonGroup {
                 theme.gray_text_high(),
                 theme.focus_ring(),
             ),
-            ButtonVariant::Ghost => (
+            ButtonGroupVariant::Ghost => (
                 Color::TRANSPARENT,
                 theme.gray_bg_ui_hover(),
                 theme.gray_bg_ui_active(),
@@ -294,7 +294,7 @@ macro_rules! simple_button_group {
     ($($item:expr),* $(,)?) => {
         SimpleButtonGroup::new([
             $(
-                $crate::catalog::components::simple_button_group::ButtonGroupItem::from($item),
+                $crate::components::simple_button_group::ButtonGroupItem::from($item),
             )*
         ])
     };

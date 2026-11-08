@@ -9,9 +9,9 @@ keywords.workspace = true
 categories.workspace = true
 publish = false
 
-[[bin]]
-name = "a11y_catalog"
-path = "src/main.rs"
+[[example]]
+name = "catalog_app"
+path = "examples/catalog_app/main.rs"
 
 [dependencies]
 michiu = { workspace = true }

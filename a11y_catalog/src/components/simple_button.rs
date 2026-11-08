@@ -1,4 +1,4 @@
-use crate::catalog::core::{MichiuTheme, MichiuWidget};
+use crate::{MichiuTheme, MichiuWidget};
 use michiu::{accessibility::*, prelude::*};
 
 /// Visual appearance variants for [`SimpleButton`].

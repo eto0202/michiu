@@ -4,10 +4,9 @@ use crate::logger::logger;
 use michiu::{prelude::*, ui::CapacityConfig};
 
 mod app;
-mod catalog;
+mod components;
 mod logger;
 
-// cargo build --example a11y_catalog  --release
 fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let _ = MichiuWindow::init_dpi_awareness();
     let com = MichiuComContext::new_ro_single()?;
