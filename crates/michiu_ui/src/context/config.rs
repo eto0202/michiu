@@ -19,6 +19,7 @@ pub struct CapacityConfig {
     pub cont_movie_properties: usize,
     pub cont_external_visual: usize,
     pub cont_external_textures: usize,
+    pub cont_external_masks: usize,
     pub topo_entities: usize,
     pub topo_parents: usize,
     pub topo_children: usize,
@@ -102,6 +103,7 @@ impl CapacityConfig {
             cont_image_sources: base / 10,
             cont_movie_properties: (base / 1000).max(1),
             cont_external_textures: base / 10,
+            cont_external_masks: base / 10,
 
             lay_flex: base / 2, // 2つに1つはFlexbox
             lay_base_flex: base / 2,
@@ -137,6 +139,7 @@ impl CapacityConfig {
         cont_movie_properties: 0,
         cont_external_visual: 0,
         cont_external_textures: 0,
+        cont_external_masks: 0,
         topo_entities: 0,
         topo_parents: 0,
         topo_children: 0,

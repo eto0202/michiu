@@ -500,8 +500,6 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         // opacity_gamma が指定されていればカーブを適用
         let linear_opacity = pow(opacity, opacity_gamma);
 
-        tex_color.a = 1.0;
-
         // アルファチャンネルの PMA 合成
         if alpha_mode < 0.5 {
             entity_color = vec4<f32>(tex_color.rgb * tex_color.a * linear_opacity, tex_color.a * linear_opacity);

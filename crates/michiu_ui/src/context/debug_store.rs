@@ -21,7 +21,7 @@ use crate::{
     TextCacheValue, TextContentsSparse, TextSelectionsSparse, TextSpansSparse, TextureAtlas,
     VirtualKey, VisualPropertiesSecondary,
 };
-use crate::{FlatDfsSequence, PendingDcompRelease};
+use crate::{ExternalMaskSparse, FlatDfsSequence, PendingDcompRelease};
 use cosmic_text::Buffer;
 use rustc_hash::FxHashMap;
 use slotmap::{SecondaryMap, SparseSecondaryMap};
@@ -1116,6 +1116,7 @@ pub struct ContentStoreSnapshot {
     pub cont_input_contents: InputContentsSparse,
     pub cont_external_textures: ExternalTextureSparse,
     pub cont_external_visual: ExternalVisualSparse,
+    pub cont_external_masks: ExternalMaskSparse,
     pub cont_cut_text: Option<MichiuString>,
 }
 
@@ -1339,6 +1340,7 @@ impl ContextSnapshot {
                 cont_input_contents: cx.contents.cont_input_contents.clone(),
                 cont_external_textures: cx.contents.cont_external_textures.clone(),
                 cont_external_visual: cx.contents.cont_external_visual.clone(),
+                cont_external_masks: cx.contents.cont_external_masks.clone(),
                 cont_cut_text: cx.contents.cont_cut_text.clone(),
             },
             topology: TopologyStoreSnapshot {

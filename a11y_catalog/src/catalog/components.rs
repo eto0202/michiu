@@ -13,6 +13,7 @@ mod simple_accordion;
 mod simple_button;
 mod simple_button_group;
 mod simple_checkbox;
+mod simple_icon;
 mod simple_input;
 mod simple_list;
 mod simple_modal;

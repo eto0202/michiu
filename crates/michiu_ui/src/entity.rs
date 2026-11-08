@@ -211,7 +211,7 @@ pub mod handler;
 pub mod input_func;
 
 use crate::{
-    BasicLayout, ComponentMask, Context, DebugStore, EffectCategory, ExternalTexture,
+    BasicLayout, ComponentMask, Context, DebugStore, EffectCategory, ExternalMask, ExternalTexture,
     ExternalVisual, IntoOptionProp, LayoutSize, MichiuError, MichiuSoA, MichiuTrace, ModTarget,
     Modifier, ReadSignal, ResultTraceExt, ScrollBarState, ScrollbarDisplay, ScrollbarStyle,
     SystemStore, Val, a11y::A11yInferenceTag, div_n, trace_error,
@@ -1105,6 +1105,33 @@ impl Entity {
                 basic.size.width = Val::Px(metadata.size.width);
                 basic.size.height = Val::Px(metadata.size.height);
             }
+
+            cx.mark_dirty(self);
+        });
+        self
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn external_mask(self, mask: impl ExternalMask + 'static) -> Self {
+        let mask_arc = Arc::new(mask);
+        let metadata = mask_arc.metadata();
+
+        with_context(|cx| {
+            cx.contents.cont_external_masks.insert(self, mask_arc);
+            cx.topology
+                .topo_active_masks
+                .at_mut(self)
+                .set(ComponentMask::COMP_EXTERNAL_MASK_CONTENT);
+
+            if !cx.layouts.lay_base_basic.contains_key(self) {
+                cx.layouts
+                    .lay_base_basic
+                    .insert(self, BasicLayout::default());
+            }
+            let basic = cx.layouts.lay_base_basic.at_mut(self);
+            basic.size.width = Val::Px(metadata.size.width);
+            basic.size.height = Val::Px(metadata.size.height);
 
             cx.mark_dirty(self);
         });

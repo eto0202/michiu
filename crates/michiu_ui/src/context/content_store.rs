@@ -1,6 +1,6 @@
 use crate::{
-    ActiveMasksSecondary, CapacityConfig, Entity, ExternalTexture, ExternalVisual, InputContents,
-    LayoutRect, MichiuString, TextLayoutSize, TextSpan, VisualPropertiesSecondary,
+    ActiveMasksSecondary, CapacityConfig, Entity, ExternalMask, ExternalTexture, ExternalVisual,
+    InputContents, LayoutRect, MichiuString, TextLayoutSize, TextSpan, VisualPropertiesSecondary,
     define_sparse_secondary, soa::MichiuSoA,
 };
 use slotmap::SparseSecondaryMap;
@@ -176,12 +176,45 @@ impl std::fmt::Debug for ExternalVisualSparse {
     }
 }
 
+#[derive(Default, Clone, derive_more::Deref, derive_more::DerefMut, derive_more::IntoIterator)]
+#[into_iterator(owned, ref, ref_mut)]
+pub struct ExternalMaskSparse(pub SparseSecondaryMap<Entity, Arc<dyn ExternalMask>>);
+
+impl MichiuSoA for ExternalMaskSparse {
+    type Item = Arc<dyn ExternalMask>;
+    #[inline]
+    fn find(&self, e: Entity) -> Option<&Self::Item> {
+        self.0.get(e)
+    }
+    #[inline]
+    fn find_mut(&mut self, id: Entity) -> Option<&mut Self::Item> {
+        self.0.get_mut(id)
+    }
+}
+impl std::fmt::Debug for ExternalMaskSparse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut map = f.debug_map();
+        for (id, tex) in &self.0 {
+            map.entry(
+                &id,
+                &format_args!(
+                    "ExternalMaskSparse {{ ptr: {:p}, meta: {:?} }}",
+                    Arc::as_ptr(tex),
+                    tex.metadata()
+                ),
+            );
+        }
+        map.finish()
+    }
+}
+
 pub struct ContentStore {
     pub(crate) cont_text_contents: TextContentsSparse,
     pub(crate) cont_text_spans: TextSpansSparse,
     pub(crate) cont_input_contents: InputContentsSparse,
     pub(crate) cont_external_textures: ExternalTextureSparse,
     pub(crate) cont_external_visual: ExternalVisualSparse,
+    pub(crate) cont_external_masks: ExternalMaskSparse,
     pub(crate) cont_cut_text: Option<MichiuString>,
 }
 
@@ -201,6 +234,7 @@ impl ContentStore {
             cont_input_contents: InputContentsSparse(SparseSecondaryMap::new()),
             cont_external_textures: ExternalTextureSparse(SparseSecondaryMap::new()),
             cont_external_visual: ExternalVisualSparse(SparseSecondaryMap::new()),
+            cont_external_masks: ExternalMaskSparse(SparseSecondaryMap::new()),
             cont_cut_text: None,
         }
     }
@@ -222,6 +256,9 @@ impl ContentStore {
             cont_external_visual: ExternalVisualSparse(SparseSecondaryMap::with_capacity(
                 c.cont_external_visual,
             )),
+            cont_external_masks: ExternalMaskSparse(SparseSecondaryMap::with_capacity(
+                c.cont_external_masks,
+            )),
             ..Default::default()
         }
     }
@@ -233,6 +270,7 @@ impl ContentStore {
         self.cont_input_contents.clear();
         self.cont_external_textures.clear();
         self.cont_external_visual.clear();
+        self.cont_external_masks.clear();
         self.cont_cut_text = None;
     }
 
@@ -243,6 +281,7 @@ impl ContentStore {
         self.cont_input_contents.remove(id);
         self.cont_external_textures.remove(id);
         self.cont_external_visual.remove(id);
+        self.cont_external_masks.remove(id);
         self.cont_cut_text = None;
     }
 
@@ -262,7 +301,7 @@ impl ContentStore {
     }
 
     #[inline]
-    pub fn cont_text_contents_mut(&mut self) -> &mut TextContentsSparse {
+    pub fn text_contents_mut(&mut self) -> &mut TextContentsSparse {
         &mut self.cont_text_contents
     }
 
@@ -272,8 +311,13 @@ impl ContentStore {
     }
 
     #[inline]
-    pub fn webview_contents_mut(&mut self) -> &mut ExternalVisualSparse {
+    pub fn external_visual_mut(&mut self) -> &mut ExternalVisualSparse {
         &mut self.cont_external_visual
+    }
+
+    #[inline]
+    pub fn external_masks_mut(&mut self) -> &mut ExternalMaskSparse {
+        &mut self.cont_external_masks
     }
 }
 
