@@ -146,7 +146,19 @@ Follow these strict guidelines when authoring or contributing components and the
 - If a component requires processing outside its own render tree (e.g., `Esc` key dismissal, outside-click detection, focus trap), **provide dedicated event handler functions (e.g., `pub fn handle_event(...)`) inside that component module**.
 - Explicitly detail required event loop bindings in the rustdoc documentation.
 
-### 4. Explicit Dependency Scope in Documentation
+### 4. Asset Reference Guidelines
+
+When referencing assets from within a component, embed the binaries using a relative path from the `components/` directory.
+
+```rust
+// src/iu_ui/components/tab/mod.rs
+const OPEN_ICON: &[u8] = include_bytes!("../../asset/open.svg");
+
+// src/iu_ui/components/button.rs
+const IMAGE_PNG: &[u8] = include_bytes!("../asset/image.png");
+```
+
+### 5. Explicit Dependency Scope in Documentation
 
 Document all widgets with clear preconditions using the following template:
 
@@ -363,7 +375,19 @@ let custom_button = SimpleButton::new("削除")
 - モーダル外クリック検知、`Esc` キー監視、フォーカストラップなど、コンポーネントツリー外のイベント処理が必要な場合は、**専用ハンドラ関数（例: `pub fn handle_event(...)`）をそのモジュール内に同梱** してください。
 - 呼び出し手順は rustdoc に必ず明記してください。
 
-### 4. ドキュメントへの依存スコープ明記
+### 4. アセットの参照規約
+
+コンポーネント側からアセットを参照する際は、`components/` から見た相対パスでバイナリ埋め込みを行います。
+
+```rust
+// src/iu_ui/components/tab/mod.rs
+const OPEN_ICON: &[u8] = include_bytes!("../../asset/open.svg");
+
+// src/iu_ui/components/button.rs
+const IMAGE_PNG: &[u8] = include_bytes!("../asset/image.png");
+```
+
+### 5. ドキュメントへの依存スコープ明記
 
 提供するコンポーネント構造体には、以下のように rustdoc を記載してください。
 

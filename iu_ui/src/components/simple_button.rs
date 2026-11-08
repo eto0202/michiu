@@ -4,7 +4,7 @@ use michiu::{accessibility::*, prelude::*};
 /// Visual appearance variants for [`SimpleButton`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ButtonVariant {
-    /// Filled background using `theme.bg_ui()` / `theme.solid()`.
+    /// Filled background using `theme.solid()`.
     #[default]
     Solid,
     /// Transparent background with an outline border using `theme.border()`.
@@ -106,6 +106,7 @@ impl SimpleButton {
     }
 
     /// Sets whether the button is disabled.
+    /// All Chroma values will be set to 0.0, and the Lightness of the border will be adjusted.
     pub fn disabled(mut self, disabled: bool) -> Self {
         self.disabled = disabled;
         self
@@ -155,6 +156,21 @@ impl MichiuWidget for SimpleButton {
                 theme.gray_text_high(),
             ),
         };
+        let (disabled_bg, disabled_border, text_color) = if self.disabled {
+            match self.variant {
+                ButtonVariant::Solid => (theme.gray_7(), Color::TRANSPARENT, theme.gray_text_low()),
+                ButtonVariant::Outline => {
+                    (Color::TRANSPARENT, theme.gray_4(), theme.gray_text_low())
+                }
+                ButtonVariant::Ghost => (
+                    Color::TRANSPARENT,
+                    Color::TRANSPARENT,
+                    theme.gray_text_low(),
+                ),
+            }
+        } else {
+            (bg, border, text_color)
+        };
 
         let offset = theme.focus_ring_offset(self.variant == ButtonVariant::Solid);
 
@@ -169,6 +185,12 @@ impl MichiuWidget for SimpleButton {
             .cursor_pointer()
             .hovered(ii().bg_color(hover))
             .pressed(ii().bg_color(active))
+            .disabled(
+                ii().bg_color(disabled_bg)
+                    .border_color(disabled_border)
+                    .cursor_default()
+                    .focusable_none(),
+            )
             .focusable_self_both()
             .focused_visible(
                 ii().border_color(Color::TRANSPARENT)
@@ -177,9 +199,12 @@ impl MichiuWidget for SimpleButton {
                     .outline_color(theme.focus_ring()),
             );
 
-        flex(modifier).tag::<a11y::AButton>().label(
-            self.label.clone(),
-            ii().font_size(14.0).text_color(text_color),
-        )
+        flex(modifier)
+            .tag::<a11y::AButton>()
+            .disable(self.disabled)
+            .label(
+                self.label.clone(),
+                ii().font_size(14.0).text_color(text_color),
+            )
     }
 }

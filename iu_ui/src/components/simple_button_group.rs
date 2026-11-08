@@ -13,6 +13,20 @@ pub enum ButtonGroupVariant {
     Ghost,
 }
 
+/// Inner button sizing options for [`SimpleButtonGroup`].
+///
+/// All sizes strictly satisfy the WCAG 2.5.8 minimum target size requirement (>= 24x24px).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ButtonGroupSize {
+    /// Compact square size: 28x28px (exceeds WCAG 2.5.8 minimum of 24x24px).
+    Sm,
+    /// Standard size: 96x36px.
+    #[default]
+    Md,
+    /// Large size: 120x44px (meets WCAG AAA target size of 44x44px vertically).
+    Lg,
+}
+
 /// An item within a [`SimpleButtonGroup`].
 pub enum ButtonGroupItem {
     /// An interactive button (custom `Entity`, with events, icons, etc.).
@@ -92,6 +106,8 @@ pub struct SimpleButtonGroup {
     pub items: Vec<ButtonGroupItem>,
     /// Visual style variant (Solid, Outline, Ghost).
     pub variant: ButtonGroupVariant,
+    /// Button dimensions.
+    pub size: ButtonGroupSize,
 }
 
 impl SimpleButtonGroup {
@@ -109,6 +125,7 @@ impl SimpleButtonGroup {
             direction: FlexDirection::Row,
             items: items.into_iter().collect(),
             variant: ButtonGroupVariant::default(),
+            size: ButtonGroupSize::Sm,
         }
     }
 
@@ -121,6 +138,12 @@ impl SimpleButtonGroup {
     /// Sets the visual style variant (Solid, Outline, Ghost).
     pub fn variant(mut self, variant: ButtonGroupVariant) -> Self {
         self.variant = variant;
+        self
+    }
+
+    /// Sets the dimensions of the button.
+    pub fn size(mut self, size: ButtonGroupSize) -> Self {
+        self.size = size;
         self
     }
 }
@@ -149,6 +172,12 @@ impl MichiuWidget for SimpleButtonGroup {
     }
 
     fn build(&self, theme: &dyn MichiuTheme) -> Entity {
+        let size = match self.size {
+            ButtonGroupSize::Sm => (28.0, 28.0),
+            ButtonGroupSize::Md => (96.0, 36.0),
+            ButtonGroupSize::Lg => (120.0, 44.0),
+        };
+
         let (bg, hover, active, border, separator, text_color, focus_ring) = match self.variant {
             ButtonGroupVariant::Solid => (
                 theme.accent_solid(),
@@ -183,7 +212,7 @@ impl MichiuWidget for SimpleButtonGroup {
         let btn_modifier = ii()
             .justify_center()
             .items_center()
-            .size(28.0)
+            .size(size)
             .r(3.0)
             .cursor_pointer()
             .bg_color(Color::TRANSPARENT)

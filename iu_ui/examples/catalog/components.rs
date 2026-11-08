@@ -24,11 +24,20 @@ pub(crate) fn create_component_entity(comp_type: ComponentType, is_dark: bool) -
         ComponentType::Button => wrapper([
             section([
                 SimpleButton::new("Solid").build(&theme),
+                SimpleButton::new("Disabled").disabled(true).build(&theme),
                 SimpleButton::new("Outline")
                     .variant(ButtonVariant::Outline)
                     .build(&theme),
+                SimpleButton::new("Disabled")
+                    .variant(ButtonVariant::Outline)
+                    .disabled(true)
+                    .build(&theme),
                 SimpleButton::new("Ghost")
                     .variant(ButtonVariant::Ghost)
+                    .build(&theme),
+                SimpleButton::new("Disabled")
+                    .variant(ButtonVariant::Ghost)
+                    .disabled(true)
                     .build(&theme),
             ]),
             section([
@@ -38,6 +47,22 @@ pub(crate) fn create_component_entity(comp_type: ComponentType, is_dark: bool) -
                     .build(&theme),
                 simple_button_group!["1", "|", "2", "3", "4", "|", "5",]
                     .variant(ButtonGroupVariant::Ghost)
+                    .build(&theme),
+            ]),
+            section([
+                simple_button_group!["1", "|", "2", "3", "4", "|", "5",]
+                    .size(ButtonGroupSize::Md)
+                    .direction(FlexDirection::Column)
+                    .build(&theme),
+                simple_button_group!["1", "|", "2", "3", "4", "|", "5",]
+                    .size(ButtonGroupSize::Md)
+                    .variant(ButtonGroupVariant::Outline)
+                    .direction(FlexDirection::Column)
+                    .build(&theme),
+                simple_button_group!["1", "|", "2", "3", "4", "|", "5",]
+                    .size(ButtonGroupSize::Md)
+                    .variant(ButtonGroupVariant::Ghost)
+                    .direction(FlexDirection::Column)
                     .build(&theme),
             ]),
         ]),

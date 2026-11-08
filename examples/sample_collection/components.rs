@@ -1,3 +1,5 @@
+#![allow(unused)]
+
 pub mod accessibility;
 pub mod background;
 pub mod border;

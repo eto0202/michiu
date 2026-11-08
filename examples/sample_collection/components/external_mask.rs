@@ -14,32 +14,17 @@ pub fn container() -> Entity {
 }
 
 fn section_1() -> Entity {
-    let close = concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/sample_collection/assets/close_24dp.svg"
-    );
-    let search = concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/sample_collection/assets/search_24dp.svg"
-    );
-    let check = concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/sample_collection/assets/check_24dp.svg"
-    );
-    let star = concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/sample_collection/assets/star_24dp.svg"
-    );
-    let favorite = concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/sample_collection/assets/favorite_24dp.svg"
-    );
+    const CLOSE: &[u8] = include_bytes!("../assets/close_24dp.svg");
+    const SEARCH: &[u8] = include_bytes!("../assets/search_24dp.svg");
+    const CHECK: &[u8] = include_bytes!("../assets/check_24dp.svg");
+    const STAR: &[u8] = include_bytes!("../assets/star_24dp.svg");
+    const FAVORITE: &[u8] = include_bytes!("../assets/favorite_24dp.svg");
 
-    let mask_close = SvgMask::new(close).unwrap();
-    let mask_search = SvgMask::new(search).unwrap();
-    let mask_check = SvgMask::new(check).unwrap();
-    let mask_star = SvgMask::new(star).unwrap();
-    let mask_favorite = SvgMask::new(favorite).unwrap();
+    let mask_close = SvgMask::from_data(CLOSE).unwrap();
+    let mask_search = SvgMask::from_data(SEARCH).unwrap();
+    let mask_check = SvgMask::from_data(CHECK).unwrap();
+    let mask_star = SvgMask::from_data(STAR).unwrap();
+    let mask_favorite = SvgMask::from_data(FAVORITE).unwrap();
 
     h_flex(ii().w_full().gap(24.0)).children([
         external_mask(mask_close).modify(ii()),
@@ -70,16 +55,19 @@ impl SvgMask {
     pub fn new(path: impl AsRef<Path>) -> std::result::Result<Self, Box<dyn std::error::Error>> {
         let path = path.as_ref();
         let svg_data = std::fs::read(path)?;
+        Self::from_data(&svg_data)
+    }
 
+    pub fn from_data(svg_data: &[u8]) -> std::result::Result<Self, Box<dyn std::error::Error>> {
         let opt = usvg::Options::default();
-        let tree = usvg::Tree::from_data(&svg_data, &opt)?;
+        let tree = usvg::Tree::from_data(svg_data, &opt)?;
 
         let original_size = tree.size();
         let size = LayoutSize::new(original_size.width(), original_size.height());
 
         // パスからハッシュを計算してキャッシュキーにする（複数箇所で使い回すため）
         let mut hasher = DefaultHasher::new();
-        path.hash(&mut hasher);
+        svg_data.hash(&mut hasher);
         let cache_key = hasher.finish();
 
         let metadata = ExternalMaskMetadata::new(size).with_cache_key(cache_key);
