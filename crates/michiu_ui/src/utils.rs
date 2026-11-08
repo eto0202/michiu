@@ -1,7 +1,7 @@
 use crate::{
-    BoxShadow, Color, Convert, Entity, ExternalTexture, ExternalVisual, FlexDirection,
-    InputContents, IntoHexColor, IntoLayoutPoint, ModValue, Modifier, Prop, ReadSignal,
-    WriteSignal, with_context,
+    BoxShadow, Color, Convert, Entity, ExternalMask, ExternalTexture, ExternalVisual,
+    FlexDirection, InputContents, IntoHexColor, IntoLayoutPoint, ModValue, Modifier, Prop,
+    ReadSignal, WriteSignal, with_context,
 };
 use std::borrow::Cow;
 
@@ -550,6 +550,12 @@ pub fn external_texture(texture: impl ExternalTexture + 'static) -> Entity {
 #[inline]
 pub fn external_visual(visual: impl ExternalVisual + 'static) -> Entity {
     div_n().external_visual(visual)
+}
+
+/// External Mask Container
+#[inline]
+pub fn external_mask(mask: impl ExternalMask + 'static) -> Entity {
+    div_n().external_mask(mask)
 }
 
 /// A generic container that dynamically resolves `Modifier` from provider `P` and applies the style

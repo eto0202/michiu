@@ -9,9 +9,10 @@ struct GlobalConfig {
 // Rust 側の binding
 @group(0) @binding(1) var t_mask: texture_2d<f32>; // 通常文字 (R8Unorm)
 @group(0) @binding(2) var t_color: texture_2d<f32>; // 絵文字  (Rgba8UnormSrgb)
+@group(0) @binding(3) var t_user_mask: texture_2d<f32>;  // ユーザーアイコン
 
 // Rust 側の binding: 3 (atlas.sampler) と同期
-@group(0) @binding(3) var s_sampler: sampler;
+@group(0) @binding(4) var s_sampler: sampler;
 
 struct InstanceData {
     rect: vec4<f32>,
@@ -45,7 +46,7 @@ struct LinearGradientInner {
     origin: vec2<f32>,           // 8B
 };
 
-@group(0) @binding(4) var<storage, read> instances: array<InstanceData>;
+@group(0) @binding(5) var<storage, read> instances: array<InstanceData>;
 
 struct VertexInput {
     @location(0)
@@ -469,16 +470,23 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     var entity_color = vec4<f32>(0.0);
 
     if mode == 2.0 {
-        let is_color_atlas = instance.is_color_atlas_pad.x;
+        // 0.0 = カラー絵文字 (t_color)
+        // 1.0 = 通常テキスト (t_mask)
+        // 2.0 = ユーザーアイコン (t_user_mask)
+        let atlas_type = instance.is_color_atlas_pad.x;
 
-        if is_color_atlas < 0.5 {
+        if atlas_type < 0.5 {
             // カラー絵文字
             let tex_color = textureSample(t_color, s_sampler, in.uv);
             let alpha = tex_color.a * opacity;
             entity_color = vec4<f32>(tex_color.rgb * alpha, alpha);
-        } else {
+        } else if atlas_type < 1.5 {
             // 通常テキスト
             let alpha = textureSample(t_mask, s_sampler, in.uv).r * opacity;
+            entity_color = vec4<f32>(color_linear.rgb * alpha, alpha);
+        } else {
+            // ユーザーアイコン
+            let alpha = textureSample(t_user_mask, s_sampler, in.uv).r * opacity;
             entity_color = vec4<f32>(color_linear.rgb * alpha, alpha);
         }
     } else if mode == 4.0 {

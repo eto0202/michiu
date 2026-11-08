@@ -80,7 +80,6 @@ impl ComponentMask {
         self.has(ComponentMask::COMP_EXTERNAL_TEXTURE_CONTENT)
     }
 
-    #[expect(unused)]
     #[inline]
     #[must_use]
     pub(crate) fn has_external_mask_content(&self) -> bool {

@@ -394,7 +394,9 @@ pub(crate) struct RendererView<'a> {
     pub(crate) render_data: &'a mut RenderData,
     pub(crate) mask_atlas: &'a mut TextureAtlas,
     pub(crate) color_atlas: &'a mut TextureAtlas,
+    pub(crate) user_atlas: &'a mut TextureAtlas,
     pub(crate) text_cache: &'a mut FxHashMap<TextCacheKey, TextCacheValue>,
+    pub(crate) user_mask_cache: &'a mut FxHashMap<(u64, u32, u32), [f32; 4]>,
     pub(crate) queue: &'a wgpu::Queue,
 }
 

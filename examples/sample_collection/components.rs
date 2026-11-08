@@ -8,6 +8,7 @@ pub mod css;
 pub mod cursor;
 pub mod div;
 pub mod draggable;
+pub mod external_mask;
 pub mod external_texture;
 pub mod external_visual;
 pub mod flexbox;
@@ -53,6 +54,7 @@ pub enum ComponentType {
     ListTest,
     ExternalTexture,
     ExternalVisual,
+    ExternalMask,
     Accessibility,
     Size,
     Position,
@@ -80,6 +82,7 @@ pub(crate) fn create_component_entity(comp_type: ComponentType) -> Entity {
         ComponentType::Focusable => wrapper(focusable::container()),
         ComponentType::ExternalTexture => wrapper(external_texture::container()),
         ComponentType::ExternalVisual => wrapper(external_visual::container()),
+        ComponentType::ExternalMask => wrapper(external_mask::container()),
         ComponentType::Accessibility => wrapper(accessibility::container()),
         ComponentType::Size => text("Size"),
         ComponentType::Transform => wrapper(transform::container()),

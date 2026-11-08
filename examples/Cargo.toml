@@ -22,6 +22,7 @@ image = "0.25.10"
 smallvec = "1.15.2"
 wgpu = {version= "30.0.1", default-features = false, features = ["dx12", "wgsl"]}
 dhat = { version = "0.3.3", optional = true }
+resvg = "0.49.0"
 
 [dependencies.windows]
 version = "0.62.2"

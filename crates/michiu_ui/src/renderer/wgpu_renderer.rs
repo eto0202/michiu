@@ -140,8 +140,10 @@ pub struct WgpuRenderer {
 
     pub(crate) mask_atlas: TextureAtlas,
     pub(crate) color_atlas: TextureAtlas,
+    pub(crate) user_atlas: TextureAtlas,
     pub(crate) temp_uv_map: SecondaryMap<Entity, [f32; 4]>,
     pub(crate) text_cache: FxHashMap<TextCacheKey, TextCacheValue>,
+    pub(crate) user_mask_cache: FxHashMap<(u64, u32, u32), [f32; 4]>,
 
     pub(crate) render_data: RenderData,
 
@@ -258,6 +260,8 @@ impl WgpuRenderer {
         let mask_atlas = TextureAtlas::new(&device, wgpu::TextureFormat::R8Unorm, 2048);
         // カラー絵文字用（RGBA8）
         let color_atlas = TextureAtlas::new(&device, wgpu::TextureFormat::Rgba8UnormSrgb, 2048);
+        // ユーザーアイコン用
+        let user_atlas = TextureAtlas::new(&device, wgpu::TextureFormat::R8Unorm, 2048);
 
         let config_bind_group_layout = WgpuRenderer::create_bind_group_layout(&device);
 
@@ -287,6 +291,7 @@ impl WgpuRenderer {
             &instance_buffer,
             &mask_atlas,
             &color_atlas,
+            &user_atlas,
         );
 
         Ok(Self {
@@ -306,8 +311,10 @@ impl WgpuRenderer {
             config_bind_group_layout,
             mask_atlas,
             color_atlas,
+            user_atlas,
             temp_uv_map: SecondaryMap::new(),
             text_cache: FxHashMap::default(),
+            user_mask_cache: FxHashMap::default(),
             render_data: RenderData::new(),
             external_bind_groups: FxHashMap::default(),
         })
@@ -409,16 +416,27 @@ impl WgpuRenderer {
                     },
                     count: None,
                 },
-                // Atlas Sampler (Binding 2)
+                // ユーザーアイコン用
                 wgpu::BindGroupLayoutEntry {
                     binding: 3,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                // Atlas Sampler (Binding 2)
+                wgpu::BindGroupLayoutEntry {
+                    binding: 4,
                     visibility: wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                     count: None,
                 },
                 // Storage (読み取り専用)
                 wgpu::BindGroupLayoutEntry {
-                    binding: 4,
+                    binding: 5,
                     visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Storage { read_only: true },
@@ -581,6 +599,7 @@ impl WgpuRenderer {
         instance: &wgpu::Buffer,
         mask_atlas: &TextureAtlas,
         color_atlas: &TextureAtlas,
+        user_atlas: &TextureAtlas,
     ) -> wgpu::BindGroup {
         device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: bind_group_layout,
@@ -599,10 +618,14 @@ impl WgpuRenderer {
                 },
                 wgpu::BindGroupEntry {
                     binding: 3,
-                    resource: wgpu::BindingResource::Sampler(&mask_atlas.sampler),
+                    resource: wgpu::BindingResource::TextureView(&user_atlas.view),
                 },
                 wgpu::BindGroupEntry {
                     binding: 4,
+                    resource: wgpu::BindingResource::Sampler(&mask_atlas.sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 5,
                     resource: instance.as_entire_binding(),
                 },
             ],
@@ -648,7 +671,9 @@ impl WgpuRenderer {
                 render_data: &mut self.render_data,
                 mask_atlas: &mut self.mask_atlas,
                 color_atlas: &mut self.color_atlas,
+                user_atlas: &mut self.user_atlas,
                 text_cache: &mut self.text_cache,
+                user_mask_cache: &mut self.user_mask_cache,
                 queue: &self.queue,
             },
         );
@@ -825,12 +850,17 @@ impl WgpuRenderer {
                             binding: 2,
                             resource: wgpu::BindingResource::TextureView(&self.mask_atlas.view),
                         },
+                        // ダミー
                         wgpu::BindGroupEntry {
                             binding: 3,
-                            resource: wgpu::BindingResource::Sampler(&self.mask_atlas.sampler),
+                            resource: wgpu::BindingResource::TextureView(&self.mask_atlas.view),
                         },
                         wgpu::BindGroupEntry {
                             binding: 4,
+                            resource: wgpu::BindingResource::Sampler(&self.mask_atlas.sampler),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 5,
                             resource: self.instance_buffer.as_entire_binding(),
                         },
                     ],
@@ -1035,10 +1065,14 @@ impl WgpuRenderer {
                     },
                     wgpu::BindGroupEntry {
                         binding: 3,
-                        resource: wgpu::BindingResource::Sampler(&self.mask_atlas.sampler),
+                        resource: wgpu::BindingResource::TextureView(&self.user_atlas.view),
                     },
                     wgpu::BindGroupEntry {
                         binding: 4,
+                        resource: wgpu::BindingResource::Sampler(&self.mask_atlas.sampler),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 5,
                         resource: self.instance_buffer.as_entire_binding(),
                     },
                 ],

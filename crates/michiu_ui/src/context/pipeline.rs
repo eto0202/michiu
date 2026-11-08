@@ -191,18 +191,19 @@ use crate::{
     ActiveMasksSecondary, BaseVisualPropertiesSecondary, BasicLayout, BasicLayoutsSecondary,
     BatchType, BoxSizing, ClipRectsSecondary, Color, ComponentMask, ContentVisibility, Context,
     CornerRadius, DEFAULT_BASIC, DEFAULT_FLEX, DebugStore, DirtyLayoutEntitiesVec, Display,
-    DrawBatch, EdgeInsets, ElementState, Entity, EventStore, ExternalTextureAlphaMode,
-    ExternalTextureCompositingMode, ExternalTextureSparse, FlatDfsSequence, FlexLayout, FocusStore,
-    GradientType, IDENTITY_MATRIX, ImeState, InputContentsSparse, InteractionState, LayoutPoint,
-    LayoutRect, LayoutSize, LayoutStore, LinearGradientInner, MichiuError, MichiuSoA, Modifiers,
-    MouseButton, OptionTraceExt, OutputStore, ParentsSecondary, PrevClipRectsSecondary,
-    PrevRectsSecondary, QuadInstance, ReactiveStore, RectsSecondary, RenderData, RenderStore,
-    RendererView, ResolvedBasicSecondary, ResolvedFlexSecondary, ResolvedGeometry, ScrollBarState,
-    ScrollOffsetsSecondary, ScrollStore, ScrollbarStore, ScrollbarStylesSparse, StrikethroughStyle,
-    SystemStore, TaffyNodesSecondary, TaffyResultTraceExt, TaffyTreeEntity, TextEditStore,
-    TextEngine, TextLayoutSize, TextSpan, TopologyStore, TraceEventList, UnderlineStyle,
-    VirtualKey, VisualProperty, bind_context, handle_on_active, handle_on_char_input,
-    handle_on_disable, handle_on_file_dropped, handle_on_ime, handle_on_select,
+    DrawBatch, EdgeInsets, ElementState, Entity, EventStore, ExternalMaskSparse,
+    ExternalTextureAlphaMode, ExternalTextureCompositingMode, ExternalTextureSparse,
+    FlatDfsSequence, FlexLayout, FocusStore, GradientType, IDENTITY_MATRIX, ImeState,
+    InputContentsSparse, InteractionState, LayoutPoint, LayoutRect, LayoutSize, LayoutStore,
+    LinearGradientInner, MichiuError, MichiuSoA, Modifiers, MouseButton, OptionTraceExt,
+    OutputStore, ParentsSecondary, PrevClipRectsSecondary, PrevRectsSecondary, QuadInstance,
+    ReactiveStore, RectsSecondary, RenderData, RenderStore, RendererView, ResolvedBasicSecondary,
+    ResolvedFlexSecondary, ResolvedGeometry, ScrollBarState, ScrollOffsetsSecondary, ScrollStore,
+    ScrollbarStore, ScrollbarStylesSparse, StrikethroughStyle, SystemStore, TaffyNodesSecondary,
+    TaffyResultTraceExt, TaffyTreeEntity, TextEditStore, TextEngine, TextLayoutSize, TextSpan,
+    TopologyStore, TraceEventList, UnderlineStyle, VirtualKey, VisualProperty, bind_context,
+    handle_on_active, handle_on_char_input, handle_on_disable, handle_on_file_dropped,
+    handle_on_ime, handle_on_select,
 };
 #[cfg(feature = "trace-lifecycle")]
 use crate::{
@@ -1253,7 +1254,9 @@ impl Pipeline {
                 render_data: view.render_data.clone(),
                 mask_atlas: view.mask_atlas.clone(),
                 color_atlas: view.color_atlas.clone(),
+                user_atlas: view.user_atlas.clone(),
                 text_cache: view.text_cache.clone(),
+                user_mask_cache: view.user_mask_cache.clone(),
                 queue: view.queue.clone()
             })),
             add: None,
@@ -1317,7 +1320,9 @@ impl Pipeline {
                 render_data: view.render_data.clone(),
                 mask_atlas: view.mask_atlas.clone(),
                 color_atlas: view.color_atlas.clone(),
+                user_atlas: view.user_atlas.clone(),
                 text_cache: view.text_cache.clone(),
+                user_mask_cache: view.user_mask_cache.clone(),
                 queue: view.queue.clone()
             })),
             add: None,
@@ -1350,7 +1355,9 @@ impl Pipeline {
                     render_data: view.render_data.clone(),
                     mask_atlas: view.mask_atlas.clone(),
                     color_atlas: view.color_atlas.clone(),
+                    user_atlas: view.user_atlas.clone(),
                     text_cache: view.text_cache.clone(),
+                    user_mask_cache: view.user_mask_cache.clone(),
                     queue: view.queue.clone()
                 })),
                 add: Some("The fact that this is recorded means that Atlas has been cleared."),
@@ -1364,6 +1371,7 @@ impl Pipeline {
 
         let mut has_external_visual_ready = false;
         let mut has_external_texture = false;
+        let mut has_external_mask = false;
         let mut has_normal_entity = false;
         let mut has_selection_highlight = false;
         let mut has_background = false;
@@ -1557,6 +1565,29 @@ impl Pipeline {
                 Pipeline::push_background_instance(id, view.render_data, &params, visual);
             }
 
+            let is_external_mask = cx
+                .topology
+                .topo_active_masks
+                .at(id)
+                .has_external_mask_content();
+
+            if is_external_mask {
+                #[cfg(feature = "trace-lifecycle")]
+                {
+                    has_external_mask = true;
+                }
+
+                Pipeline::push_external_mask_instance(
+                    id,
+                    view,
+                    &params,
+                    visual,
+                    &cx.contents.cont_external_masks,
+                    cx.window.win_scale_factor,
+                    &mut cx.debug,
+                );
+            }
+
             // 選択ハイライト背景
             if let Some(sel_rects) = cx.states.edit.edit_selected_rects.find(id) {
                 #[cfg(feature = "trace-lifecycle")]
@@ -1706,7 +1737,7 @@ impl Pipeline {
 
             // 通常要素（テキスト以外）の背景マウントは親ループですでに has_bg が完了しているため不要
             // 背景指定がない場合でもボーダー単体描画等が必要な場合はフォールバック
-            if !is_text && !has_bg {
+            if !is_text && !has_bg && !is_external_mask {
                 #[cfg(feature = "trace-lifecycle")]
                 {
                     has_fallback_border = !is_text && !has_bg;
@@ -1720,6 +1751,7 @@ impl Pipeline {
             stage: RenderStage::CollectDate(InstanceKinds {
                 has_external_visual_ready,
                 has_external_texture,
+                has_external_mask,
                 has_normal_entity,
                 has_selection_highlight,
                 has_background,
@@ -1731,7 +1763,9 @@ impl Pipeline {
                 render_data: view.render_data.clone(),
                 mask_atlas: view.mask_atlas.clone(),
                 color_atlas: view.color_atlas.clone(),
+                user_atlas: view.user_atlas.clone(),
                 text_cache: view.text_cache.clone(),
+                user_mask_cache: view.user_mask_cache.clone(),
                 queue: view.queue.clone()
             })),
             add: Some("The fact that this is recorded means that Atlas has been cleared."),
@@ -2405,6 +2439,111 @@ impl Pipeline {
             ..Default::default()
         };
         render_data.push(id, bg_instance);
+    }
+
+    #[inline]
+    #[expect(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
+    fn push_external_mask_instance(
+        id: Entity,
+        view: &mut RendererView,
+        params: &CommonParameters,
+        visual: &VisualProperty,
+        external_masks: &ExternalMaskSparse,
+        scale_factor: f32,
+        debug: &mut DebugStore,
+    ) {
+        let Some(mask_entry) = external_masks.find(id) else {
+            return;
+        };
+
+        let rect = params.geom.rect;
+        let border = params.geom.border;
+        let padding = params.geom.padding;
+        let scroll = params.geom.scroll;
+
+        let content_w =
+            (rect.width - border.left - border.right - padding.left - padding.right).max(0.0);
+        let content_h =
+            (rect.height - border.top - border.bottom - padding.top - padding.bottom).max(0.0);
+
+        let physical_w = (content_w * scale_factor).round() as u32;
+        let physical_h = (content_h * scale_factor).round() as u32;
+
+        if physical_w == 0 || physical_h == 0 {
+            return;
+        }
+
+        // 実際にアイコンを描画する矩形
+        let content_rect = LayoutRect {
+            x: rect.x + border.left + padding.left - scroll.x,
+            y: rect.y + border.top + padding.top - scroll.y,
+            width: content_w,
+            height: content_h,
+        };
+
+        let metadata = mask_entry.metadata();
+        let key = (metadata.cache_key, physical_w, physical_h);
+
+        let uv = if let Some(&cached_uv) = view.user_mask_cache.get(&key) {
+            cached_uv
+        } else {
+            let image = mask_entry.resolve_mask(physical_w, physical_h);
+
+            let (x, y) = view
+                .user_atlas
+                .allocate(image.width, image.height)
+                .unwrap_or_trace(Some(id), debug, || MichiuError::GlyphAllocationFailed {
+                    width: image.width,
+                    height: image.height,
+                    atlas_w: view.user_atlas.size,
+                    atlas_h: view.user_atlas.size,
+                });
+
+            view.queue.write_texture(
+                wgpu::TexelCopyTextureInfo {
+                    texture: &view.user_atlas.texture,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d { x, y, z: 0 },
+                    aspect: wgpu::TextureAspect::All,
+                },
+                &image.bytes,
+                wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(image.width),
+                    rows_per_image: Some(image.height),
+                },
+                wgpu::Extent3d {
+                    width: image.width,
+                    height: image.height,
+                    depth_or_array_layers: 1,
+                },
+            );
+
+            let (min, max) = view.user_atlas.texel_to_uv(x, y, image.width, image.height);
+            let uv = [min[0], min[1], max[0], max[1]];
+            view.user_mask_cache.insert(key, uv);
+            uv
+        };
+
+        let [u0, v0, u1, v1] = uv;
+        let uv_min = [u0, v0];
+        let uv_max = [u1, v1];
+
+        let icon_color = visual.text_color.unwrap_or(Color::WHITE);
+
+        let mask_instance = QuadInstance {
+            rect: content_rect,
+            transform: params.transform,
+            transform_origin: params.transform_origin,
+            color: icon_color,
+            opacity_mode_sizing: [params.opacity, 2.0, params.box_sizing_val, 0.0],
+            is_color_atlas_pad: [2.0, 0.0],
+            uv_min,
+            uv_max,
+            ..Default::default()
+        };
+
+        view.render_data.push(id, mask_instance);
     }
 
     /// テキスト用背面インスタンスを追加

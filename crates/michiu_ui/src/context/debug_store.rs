@@ -714,7 +714,9 @@ pub struct RendererViewTrace {
     pub render_data: RenderData,
     pub mask_atlas: TextureAtlas,
     pub color_atlas: TextureAtlas,
+    pub user_atlas: TextureAtlas,
     pub text_cache: FxHashMap<TextCacheKey, TextCacheValue>,
+    pub user_mask_cache: FxHashMap<(u64, u32, u32), [f32; 4]>,
     pub queue: wgpu::Queue,
 }
 
@@ -722,6 +724,7 @@ pub struct RendererViewTrace {
 pub struct InstanceKinds {
     pub has_external_visual_ready: bool,
     pub has_external_texture: bool,
+    pub has_external_mask: bool,
     pub has_normal_entity: bool,
     pub has_selection_highlight: bool,
     pub has_background: bool,
