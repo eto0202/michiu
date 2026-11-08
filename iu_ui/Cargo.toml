@@ -1,5 +1,5 @@
 [package]
-name = "a11y_catalog"
+name = "iu_ui"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -10,8 +10,8 @@ categories.workspace = true
 publish = false
 
 [[example]]
-name = "catalog_app"
-path = "examples/catalog_app/main.rs"
+name = "catalog"
+path = "examples/catalog/main.rs"
 
 [dependencies]
 michiu = { workspace = true }

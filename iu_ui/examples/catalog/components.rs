@@ -1,5 +1,5 @@
 use crate::app::theme::Theme;
-use a11y_catalog::{components::*, simple_theme::SimpleBlueTheme, *};
+use iu_ui::{components::*, simple_theme::SimpleBlueTheme, *};
 use michiu::prelude::*;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, strum::Display, strum::EnumIter)]

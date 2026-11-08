@@ -1,4 +1,4 @@
-# Accessibility Component Catalog (`a11y_catalog`)
+# Accessibility Component Catalog (`iu_ui`)
 
 > **Languages**: [English](#english) | [日本語](#原文)
 
@@ -16,7 +16,7 @@ You can directly preview and verify component appearance, keyboard interactions,
 
 ```bash
 # Run catalog preview app from workspace root
-cargo run -p a11y_catalog --example catalog_app
+cargo run -p iu_ui --example catalog
 ```
 
 ---
@@ -26,12 +26,12 @@ cargo run -p a11y_catalog --example catalog_app
 Components are managed as single files or modules, completely decoupled from the preview application and unified under lightweight core traits.
 
 ```text
-a11y_catalog/
+iu_ui/
 ├── Cargo.toml
 ├── README.md
 │
 ├── examples/
-│   └── catalog_app/             # Internal catalog preview app
+│   └── catalog/             # Internal catalog preview app
 │       ├── main.rs              # Application entry point
 │       ├── app.rs               # Application root setup
 │       ├── components.rs        # Component preview registry
@@ -42,7 +42,7 @@ a11y_catalog/
     ├── lib.rs                   # Library entry point & module re-exports
     ├── core.rs                  # [Core Trait] MichiuWidget & MichiuTheme & Oklch
     │
-    ├── a11y_theme/              # Accessible themes meeting contrast ratios
+    ├── theme/              # Accessible themes meeting contrast ratios
     │   ├── mod.rs
     │   └── simple_theme.rs      # Default 12-scale WCAG AA palette
     │
@@ -55,7 +55,7 @@ a11y_catalog/
     │   │   └── panel.rs
     │   └── ...                  # (accordion, checkbox, modal, slider, etc.)
     │
-    ├── inference_tag/           # Reusable inference tags (A11yInferenceTag implementations)
+    ├── tag/           # Reusable inference tags (A11yInferenceTag implementations)
     │   ├── mod.rs
     │   └── simple_tag.rs
     │
@@ -87,7 +87,7 @@ First, copy `src/core.rs` into your project. This file defines the core traits (
 
 Prepare a theme conforming to `MichiuTheme`:
 
-- **Option A**: Copy an existing WCAG AA theme from `src/a11y_theme/` (e.g., `simple_theme.rs`).
+- **Option A**: Copy an existing WCAG AA theme from `src/theme/` (e.g., `simple_theme.rs`).
 - **Option B**: Implement `MichiuTheme` on your existing application theme struct.
 
 ### Step 3: Copy Components from `components/`
@@ -184,15 +184,15 @@ pub struct SimpleButton { ... }
 
 ---
 
-## Rules for Listing in the Catalog App (`src/app/`)
+## Rules for Listing in the Catalog App (`src/examples/`)
 
 When introducing a new component, register it in the catalog app (`main_area.rs`, `sidebar.rs`) to enable real-time verification.
 
-- **UI Components (`catalog/components/`)**:
+- **UI Components (`src/components/`)**:
   - Provide a preview implementation where clicks, keyboard navigation, and screen reader announcements (Windows Narrator / NVDA) can be tested.
-- **Themes (`catalog/a11y_theme/`)**:
+- **Themes (`scr/theme/`)**:
   - Provide contrast comparison previews validating foreground, background, and focus indicators.
-- **Inference Tags (`catalog/inference_tag/`)**:
+- **Inference Tags (`scr/tag/`)**:
   - Since inference tags are purely functional, **direct UI previews are not required**.
 
 ---
@@ -232,7 +232,7 @@ When copying, modifying, or integrating code and assets from this catalog (inclu
 
 ```bash
 # ワークスペースルートから実行
-cargo run -p a11y_catalog --example catalog_app
+cargo run -p iu_ui --example catalog
 ```
 
 ---
@@ -242,12 +242,12 @@ cargo run -p a11y_catalog --example catalog_app
 コンポーネントはプレビューアプリと完全に分離され、すべて軽量なコアトレイト（`core.rs`）を基準に設計されています。
 
 ```text
-a11y_catalog/
+iu_ui/
 ├── Cargo.toml
 ├── README.md
 │
 ├── examples/
-│   └── catalog_app/             # カタログ検証用プレビューアプリ
+│   └── catalog/             # カタログ検証用プレビューアプリ
 │       ├── main.rs              # アプリエントリーポイント
 │       ├── app.rs               # アプリケーションのルート構築
 │       ├── components.rs        # プレビュー表示用カタログ一覧
@@ -258,7 +258,7 @@ a11y_catalog/
     ├── lib.rs                   # ライブラリエントリーポイント & モジュール公開
     ├── core.rs                  # [必須コア] MichiuWidget & MichiuTheme トレイト & Oklch 定義
     │
-    ├── a11y_theme/              # コントラスト比等を満たしたアクセシブルなテーマ定義
+    ├── theme/              # コントラスト比等を満たしたアクセシブルなテーマ定義
     │   ├── mod.rs
     │   └── simple_theme.rs      # 12段階スケールに基づく WCAG AA 準拠テーマ
     │
@@ -271,7 +271,7 @@ a11y_catalog/
     │   │   └── panel.rs
     │   └── ...                  # (accordion, checkbox, modal, slider 等)
     │
-    ├── inference_tag/           # 再利用可能な推論タグ (A11yInferenceTag 実装)
+    ├── tag/           # 再利用可能な推論タグ (A11yInferenceTag 実装)
     │   ├── mod.rs
     │   └── simple_tag.rs
     │
@@ -303,7 +303,7 @@ a11y_catalog/
 
 `MichiuTheme` を満たすテーマを準備します：
 
-- **方法 A**: `src/a11y_theme/`（例: `simple_theme.rs`）からそのままファイルをコピーして使う。
+- **方法 A**: `src/theme/`（例: `simple_theme.rs`）からそのままファイルをコピーして使う。
 - **方法 B**: 自前アプリの既存テーマ構造体に `MichiuTheme` トレイトを実装する。
 
 ### ステップ 3: `components/` からコンポーネントを配置する
@@ -344,7 +344,7 @@ let custom_button = SimpleButton::new("削除")
 
 新しいコンポーネントやテーマを追加する際は、以下の原則を厳守してください。
 
-### 1. ファイルまたはフォルダ単位で完結（自己完結）
+### 1. ファイルまたはフォルダ単位で完結
 
 - `components/` 以下の各ファイル・フォルダは、`core.rs` を除き**他のカタログ内コンポーネントに一切依存してはいけません**。
 - コンポーネントの内部構造体やヘルパー関数は、そのファイル内またはフォルダ内に閉じ込めてください（過度な共通化より重複コードを推奨）。
@@ -399,15 +399,15 @@ pub struct SimpleButton { ... }
 
 ---
 
-## カタログアプリ (`src/app/`) への掲載ルール
+## カタログアプリ (`src/examples/`) への掲載ルール
 
 コンポーネントを追加した際は、利用者が動作を確認できるようアプリ内（`main_area.rs`, `sidebar.rs` 等）に登録してください。
 
-- **UI コンポーネント (`catalog/components/`)**:
+- **UI コンポーネント (`src/components/`)**:
   - `MichiuWidget` を実装し、クリック・キーボード遷移・ナレーター読み上げがリアルタイムでテストできるプレビューを実装してください。
-- **テーマ (`catalog/a11y_theme/`)**:
+- **テーマ (`src/theme/`)**:
   - `MichiuTheme` を実装し、背景色と文字色、フォーカスリングの対比など、簡単な色比較（コントラスト確認）ができる表示を用意してください。
-- **推論タグ (`catalog/inference_tag/`)**:
+- **推論タグ (`src/tag/`)**:
   - タグ単体での UI 表示は難しいため、カタログアプリ内での無理なプレビュー実装は不要です。
 
 ---
@@ -435,4 +435,4 @@ pub struct SimpleButton { ... }
 
 Created: [2026/10/30]
 
-Last Updated: [2026/11/08]
+Last Updated: [2026/11/09]

@@ -12,7 +12,7 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let com = MichiuComContext::new_ro_single()?;
 
     let builder = MichiuWindowBuilder::new()
-        .with_title("A11y Catalog")
+        .with_title("Catalog")
         .with_visible(false)
         .with_decorations(false)
         .with_no_redirection_bitmap(true)
