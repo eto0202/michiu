@@ -782,6 +782,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "cargo-iu_ui"
+version = "0.2.2"
+
+[[package]]
 name = "cc"
 version = "1.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
