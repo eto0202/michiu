@@ -13,10 +13,12 @@ publish = false
 name = "catalog"
 path = "examples/catalog/main.rs"
 
-[dependencies]
-michiu = { workspace = true }
+[dev-dependencies]
 pollster = "1.0.1"
 strum = {version = "0.28.0", features = ["derive"] }
+
+[dependencies]
+michiu = { workspace = true }
 
 [dependencies.windows]
 version = "0.62.2"

@@ -33,7 +33,9 @@ pub use shadow::*;
 pub use string::*;
 pub use transform::*;
 
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Default, Eq, PartialOrd, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "lowercase"))]
 pub enum Position {
     #[default]
     Relative,
@@ -43,21 +45,27 @@ pub enum Position {
     Sticky,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Default, Eq, PartialOrd, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "kebab-case"))]
 pub enum BoxSizing {
     #[default]
     BorderBox,
     ContentBox,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Default, Eq, PartialOrd, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "kebab-case"))]
 pub enum Direction {
     #[default]
     Ltr,
     Rtl,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Default, Eq, PartialOrd, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "kebab-case"))]
 pub enum Overflow {
     #[default]
     Visible,
@@ -66,13 +74,18 @@ pub enum Overflow {
     Clip,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Default, Eq, PartialOrd, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct LayoutOverflow {
+    #[cfg_attr(feature = "serde", serde(rename = "overflow-x"))]
     pub x: Overflow,
+    #[cfg_attr(feature = "serde", serde(rename = "overflow-y"))]
     pub y: Overflow,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Default, Eq, PartialOrd, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "kebab-case"))]
 pub enum FlexDirection {
     #[default]
     Row,
@@ -94,9 +107,12 @@ impl FlexDirection {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Default, Eq, PartialOrd, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "kebab-case"))]
 pub enum FlexWrap {
     #[default]
+    #[cfg_attr(feature = "serde", serde(rename = "nowrap"))]
     NoWrap,
     Wrap,
     WrapReverse,
@@ -104,7 +120,9 @@ pub enum FlexWrap {
     BalanceReverse,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Default, Eq, PartialOrd, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "kebab-case"))]
 pub enum AlignItems {
     Normal,
     Start,
@@ -115,16 +133,23 @@ pub enum AlignItems {
     Baseline,
     #[default]
     Stretch,
+    #[cfg_attr(feature = "serde", serde(rename = "safe start"))]
     SafeStart,
+    #[cfg_attr(feature = "serde", serde(rename = "safe end"))]
     SafeEnd,
+    #[cfg_attr(feature = "serde", serde(rename = "safe flex-start"))]
     SafeFlexStart,
+    #[cfg_attr(feature = "serde", serde(rename = "safe flex-end"))]
     SafeFlexEnd,
+    #[cfg_attr(feature = "serde", serde(rename = "safe center"))]
     SafeCenter,
     SelfStart,
     SelfEnd,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Default, Eq, PartialOrd, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "kebab-case"))]
 pub enum AlignSelf {
     Start,
     End,
@@ -134,16 +159,23 @@ pub enum AlignSelf {
     Baseline,
     #[default]
     Stretch,
+    #[cfg_attr(feature = "serde", serde(rename = "safe start"))]
     SafeStart,
+    #[cfg_attr(feature = "serde", serde(rename = "safe end"))]
     SafeEnd,
+    #[cfg_attr(feature = "serde", serde(rename = "safe flex-start"))]
     SafeFlexStart,
+    #[cfg_attr(feature = "serde", serde(rename = "safe flex-end"))]
     SafeFlexEnd,
+    #[cfg_attr(feature = "serde", serde(rename = "safe center"))]
     SafeCenter,
     SelfStart,
     SelfEnd,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Default, Eq, PartialOrd, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "kebab-case"))]
 pub enum JustifyContent {
     Normal,
     Start,
@@ -156,14 +188,21 @@ pub enum JustifyContent {
     SpaceEvenly,
     FlexStart,
     FlexEnd,
+    #[cfg_attr(feature = "serde", serde(rename = "safe start"))]
     SafeStart,
+    #[cfg_attr(feature = "serde", serde(rename = "safe end"))]
     SafeEnd,
+    #[cfg_attr(feature = "serde", serde(rename = "safe flex-start"))]
     SafeFlexStart,
+    #[cfg_attr(feature = "serde", serde(rename = "safe flex-end"))]
     SafeFlexEnd,
+    #[cfg_attr(feature = "serde", serde(rename = "safe center"))]
     SafeCenter,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Default, Eq, PartialOrd, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "kebab-case"))]
 pub enum AlignContent {
     Normal,
     Start,
@@ -176,16 +215,24 @@ pub enum AlignContent {
     SpaceEvenly,
     FlexStart,
     FlexEnd,
+    #[cfg_attr(feature = "serde", serde(rename = "safe start"))]
     SafeStart,
+    #[cfg_attr(feature = "serde", serde(rename = "safe end"))]
     SafeEnd,
+    #[cfg_attr(feature = "serde", serde(rename = "safe flex-start"))]
     SafeFlexStart,
+    #[cfg_attr(feature = "serde", serde(rename = "safe flex-end"))]
     SafeFlexEnd,
+    #[cfg_attr(feature = "serde", serde(rename = "safe center"))]
     SafeCenter,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Default, Eq, PartialOrd, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "kebab-case"))]
 pub enum TextAlign {
     #[default]
+    #[cfg_attr(feature = "serde", serde(rename = "start"))]
     Auto,
     Left,
     Right,
@@ -193,8 +240,10 @@ pub enum TextAlign {
 }
 
 /// Windows 11's Native System Background Blur Effect
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Default, Eq, PartialOrd, Ord, Hash)]
 #[repr(i32)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "kebab-case"))]
 pub enum Backdrop {
     #[default]
     None = 0,
@@ -203,8 +252,10 @@ pub enum Backdrop {
     MicaAlt = 4,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Default, Eq, PartialOrd, Ord, Hash)]
 #[repr(u32)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "kebab-case"))]
 pub enum BorderStyle {
     #[default]
     Solid = 0,
@@ -213,8 +264,10 @@ pub enum BorderStyle {
     Double = 3,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Default, Eq, PartialOrd, Ord, Hash)]
 #[repr(u32)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "kebab-case"))]
 pub enum BorderAlignment {
     #[default]
     Start = 0, // 左・上が基準 (左から右、上から下へ伸びる)
@@ -234,7 +287,9 @@ pub enum BorderAlignment {
 /// set the window's visibility margin ([`set_visibility_margin`](crate::Context::set_visibility_margin) /
 /// [`with_visibility_margin`](crate::Context::with_visibility_margin)),
 /// so that rendering begins in advance, starting from just before the content enters the viewport (Default: 200px top and bottom).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Default, Eq, PartialOrd, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "kebab-case"))]
 pub enum ContentVisibility {
     /// Skips layout calculations and rendering for descendants while the element is off-screen (outside the viewport).
     ///

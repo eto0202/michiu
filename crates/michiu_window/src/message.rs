@@ -49,7 +49,7 @@ use windows::{
 
 /// For events originating from COM callbacks, such as `IDropTarget`,
 /// the value is 0 because there is no corresponding Win32 message.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct MichiuRawEvent {
     pub msg: u32,
     pub wparam: WPARAM,

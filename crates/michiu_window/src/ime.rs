@@ -34,7 +34,7 @@ const IMM_ERROR_GENERAL: i32 = -2;
 ///
 /// It provides high-level APIs to query and modify the active IME/TSF open status, conversion modes,
 /// and composition/result string buffers.
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ImeContext {
     pub(crate) hwnd: HWND,
     pub(crate) himc: HIMC,
@@ -259,7 +259,7 @@ pub fn get_active_keyboard_layout_id() -> u32 {
 ///
 /// This structure implements (`serde::Serialize`) and (`serde::Deserialize`) when the `serde`
 /// feature is enabled, allowing seamless serialization into JSON for cross-process communication.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Hash)]
 pub struct ImeStateUpdate {
     /// The unique ID of the window where this IME state update occurred (HWND as isize).
     pub window_id: isize,
@@ -289,6 +289,7 @@ pub struct ImeStateUpdate {
 ///
 /// It runs entirely on dedicated background threads, ensuring that slow or blocked clients do not freeze
 /// the main UI thread's rendering loop.
+#[derive(Debug, Clone)]
 pub struct ImeRelayServer {
     tx: Sender<ImeStateUpdate>,
 }

@@ -48,7 +48,7 @@ use windows::{
 /// [`raw_window_handle::HasDisplayHandle`] (v0.6).
 ///
 /// It also implements [`Validate`] from `michiu_guard` for checking the liveness of the underlying window.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WindowHandle {
     pub(crate) hwnd: HWND,
     pub(crate) hinstance: HINSTANCE,
@@ -58,6 +58,7 @@ pub struct WindowHandle {
 unsafe impl Send for WindowHandle {}
 unsafe impl Sync for WindowHandle {}
 
+#[derive(Debug, Clone)]
 pub(crate) enum SetWindowCommand {
     Title(Cow<'static, str>),
     Visible(bool),
@@ -87,6 +88,7 @@ pub(crate) enum SetWindowCommand {
     },
 }
 
+#[derive(Debug, Clone)]
 pub(crate) enum FileDialogKinds {
     Open,
     Save(FileDialogOptions),

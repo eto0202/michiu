@@ -71,6 +71,7 @@ pub enum ButtonSize {
 ///     .modify(ii().bg_color(Color::WHITE)) // Overwrites default border
 ///     .on_click(|| println!("Delete clicked!"));
 /// ```
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SimpleButton {
     /// Accessible button label text.
     pub label: String,

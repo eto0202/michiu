@@ -1,5 +1,5 @@
 use super::core::{MichiuTheme, MichiuWidget};
-use michiu::{accessibility::*, prelude::*, ui::FlexDirection};
+use michiu::{accessibility::*, prelude::*};
 
 /// Visual appearance variants for [`SimpleButtonGroup`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -28,6 +28,7 @@ pub enum ButtonGroupSize {
 }
 
 /// An item within a [`SimpleButtonGroup`].
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ButtonGroupItem {
     /// An interactive button (custom `Entity`, with events, icons, etc.).
     Button(Entity),
@@ -99,6 +100,7 @@ pub enum ButtonGroupItem {
 ///     .direction(FlexDirection::Column)
 ///     .build(&theme);
 /// ```
+#[derive(Debug, Clone, PartialEq)]
 pub struct SimpleButtonGroup {
     /// Layout direction of the group (Row, Column, etc.).
     pub direction: FlexDirection,

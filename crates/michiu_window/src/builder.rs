@@ -1,6 +1,5 @@
-use crate::{LogicalPoint, LogicalSize, MessageFilter, MichiuComContext, MichiuTray};
 use crate::{
-    MichiuIcon,
+    LogicalPoint, LogicalSize, MessageFilter, MichiuComContext, MichiuIcon, MichiuTray,
     error::{MichiuError, Result},
 };
 use michiu_guard::{Unvalidated, Validate};

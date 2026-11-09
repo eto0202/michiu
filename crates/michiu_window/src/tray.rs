@@ -1,6 +1,12 @@
-use std::{borrow::Cow, sync::Arc};
-
+use crate::{
+    MichiuIcon, PreferredAppMode, WindowHandle,
+    error::{MichiuError, Result},
+    set_app_theme,
+    utils::{get_window_userdata, size_of_u32, take_window_userdata},
+    win32_ext::{LParamExt, WParamExt},
+};
 use michiu_guard::{Unvalidated, Validate, Validated};
+use std::{borrow::Cow, sync::Arc};
 use windows::{
     Win32::{
         Foundation::{ERROR_CLASS_ALREADY_EXISTS, HINSTANCE, HWND, LPARAM, LRESULT, POINT, WPARAM},
@@ -25,16 +31,6 @@ use windows::{
     core::{PCWSTR, w},
 };
 
-use crate::{
-    MichiuIcon, PreferredAppMode, set_app_theme,
-    utils::{get_window_userdata, size_of_u32, take_window_userdata},
-    win32_ext::{LParamExt, WParamExt},
-};
-use crate::{
-    WindowHandle,
-    error::{MichiuError, Result},
-};
-
 /// Window message sub-ID used to identify tray icon mouse event callbacks.
 pub const WM_TRAY_CALLBACK: u32 = WM_USER + 100;
 
@@ -45,12 +41,12 @@ pub const WM_TRAY_CALLBACK: u32 = WM_USER + 100;
 ///
 /// When all cloned instances of this `MichiuTray` are dropped, the tray icon is automatically
 /// deleted from the system shell and its hidden dummy window is safely destroyed.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MichiuTray {
     inner: Arc<TrayInner>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct TrayInner {
     dummy_hwnd: HWND,
     u_id: u32,
@@ -76,6 +72,7 @@ impl Drop for TrayInner {
     }
 }
 
+#[derive(Clone)]
 struct TrayInternalData {
     on_left_click: Option<Arc<dyn Fn() + Send + Sync>>,
     on_right_click: Option<Arc<dyn Fn() + Send + Sync>>,
@@ -84,6 +81,25 @@ struct TrayInternalData {
     tooltip: Option<Cow<'static, str>>,
     menu_items: Vec<MichiuTrayMenuItem>,
     custom_menu: Option<MichiuCustomTrayMenu>,
+}
+impl std::fmt::Debug for TrayInternalData {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TrayInternalData")
+            .field("taskbar_created_msg", &self.taskbar_created_msg)
+            .field("icon", &self.icon)
+            .field(
+                "on_left_click",
+                &self.on_left_click.as_ref().map(|_| "<closure>"),
+            )
+            .field(
+                "on_right_click",
+                &self.on_right_click.as_ref().map(|_| "<closure>"),
+            )
+            .field("tooltip", &self.tooltip)
+            .field("menu_items", &self.menu_items)
+            .field("custom_menu", &self.custom_menu)
+            .finish()
+    }
 }
 
 const CLASS_NAME_STR: &str = concat!("MichiuTrayWindowClass_", env!("CARGO_PKG_VERSION"));

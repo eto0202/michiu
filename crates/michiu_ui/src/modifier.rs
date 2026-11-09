@@ -18,6 +18,17 @@ pub enum ModValue<T> {
     Static(T),
     Dynamic(Box<dyn Fn() -> T + Send + Sync + 'static>),
 }
+impl<T: std::fmt::Debug> std::fmt::Debug for ModValue<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Static(val) => f.debug_tuple("Static").field(val).finish(),
+            Self::Dynamic(_) => f
+                .debug_tuple("Dynamic")
+                .field(&format_args!("dyn Fn() -> {}", std::any::type_name::<T>()))
+                .finish(),
+        }
+    }
+}
 
 /// For detailed information on the behavior of each property and its correspondence with CSS,
 /// please refer to the documentation for [`taffy::Style`] used internally.
@@ -39,6 +50,24 @@ pub struct ModInner {
 
     pub drag_property: Option<DndDragProperty>,
     pub drop_property: Option<DndDropProperty>,
+}
+impl std::fmt::Debug for ModInner {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ModInner")
+            .field("mask", &self.mask)
+            .field("basic_layout", &self.basic_layout)
+            .field("flex_layout", &self.flex_layout)
+            .field("visual_property", &self.visual_property)
+            .field("interaction_styles", &self.interaction_styles)
+            .field("scrollbar_style", &self.scrollbar_style)
+            .field(
+                "dynamic_setters",
+                &format_args!("[{} callbacks]", self.dynamic_setters.len()),
+            )
+            .field("drag_property", &self.drag_property)
+            .field("drop_property", &self.drop_property)
+            .finish()
+    }
 }
 
 impl ModInner {
@@ -85,23 +114,6 @@ pub enum ModTarget {
     SelectedParent,
     DraggedParent,
     AnyParent,
-}
-
-// Debug トレイトの手動実装 (クロージャを含むため)
-impl std::fmt::Debug for ModInner {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ModInner")
-            .field("mask", &self.mask)
-            .field("basic_layout", &self.basic_layout)
-            .field("flex_layout", &self.flex_layout)
-            .field("visual_property", &self.visual_property)
-            .field("interaction_styles", &self.interaction_styles)
-            .field("scrollbar_style", &self.scrollbar_style)
-            // dynamic_setters はデバッグ表示が難しいため除外
-            .field("drag_property", &self.drag_property)
-            .field("drop_property", &self.drop_property)
-            .finish_non_exhaustive()
-    }
 }
 
 // ComponentMask, BasicLayout, FlexLayout, GridLayout, VisualProperty はすべて単純なデータ構造でありスレッド安全

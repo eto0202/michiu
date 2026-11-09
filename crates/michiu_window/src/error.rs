@@ -1,5 +1,4 @@
 use std::{borrow::Cow, fmt};
-
 use thiserror::Error;
 use windows::Win32::Foundation::HWND;
 
@@ -171,6 +170,7 @@ pub type Result<T> = std::result::Result<T, MichiuError>;
 ///
 /// When printed using standard `{}` formatting, it prints the base error message,
 /// followed by raw OS HRESULT codes (with common explanations) and helpful remedy advice.
+#[derive(Error, Debug, Clone, PartialEq, Eq)]
 pub struct RichReport<'a>(&'a MichiuError);
 
 impl fmt::Display for RichReport<'_> {
@@ -388,8 +388,7 @@ impl SysErrorInfo {
     }
 }
 
-#[expect(clippy::unwrap_used)]
-#[expect(clippy::print_stdout)]
+#[expect(clippy::unwrap_used, clippy::print_stdout)]
 #[cfg(test)]
 mod tests {
     use super::*;

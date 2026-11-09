@@ -33,7 +33,7 @@ pub(crate) enum ComKind {
 /// does not implement `Send` or `Sync`. When cloned on the same thread, it correctly increments
 /// the OS initialization reference counter. Dropping this guard automatically calls the
 /// corresponding uninitialization API (`CoUninitialize` or `RoUninitialize`).
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct MichiuComContext {
     pub(crate) kind: ComKind,
     _marker: PhantomData<*const ()>, // !Send and !Sync

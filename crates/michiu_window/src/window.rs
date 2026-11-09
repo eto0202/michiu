@@ -86,6 +86,7 @@ use windows::{
 /// This structure automatically implements [`raw_window_handle::HasWindowHandle`] and
 /// [`raw_window_handle::HasDisplayHandle`] (v0.6)
 /// for seamless integration with external rendering libraries.
+#[derive(Debug, Clone)]
 pub struct MichiuWindow {
     hwnd: HWND,
     hinstance: HINSTANCE,
@@ -104,7 +105,7 @@ pub struct MichiuWindow {
 /// Under the hood, this wraps the raw `HWND` pointer representation as an `isize` integer.
 /// It implements `Clone`, `Copy`, `PartialEq`, `Eq`, and `Hash`, making it suitable
 /// for use as keys in hash maps or routing events in multi-window environments.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct WindowId(pub(crate) isize);
 
 impl WindowId {
@@ -869,6 +870,7 @@ impl MichiuWindow {
 }
 
 /// RAII Guard for Managing the Drawing Scope
+#[derive(Debug, Clone, PartialEq)]
 pub struct PaintContext<'a> {
     hwnd: HWND,
     pub hdc: HDC,
@@ -992,6 +994,7 @@ impl std::fmt::Debug for MessageFilter {
 
 /// Runtime state management structure maintained for each window
 #[expect(clippy::struct_excessive_bools)]
+#[derive(Debug, Clone)]
 pub(crate) struct WindowState {
     pub(crate) message_filter: Option<MessageFilter>,
     pub(crate) auto_dpi_scaling: bool,
@@ -1012,6 +1015,7 @@ pub struct SavedWindowState {
     pub rect: RECT,
 }
 
+#[derive(Debug, Clone)]
 struct CreationContext {
     state: *mut WindowState,
     was_taken: bool,

@@ -1,6 +1,5 @@
-use windows::Win32::UI::WindowsAndMessaging::HCURSOR;
-
 use crate::utils::round_to_i32;
+use windows::Win32::UI::WindowsAndMessaging::HCURSOR;
 
 /// Describes the state of a physical input entity (e.g., Keyboard Key, Mouse Button).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -277,7 +276,7 @@ impl LogicalRect {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]
 pub struct WheelDelta(pub i32);
 
 impl WheelDelta {
@@ -300,6 +299,7 @@ impl WheelDelta {
 
 /// Specifies the preferred application visual mode for standard Win32 menus and titles.
 #[repr(i32)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum PreferredAppMode {
     /// Follows the current default Windows system personalization settings.
     Default = 0,

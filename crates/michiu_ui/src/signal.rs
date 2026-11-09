@@ -1,13 +1,12 @@
 #[cfg(feature = "trace-error")]
 use crate::trace_error;
 use crate::{
-    Context, DebugStore, Effects, MichiuError, MichiuTaskSender, MichiuTrace, OptionTraceExt,
-    with_context,
+    Context, DebugStore, Effects, Entity, MichiuError, MichiuTaskSender, MichiuTrace,
+    OptionTraceExt, with_context,
 };
 use slotmap::new_key_type;
 use smallvec::SmallVec;
-use std::cell::Cell;
-use std::marker::PhantomData;
+use std::{cell::Cell, marker::PhantomData};
 
 new_key_type! {
     /// A unique ID that identifies a registered signal
@@ -20,18 +19,19 @@ thread_local! {
     // 現在メインスレッド上で評価中のエフェクトIDを記録するスレッドローカル
     pub(crate) static ACTIVE_EFFECT: Cell<Option<EffectId>> = const { Cell::new(None) };
     // 現在メインスレッド上で処理中のEntity
-    pub(crate) static ACTIVE_ENTITY: Cell<Option<crate::Entity>> = const { Cell::new(None) };
+    pub(crate) static ACTIVE_ENTITY: Cell<Option<Entity>> = const { Cell::new(None) };
 }
 
 /// Automatically restore `ACTIVE_ENTITY` when exiting the scope
+#[derive(Debug, Clone)]
 pub struct ActiveEntityGuard {
-    prev: Option<crate::Entity>,
+    prev: Option<Entity>,
 }
 
 impl ActiveEntityGuard {
     #[inline]
     #[must_use]
-    pub fn new(id: crate::Entity) -> Self {
+    pub fn new(id: Entity) -> Self {
         let prev = ACTIVE_ENTITY.with(|cell| {
             let prev = cell.get();
             cell.set(Some(id));
@@ -49,7 +49,7 @@ impl Drop for ActiveEntityGuard {
 }
 
 /// Signal readout terminal.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Hash)]
 pub struct ReadSignal<T> {
     pub(crate) id: SignalId,
     pub(crate) _marker: PhantomData<T>,
@@ -309,7 +309,7 @@ impl ReadSignal<bool> {
 }
 
 /// Signal write port (for the main thread only).
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Hash)]
 pub struct WriteSignal<T> {
     pub(crate) id: SignalId,
     pub(crate) _marker: PhantomData<T>,
@@ -399,6 +399,7 @@ impl<T: Send + 'static> WriteSignal<T> {
 }
 
 /// A thread-safe sender for safely modifying signals on the main thread from a background thread.
+#[derive(Debug)]
 pub struct SignalSender<T> {
     pub(crate) id: SignalId,
     pub(crate) sys_task_sender: MichiuTaskSender,

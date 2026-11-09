@@ -1,12 +1,12 @@
 use crate::error::{MichiuError, Result};
-use std::os::windows::ffi::OsStrExt;
-use std::path::Path;
-use std::sync::Arc;
-use windows::Win32::UI::WindowsAndMessaging::{
-    CreateIconFromResourceEx, DestroyIcon, HICON, IMAGE_ICON, LR_DEFAULTCOLOR, LR_DEFAULTSIZE,
-    LR_LOADFROMFILE, LoadImageW, LookupIconIdFromDirectoryEx,
+use std::{os::windows::ffi::OsStrExt, path::Path, sync::Arc};
+use windows::{
+    Win32::UI::WindowsAndMessaging::{
+        CreateIconFromResourceEx, DestroyIcon, HICON, IMAGE_ICON, LR_DEFAULTCOLOR, LR_DEFAULTSIZE,
+        LR_LOADFROMFILE, LoadImageW, LookupIconIdFromDirectoryEx,
+    },
+    core::PCWSTR,
 };
-use windows::core::PCWSTR;
 
 /// Loads an icon from the specified image file path.
 ///
@@ -228,9 +228,7 @@ impl MichiuIcon {
     }
 }
 
-#[expect(clippy::unwrap_used)]
-#[expect(clippy::expect_used)]
-#[expect(clippy::panic)]
+#[expect(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #[cfg(test)]
 mod tests {
     use super::*;

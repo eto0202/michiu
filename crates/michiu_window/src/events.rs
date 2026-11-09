@@ -30,7 +30,7 @@ pub enum MichiuAnyEvent {
 ///
 /// All raw OS coordinates and keys are kept unvalidated inside [`Unvalidated`] wrappers,
 /// forcing you to explicitly validate them at your application boundary.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum MichiuEvent {
     /// Issued when the window is first instantiated. (`WM_CREATE`)
     Created,

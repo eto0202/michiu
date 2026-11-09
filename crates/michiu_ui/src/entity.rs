@@ -354,6 +354,18 @@ pub enum Prop<T> {
     Static(T),
     Dynamic(Box<dyn Fn() -> T + 'static>),
 }
+impl<T: std::fmt::Debug> std::fmt::Debug for Prop<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::None => f.write_str("None"),
+            Self::Static(val) => f.debug_tuple("Static").field(val).finish(),
+            Self::Dynamic(_) => f
+                .debug_tuple("Dynamic")
+                .field(&format_args!("dyn Fn() -> {}", std::any::type_name::<T>()))
+                .finish(),
+        }
+    }
+}
 
 new_key_type! {
     /// A unique generation management ID that identifies each entity ([`Entity`]) within the UI.

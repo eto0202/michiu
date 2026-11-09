@@ -23,6 +23,14 @@ pub struct MichiuTaskSender {
     // コアから Win32 を隠蔽するためのウェイクアップコールバック
     pub(crate) waker: Option<std::sync::Arc<dyn Fn() + Send + Sync + 'static>>,
 }
+impl std::fmt::Debug for MichiuTaskSender {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MichiuTaskSender")
+            .field("inner", &self.inner)
+            .field("waker", &self.waker.as_ref().map(|_| "<closure>"))
+            .finish()
+    }
+}
 
 impl MichiuTaskSender {
     /// Sends a closure—a piece of code to be executed on the main thread—from a worker thread or similar.
