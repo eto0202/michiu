@@ -9,11 +9,32 @@
   - Add `push_external_mask_instance`
   - Rendered using the same Draw call as text, etc.
   - Color is specified by `text_color`.
+- *(iu_ui)* Update components
+- *(tools)* Init
+- *(cargo-iu_ui)* Implement a Cargo subcommand for `iu_ui`
+- *(cargo-iu_ui)* Add the `add` command
+- *(cargo-iu_ui)* Add `theme`, `tag`, `utils` and `check` commands
+
+### 🐛 Bug Fixes
+
+- *(cargo-iu_ui)* Fix `init` command
+- *(cargo-iu_ui)* Fix `add` and `init` commands
+
+### 🚜 Refactor
+
+- *(a11y_catalog)* Change to the Directory Structure
+- Rename the folder `a11y_catalog` to `iu_ui`
+- *(iu_ui)* Update `README.md`
+- *(cargo-iu_ui)* Update `init` command
+- *(cargo-iu_ui)* Update `init` command
+- *(iu-ui)* Remove `include_bytes` for testing
 
 ### ⚙️ Miscellaneous Tasks
 
 - Updated `minimal_sample` and `README`
 - Update `README.md`
+- Cargo fmt
+- Update `CHANGELOG.md`
 - Cargo fmt
 
 ## [0.2.2] - 2026-11-06

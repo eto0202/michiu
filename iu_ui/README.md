@@ -10,7 +10,71 @@ Instead of enforcing a heavy library-level dependency, it is designed around the
 
 ---
 
-## Running the Catalog App
+## Quick Start via CLI (`cargo-iu_ui`)
+
+The recommended and fastest way to install components into your project is using our dedicated CLI tool.
+
+### 1. Installation
+
+```bash
+cargo install cargo-iu_ui
+```
+
+### 2. Basic Commands
+
+| Command                         | Description                                                                                 |
+| :------------------------------ | :------------------------------------------------------------------------------------------ |
+| `cargo iu_ui init`              | Sets up directory structure, downloads `core.rs`, `iu_ui.toml`, and creates `setting.toml`. |
+| `cargo iu_ui list`              | Lists all available remote catalog components, themes, and tags with install status.        |
+| `cargo iu_ui add <comps...>`    | Downloads and installs one or more components (e.g., `simple_button`, `simple_modal`).      |
+| `cargo iu_ui add --all`         | Installs all components from the catalog at once.                                           |
+| `cargo iu_ui theme <themes...>` | Downloads and configures accessible color themes (e.g., `simple_theme`).                    |
+| `cargo iu_ui tag <tags...>`     | Downloads accessibility inference tags (e.g., `simple_tag`).                                |
+| `cargo iu_ui utils <utils...>`  | Downloads shared utility and layout helpers.                                                |
+| `cargo iu_ui check`             | Checks installed components and assets against remote for available updates.                |
+
+### 3. Usage Example
+
+```bash
+# Initialize iu_ui in your project
+cargo iu_ui init
+
+# Check available components
+cargo iu_ui list
+
+# Add components (Assets like SVG icons are resolved automatically!)
+cargo iu_ui add simple_button simple_input
+
+# Check for updates
+cargo iu_ui check
+```
+
+Then simply add `mod iu_ui;` to your `src/main.rs` or `src/lib.rs`:
+
+```rust
+mod iu_ui;
+
+use iu_ui::prelude::*; // Brings in MichiuWidget, MichiuTheme, and installed components
+```
+
+---
+
+## Manual Integration (3-Step Integration)
+
+You can also integrate components manually without using the CLI:
+
+```text
+Step 1: Copy core.rs
+        └── Brings MichiuWidget & MichiuTheme traits & Oklch
+Step 2: Prepare Theme
+        └── Copy from theme/ OR implement MichiuTheme on your own theme struct
+Step 3: Copy Components
+        └── Copy from components/ (by file/folder or struct block)
+```
+
+---
+
+## Running the Catalog Preview App
 
 You can directly preview and verify component appearance, keyboard interactions, and screen reader behavior (e.g., Windows Narrator).
 
@@ -22,8 +86,6 @@ cargo run -p iu_ui --example catalog
 ---
 
 ## Directory Structure
-
-Components are managed as single files or modules, completely decoupled from the preview application and unified under lightweight core traits.
 
 ```text
 iu_ui/
@@ -42,7 +104,7 @@ iu_ui/
     ├── lib.rs               # Library entry point & module re-exports
     ├── core.rs              # [Core Trait] MichiuWidget & MichiuTheme & Oklch
     │
-    ├── assets/              # Static assets such as cursor icons and images
+    ├── assets/              # Static assets such as cursor icons and SVGs
     │
     ├── theme/               # Accessible themes meeting contrast ratios
     │   ├── mod.rs
@@ -68,42 +130,6 @@ iu_ui/
 
 ---
 
-## How to Use (3-Step Integration)
-
-Integrating components into your project is designed to be straightforward and modular:
-
-```text
-Step 1: Copy core.rs
-        └── Brings MichiuWidget & MichiuTheme traits & Oklch
-Step 2: Prepare Theme
-        └── Copy from a11y_theme/ OR implement MichiuTheme on your own theme struct
-Step 3: Copy Components
-        └── Copy from components/ (by file/folder or struct block)
-```
-
-### Step 1: Copy `core.rs` into Your Project
-
-First, copy `src/core.rs` into your project. This file defines the core traits (`MichiuWidget`, `MichiuTheme`, `Oklch`) and has zero heavy external dependencies.
-
-### Step 2: Prepare Your Theme
-
-Prepare a theme conforming to `MichiuTheme`:
-
-- **Option A**: Copy an existing WCAG AA theme from `src/theme/` (e.g., `simple_theme.rs`).
-- **Option B**: Implement `MichiuTheme` on your existing application theme struct.
-
-### Step 3: Copy Components from `components/`
-
-Copy the components you need:
-
-- **Single file**: Copy files like `src/components/simple_button.rs` into your project.
-- **Folder module**: Copy directories like `components/tabs/` into your project.
-- **Snippet**: Copy only the target struct and its `MichiuWidget` impl directly into your code.
-
-````
-
----
-
 ## Customizing Styles & Events
 
 When you need to adjust styles, dimensions, or attach click/pointer events, simply chain modifiers **after calling `.build(&theme)`**.
@@ -122,40 +148,53 @@ let customized_button = SimpleButton::new("Delete")
     .modify(ii().bg_color(Color::WHITE))
     // Attach event handlers
     .on_click(|| println!("Deleted!"));
-````
+```
 
 ---
 
-## Design Principles
+## Guidelines for Authors & Contributors (Developer Guide)
 
-Follow these strict guidelines when authoring or contributing components and themes:
+When authoring new components or maintaining the catalog, strictly adhere to the following conventions:
 
-### 1. Self-Contained within File or Folder
+### 1. Internal Import Convention (`use super::core::*`)
+
+To ensure that components work seamlessly both inside the catalog repository and within end-users' projects without path errors:
+
+- **Always import core traits via `super::core`**:
+  ```rust
+  use super::core::{MichiuTheme, MichiuWidget, Oklch};
+  ```
+- Each category's `mod.rs` (e.g., `src/components/mod.rs`, `src/theme/mod.rs`) re-exports core privately via:
+  ```rust
+  pub(crate) use super::core;
+  ```
+  _(Never use `use crate::core::*;` directly inside component files, as `crate::` resolves to the user's application root when exported)._
+
+### 2. Updating `registry.json`
+
+The catalog index (`registry.json`) is generated automatically from Git commit histories:
+
+- **Do not update `registry.json` on every tiny edit.**
+- Run the registry builder **only after a batch of component changes or additions has settled**:
+  ```bash
+  cargo run -p registry_builder
+  ```
+
+### 3. Self-Contained within File or Folder
 
 - Each file or directory under `components/` **must be completely self-contained** (except for depending on `core.rs` traits).
-- Components **must never depend on other catalog components**.
-- Internal helper logic, modifiers, or sub-widgets should remain private or `pub(crate)` within that file/folder. Code duplication is intentionally encouraged over cross-component coupling.
-
-### 2. Single File vs. Folder Module
-
-- **Single File (`name.rs`)**: Standard widgets should live within a single `.rs` file.
-- **Folder Module (`name/`)**: Complex components with multiple internal sub-elements or state machines (e.g., tabs, comboboxes, modals) must be grouped in a dedicated folder. **All internal dependencies must strictly remain inside that folder.**
-
-### 3. Separation and Documentation of Event Loop Handlers
-
-- If a component requires processing outside its own render tree (e.g., `Esc` key dismissal, outside-click detection, focus trap), **provide dedicated event handler functions (e.g., `pub fn handle_event(...)`) inside that component module**.
-- Explicitly detail required event loop bindings in the rustdoc documentation.
+- Components **must never depend on other catalog components**. Code duplication is intentionally encouraged over cross-component coupling.
 
 ### 4. Asset Reference Guidelines
 
-When referencing assets from within a component, embed the binaries using a relative path from the `components/` directory.
+When referencing assets from within a component, embed the binaries using a relative path from the `components/` directory. The CLI will automatically detect these assets and download them:
 
 ```rust
-// src/iu_ui/components/tab/mod.rs
+// In src/iu_ui/components/tab/mod.rs
 const OPEN_ICON: &[u8] = include_bytes!("../../asset/open.svg");
 
-// src/iu_ui/components/button.rs
-const IMAGE_PNG: &[u8] = include_bytes!("../asset/image.png");
+// In src/iu_ui/components/simple_button.rs
+const CLOSE_ICON: &[u8] = include_bytes!("../asset/close.svg");
 ```
 
 ### 5. Explicit Dependency Scope in Documentation
@@ -172,7 +211,7 @@ use super::core::{MichiuTheme, MichiuWidget, Oklch};
 ///   provided `core.rs` (`MichiuWidget`, `MichiuTheme`) is present.
 ///
 /// # Required Assets
-/// - None
+/// - None (or `close.svg`)
 ///
 /// # Event Loop Requirements
 /// - None (Self-contained within widget tree)
@@ -190,39 +229,6 @@ pub struct SimpleButton { ... }
 
 ---
 
-## Accessibility & Design Specifications
-
-- **WCAG / WAI-ARIA Compliance**:
-  - Keyboard interactions (Tab, Shift+Tab, Arrow keys, Home/End, Enter, Space, Esc, etc.) must operate according to APG specifications.
-  - Focus order, AccessKit node `Role`, and states (Selected, Checked, Disabled, etc.) must be accurately synchronized.
-- **Styling Flexibility**:
-  - Visual styling can be freely customized **as long as it meets WCAG standards (contrast ratios, focus ring visibility, target sizes)**. We encourage clean, unopinionated defaults that are easy to adapt to any brand.
-
----
-
-## Rules for Listing in the Catalog App (`src/examples/`)
-
-When introducing a new component, register it in the catalog app (`main_area.rs`, `sidebar.rs`) to enable real-time verification.
-
-- **UI Components (`src/components/`)**:
-  - Provide a preview implementation where clicks, keyboard navigation, and screen reader announcements (Windows Narrator / NVDA) can be tested.
-- **Themes (`scr/theme/`)**:
-  - Provide contrast comparison previews validating foreground, background, and focus indicators.
-- **Inference Tags (`scr/tag/`)**:
-  - Since inference tags are purely functional, **direct UI previews are not required**.
-
----
-
-## License
-
-All source code and assets contained in this catalog are dual-licensed under the **MIT License** or **Apache License 2.0**, consistent with the main repository.
-
-### Attribution Waiver
-
-When copying, modifying, or integrating code and assets from this catalog (including `src/components/`, internal helpers, and assets) into your own projects, **no attribution, copyright notice, or inclusion of the license terms is required**, for both commercial and non-commercial use. Feel free to use and adapt them directly as part of your own codebase.
-
----
-
 ## Recommended Tools & Resources
 
 - [Accessible Palette](https://accessiblepalette.com/)
@@ -234,11 +240,85 @@ When copying, modifying, or integrating code and assets from this catalog (inclu
 
 ---
 
+## License & Attribution Waiver
+
+All source code and assets contained in this catalog are dual-licensed under the **MIT License** or **Apache License 2.0**.
+
+### Attribution Waiver
+
+When copying, modifying, or integrating code and assets from this catalog into your own projects, **no attribution, copyright notice, or inclusion of the license terms is required**, for both commercial and non-commercial use.
+
+---
+
 # 原文
 
 このクレートは、WCAG（Web Content Accessibility Guidelines）および WAI-ARIA 仕様に準拠した、アクセシブルな UI コンポーネント・推論タグ・テーマのカタログ集です。
 
 クレート全体の重い依存を強制せず、**「共通トレイトと必要なファイルだけを自分のプロジェクトに持ち帰る」** 思想で設計されています。
+
+---
+
+## CLI でのクイックスタート (`cargo-iu_ui`)
+
+専用の CLI ツールを使うことで、必要なコンポーネントやアセットを自分のプロジェクトへ安全かつ即座に導入できます。
+
+### 1. ツールのインストール
+
+```bash
+cargo install cargo-iu_ui
+```
+
+### 2. 基本コマンド一覧
+
+| コマンド                        | 説明                                         | 備考                             |
+| :------------------------------ | :------------------------------------------- | :------------------------------- |
+| `cargo iu_ui init`              | フォルダ構成・`core.rs`・`iu_ui.toml` を配置 | プロジェクト初期化               |
+| `cargo iu_ui list`              | リモートカタログの一覧と現在の導入状況を表示 | ターミナル上で閲覧可能           |
+| `cargo iu_ui add <comps...>`    | 1つまたは複数のコンポーネントを追加          | 競合時: 上書き/リネーム/スキップ |
+| `cargo iu_ui add --all`         | カタログ内の全コンポーネントを一括追加       |                                  |
+| `cargo iu_ui theme <themes...>` | アクセシブルなカラーテーマを追加             | `src/iu_ui/theme/` へ            |
+| `cargo iu_ui tag <tags...>`     | 推論タグを追加                               | `src/iu_ui/tag/` へ              |
+| `cargo iu_ui utils <utils...>`  | 共通ユーティリティ関数を追加                 | `src/iu_ui/utils/` へ            |
+| `cargo iu_ui check`             | インストール済みコンポーネントの更新確認     | `setting.toml` と最新版を照合    |
+
+### 3. 使い方の流れ
+
+```bash
+# プロジェクト直下で初期化（フォルダと core.rs を自動配置）
+cargo iu_ui init
+
+# 利用可能なコンポーネント一覧を確認
+cargo iu_ui list
+
+# ボタンと入力を追加（依存する SVG アイコン等も自動でダウンロードされます）
+cargo iu_ui add simple_button simple_input
+
+# 本家に更新があるか確認
+cargo iu_ui check
+```
+
+あとはご自身の `src/main.rs` または `src/lib.rs` に `mod iu_ui;` を追加するだけで使えます：
+
+```rust
+mod iu_ui;
+
+use iu_ui::prelude::*; // MichiuWidget, MichiuTheme や追加したコンポーネントが一括インポートされます
+```
+
+---
+
+## 手動での使い方（持ち帰り 3 ステップ）
+
+CLI を使わず、手動でコピペして持ち帰ることも可能です：
+
+```text
+ステップ 1: core.rs を持ち帰る
+            └── MichiuWidget, MichiuTheme トレイト, Oklch を配置
+ステップ 2: テーマを用意する
+            └── theme/ からコピペ、または自前テーマに MichiuTheme を実装
+ステップ 3: コンポーネントを持ち帰る
+            └── components/ からファイル/フォルダ単位、または構造体をコピペ
+```
 
 ---
 
@@ -254,8 +334,6 @@ cargo run -p iu_ui --example catalog
 ---
 
 ## ディレクトリ構成
-
-コンポーネントはプレビューアプリと完全に分離され、すべて軽量なコアトレイト（`core.rs`）を基準に設計されています。
 
 ```text
 iu_ui/
@@ -274,7 +352,7 @@ iu_ui/
     ├── lib.rs               # ライブラリエントリーポイント & モジュール公開
     ├── core.rs              # [必須コア] MichiuWidget & MichiuTheme トレイト & Oklch 定義
     │
-    ├── assets/              # カーソルアイコンや画像などの静的リソース
+    ├── assets/              # カーソルアイコンや SVG などの静的リソース
     │
     ├── theme/               # コントラスト比等を満たしたアクセシブルなテーマ定義
     │   ├── mod.rs
@@ -300,42 +378,6 @@ iu_ui/
 
 ---
 
-## 使い方（持ち帰り 3 ステップ）
-
-コンポーネントの導入は以下の 3 ステップで直感的に行えます。
-
-```text
-ステップ 1: core.rs を持ち帰る
-            └── MichiuWidget, MichiuTheme トレイト, Oklch を配置
-ステップ 2: テーマを用意する
-            └── a11y_theme/ からコピペ、または自前テーマに MichiuTheme を実装
-ステップ 3: コンポーネントを持ち帰る
-            └── components/ からファイル/フォルダ単位、または構造体をコピペ
-```
-
-### ステップ 1: `core.rs` を配置する
-
-最初に `src/core.rs` を自分のプロジェクトへコピーします。コンポーネントとテーマの境界となる最小限のトレイト（`MichiuWidget`, `MichiuTheme`, `Oklch`）が定義されています。
-
-### ステップ 2: テーマを用意する
-
-`MichiuTheme` を満たすテーマを準備します：
-
-- **方法 A**: `src/theme/`（例: `simple_theme.rs`）からそのままファイルをコピーして使う。
-- **方法 B**: 自前アプリの既存テーマ構造体に `MichiuTheme` トレイトを実装する。
-
-### ステップ 3: `components/` からコンポーネントを配置する
-
-使いたい UI コンポーネントを持ち帰ります：
-
-- **単一ファイルの場合**: `src/components/simple_button.rs` などを自分のプロジェクトに配置します。
-- **フォルダモジュールの場合**: `components/tabs/` などのフォルダを丸ごと配置します。
-- **スニペット利用の場合**: 必要な構造体とその `impl MichiuWidget` ブロックだけをコピペして取り込みます。
-
-````
-
----
-
 ## スタイル・イベントのカスタマイズ
 
 見た目やパディング、クリックイベント（`on_click`）などを変更したい場合は、**`.build(&theme)` の後にメソッドチェーンを繋げます**。
@@ -354,39 +396,53 @@ let custom_button = SimpleButton::new("削除")
     .modify(ii().bg_color(Color::WHITE))
     // イベントハンドラを接続
     .on_click(|| println!("Deleted!"));
-````
+```
 
 ---
 
-## 設計原則
+## 開発者・メンテナー向けガイドライン
 
-新しいコンポーネントやテーマを追加する際は、以下の原則を厳守してください。
+コンポーネントを新規作成・改修する際は、以下のルールを厳守してください。
 
-### 1. ファイルまたはフォルダ単位で完結
+### 1. インポート規約 (`use super::core::*`)
+
+ユーザーがどの階層に `iu_ui` を配置してもパス解決エラー（`cannot find crate::core`）が起きないようにするため、以下のルールを徹底します：
+
+- **コアトレイトのインポートは必ず `super::core` を使用すること**:
+  ```rust
+  use super::core::{MichiuTheme, MichiuWidget, Oklch};
+  ```
+- 各カテゴリの `mod.rs`（`src/components/mod.rs`, `src/theme/mod.rs` 等）において、あらかじめ以下のように core を非公開再エクスポートしています：
+  ```rust
+  pub(crate) use super::core;
+  ```
+  _(コンポーネント内部で `use crate::core::*;` を直接使うことは禁止です。持ち帰り先ユーザーのクレートルートを探しに行ってしまうため)_
+
+### 2. `registry.json` の更新タイミング
+
+カタログ目録（`registry.json`）は Git のコミットハッシュから自動算出されます：
+
+- 1行直すごとに頻繁に更新する必要はありません。
+- **コンポーネントの追加や仕様変更がある程度まとまって完了してから**、以下のコマンドを実行して `registry.json` を再生成してください：
+  ```bash
+  cargo run -p registry_builder
+  ```
+
+### 3. ファイルまたはフォルダ単位で完結
 
 - `components/` 以下の各ファイル・フォルダは、`core.rs` を除き**他のカタログ内コンポーネントに一切依存してはいけません**。
 - コンポーネントの内部構造体やヘルパー関数は、そのファイル内またはフォルダ内に閉じ込めてください（過度な共通化より重複コードを推奨）。
 
-### 2. 1ファイル / フォルダモジュールの基準
-
-- **単一ファイル（`name.rs`）**: 通常のコンポーネントは 1 ファイルにまとめます。
-- **フォルダモジュール（`name/`）**: 構造体や状態遷移が多くコードが肥大化する場合（タブ、コンボボックス、モーダル等）はフォルダを作成して内部を分割してください。**その場合もフォルダ内だけで依存関係を完結させてください。**
-
-### 3. イベントループ・外部ハンドラの分離と明記
-
-- モーダル外クリック検知、`Esc` キー監視、フォーカストラップなど、コンポーネントツリー外のイベント処理が必要な場合は、**専用ハンドラ関数（例: `pub fn handle_event(...)`）をそのモジュール内に同梱** してください。
-- 呼び出し手順は rustdoc に必ず明記してください。
-
 ### 4. アセットの参照規約
 
-コンポーネント側からアセットを参照する際は、`components/` から見た相対パスでバイナリ埋め込みを行います。
+コンポーネント側からアセットを参照する際は、`components/` から見た相対パスでバイナリ埋め込みを行います。CLI はこの記述を正規表現で検知し、アセットを自動ダウンロード対象として登録します：
 
 ```rust
 // src/iu_ui/components/tab/mod.rs
 const OPEN_ICON: &[u8] = include_bytes!("../../asset/open.svg");
 
-// src/iu_ui/components/button.rs
-const IMAGE_PNG: &[u8] = include_bytes!("../asset/image.png");
+// src/iu_ui/components/simple_button.rs
+const CLOSE_ICON: &[u8] = include_bytes!("../asset/close.svg");
 ```
 
 ### 5. ドキュメントへの依存スコープ明記
@@ -403,7 +459,7 @@ use super::core::{MichiuTheme, MichiuWidget, Oklch};
 ///   この構造体と impl ブロックをコピペするだけで単体動作します。
 ///
 /// # Required Assets
-/// - None
+/// - None（アセットがある場合はファイル名を明記）
 ///
 /// # Event Loop Requirements
 /// - None（コンポーネント内部で完結）
@@ -421,39 +477,6 @@ pub struct SimpleButton { ... }
 
 ---
 
-## アクセシビリティ・デザイン仕様
-
-- **WCAG / WAI-ARIA 準拠**:
-  - キーボード操作（Tab, Shift+Tab, 矢印キー移動, Home/End, Enter, Space, Esc 等）が仕様に沿って動作すること。
-  - フォーカス順序、AccessKit ノードの `Role`、状態（Selected, Checked, Disabled など）が適切に反映されていること。
-- **デザインの自由度**:
-  - 見た目は **WCAG の基準（コントラスト比、フォーカス枠の視認性、ターゲットサイズなど）を満たしていれば自由** です。プロダクトに合わせて改造しやすい、プレーンかつ洗練されたスタイルを推奨します。
-
----
-
-## カタログアプリ (`src/examples/`) への掲載ルール
-
-コンポーネントを追加した際は、利用者が動作を確認できるようアプリ内（`main_area.rs`, `sidebar.rs` 等）に登録してください。
-
-- **UI コンポーネント (`src/components/`)**:
-  - `MichiuWidget` を実装し、クリック・キーボード遷移・ナレーター読み上げがリアルタイムでテストできるプレビューを実装してください。
-- **テーマ (`src/theme/`)**:
-  - `MichiuTheme` を実装し、背景色と文字色、フォーカスリングの対比など、簡単な色比較（コントラスト確認）ができる表示を用意してください。
-- **推論タグ (`src/tag/`)**:
-  - タグ単体での UI 表示は難しいため、カタログアプリ内での無理なプレビュー実装は不要です。
-
----
-
-## ライセンス
-
-本カタログに含まれるすべてのソースコードおよびアセットは、本体リポジトリと同様に **MIT License** または **Apache License 2.0** のデュアルライセンスのもとで公開されています。
-
-### 著作権表示（クレジット）に関する特記事項
-
-当カタログ内のコードをご自身のプロジェクトにコピー＆ペースト、改変、または組み込んで利用する場合、**商用・非商用を問わず、著作権表示やライセンス条項の記載（クレジット表示義務）は不要**です。ご自身のコードベースの一部として自由にご利用いただけます。
-
----
-
 ## 支援ツール・リソース
 
 - [Accessible Palette](https://accessiblepalette.com/)
@@ -462,6 +485,17 @@ pub struct SimpleButton { ... }
 - [WAI-ARIA Authoring Practices Guide (APG)](https://www.w3.org/WAI/ARIA/apg/patterns/)
 - [Web Content Accessibility Guidelines (WCAG) 2.2](https://www.w3.org/TR/WCAG22/)
 - [Accessibility Insights for Windows](https://accessibilityinsights.io/docs/windows/overview/)
+- [JIS X 8341-3:2016 達成基準 早見表（レベルA & AA）](https://waic.jp/resource/jis-x-8341-3-2016/)
+
+---
+
+## ライセンス & クレジット表示免除
+
+本カタログに含まれるすべてのソースコードおよびアセットは、本体リポジトリと同様に **MIT License** または **Apache License 2.0** のデュアルライセンスのもとで公開されています。
+
+### 著作権表示（クレジット）に関する特記事項
+
+当カタログ内のコードをご自身のプロジェクトにコピー＆ペースト、改変、または組み込んで利用する場合、**商用・非商用を問わず、著作権表示やライセンス条項の記載（クレジット表示義務）は不要**です。ご自身のコードベースの一部として自由にご利用いただけます。
 
 ---
 

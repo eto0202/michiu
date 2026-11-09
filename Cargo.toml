@@ -4,7 +4,8 @@ members = [
     "crates/*",
     "examples",
     "iu_ui",
-    "tools/*",
+    "tools/registry_builder",
+    "tools/cargo-iu_ui",
 ]
 default-members = ["examples"]
 
@@ -24,6 +25,8 @@ michiu_ui = { version = "0.2.2", path = "crates/michiu_ui" }
 michiu_guard = { version = "0.2.2", path = "crates/michiu_guard" }
 michiu_window = { version = "0.2.2", path = "crates/michiu_window" }
 serde = { version = "1.0.228", features = ["derive", "rc"] }
+serde_json = "1.0.154"
+sha2 = "0.11.1"
 
 [profile.release]
 opt-level = 3
