@@ -1,5 +1,6 @@
 [package]
 name = "cargo-iu_ui"
+description = "CLI tool for iu_ui accessible UI component catalog"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
