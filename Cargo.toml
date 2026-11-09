@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["command_test",
+members = [
     "crates/*",
     "examples",
     "iu_ui",

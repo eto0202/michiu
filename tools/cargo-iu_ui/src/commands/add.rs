@@ -256,7 +256,7 @@ fn register_in_mod_rs(components_dir: &Path, module_name: &str) -> std::io::Resu
         new_content.push_str(&format!("{}\n", mod_line));
         fs::write(&mod_path, new_content)?;
         println!(
-            "  {} Added '{}' to components/mod.rs.",
+            "{} Added '{}' to components/mod.rs.",
             "[Success]".green(),
             mod_line
         );

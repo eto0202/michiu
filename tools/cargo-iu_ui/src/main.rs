@@ -24,19 +24,44 @@ struct IuUiArgs {
 
 #[derive(Subcommand)]
 enum Commands {
-    // フォルダ構成と setting.toml を初期化する
+    /// Initialize the folder structure and iu_ui.toml
     Init,
-    // コンポーネントの追加 (実装予定)
+    /// List items in the remote catalog
+    List,
+    /// Check for updates to installed components
+    Check,
+    /// Add components
     Add {
-        // 追加するコンポーネント名
+        /// Names of components to add (can specify multiple)
         components: Vec<String>,
+        /// Add all components
         #[arg(long)]
         all: bool,
     },
-    // リモートカタログの一覧を表示
-    List,
-    // 更新を確認する (実装予定)
-    Check,
+    /// Add theme definitions
+    Theme {
+        /// Names of themes to add (can specify multiple)
+        themes: Vec<String>,
+        /// Add all themes
+        #[arg(long)]
+        all: bool,
+    },
+    /// Add inference tags
+    Tag {
+        /// Names of tags to add (can specify multiple)
+        tags: Vec<String>,
+        /// Add all tags
+        #[arg(long)]
+        all: bool,
+    },
+    /// Add utilities
+    Utils {
+        /// Names of utilities to add (can specify multiple)
+        utils: Vec<String>,
+        /// Add all utilities
+        #[arg(long)]
+        all: bool,
+    },
 }
 
 fn main() {
@@ -46,10 +71,16 @@ fn main() {
         Commands::Init => commands::init::execute(),
         Commands::List => commands::list::execute(),
         Commands::Add { components, all } => commands::add::execute(components, all),
-        Commands::Check => {
-            println!("{}", "Coming soon: check command".yellow());
-            Ok(())
+        Commands::Theme { themes, all } => {
+            commands::resource::execute(commands::resource::ResourceKind::Theme, themes, all)
         }
+        Commands::Tag { tags, all } => {
+            commands::resource::execute(commands::resource::ResourceKind::Tag, tags, all)
+        }
+        Commands::Utils { utils, all } => {
+            commands::resource::execute(commands::resource::ResourceKind::Utils, utils, all)
+        }
+        Commands::Check => commands::check::execute(),
     };
 
     if let Err(err) = result {
