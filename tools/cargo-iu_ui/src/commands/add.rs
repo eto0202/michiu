@@ -55,7 +55,7 @@ pub fn execute(components: Vec<String>, all: bool) -> Result<(), Box<dyn std::er
             match install_component(comp_name, comp_def, &comp_base_dir, &repo, &branch)? {
                 Some(name) => name,
                 None => {
-                    println!("  {} Skipped", "→".dimmed());
+                    println!("  {} Skipped", "↪".dimmed());
                     continue;
                 }
             };
@@ -64,7 +64,7 @@ pub fn execute(components: Vec<String>, all: bool) -> Result<(), Box<dyn std::er
         for assets_name in &comp_def.assets {
             resolve_asset(
                 assets_name,
-                comp_name,
+                &installed_module_name,
                 &registry,
                 &assets_base_dir,
                 &mut setting,
