@@ -1,3 +1,5 @@
+pub(crate) use super::core;
+
 pub mod simple_accordion;
 pub mod simple_button;
 pub mod simple_button_group;

@@ -163,6 +163,8 @@ const IMAGE_PNG: &[u8] = include_bytes!("../asset/image.png");
 Document all widgets with clear preconditions using the following template:
 
 ```rust
+use super::super::core::{MichiuTheme, MichiuWidget, Oklch};
+
 /// Accessible button component compliant with WAI-ARIA Button Pattern.
 ///
 /// # Scope
@@ -392,6 +394,8 @@ const IMAGE_PNG: &[u8] = include_bytes!("../asset/image.png");
 提供するコンポーネント構造体には、以下のように rustdoc を記載してください。
 
 ```rust
+use super::super::core::{MichiuTheme, MichiuWidget, Oklch};
+
 /// Accessible button component compliant with WAI-ARIA Button Pattern.
 ///
 /// # Scope

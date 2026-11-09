@@ -1,4 +1,4 @@
-use crate::{Oklch, core::MichiuTheme};
+use super::core::{MichiuTheme, Oklch};
 use michiu::prelude::*;
 
 /// An accessible blue-accented theme compliant with WCAG 2.2 AA standards.
