@@ -1,0 +1,48 @@
+# ==============================================================================
+# iu_ui Configuration File
+#
+# This configuration file is automatically managed by `cargo iu_ui`.
+# You can edit this file directly to modify directory paths or the repository.
+# ==============================================================================
+
+[project]
+# Base directory for iu_ui, referenced from main.rs via `mod iu_ui;`.
+base_dir = "src/iu_ui"
+
+# Directory for UI components (single-file or folder modules).
+components_dir = "src/iu_ui/components"
+
+# Directory for color themes meeting contrast ratios like WCAG AA.
+theme_dir = "src/iu_ui/theme"
+
+# Directory for accessibility inference tags (A11yInferenceTag implementations).
+tag_dir = "src/iu_ui/tag"
+
+# Directory for shared helper functions and calculation utilities.
+utils_dir = "src/iu_ui/utils"
+
+# Directory for static assets such as SVG icons, images, and cursor files.
+asset_dir = "src/iu_ui/assets"
+
+[registry]
+# GitHub repository to fetch the catalog from (owner/repo).
+repo = "eto0202/michiu"
+
+# Branch to reference (usually main).
+branch = "main"
+
+# ------------------------------------------------------------------------------
+# Version tracking for installed components.
+# Automatically updated and maintained by `cargo iu_ui add` and `cargo iu_ui check`.
+# ------------------------------------------------------------------------------
+
+[installed.components]
+
+[installed.themes]
+
+[installed.tags]
+
+[installed.utils]
+
+# Shared asset usage (for deduplication and sharing across multiple components).
+[installed.asset]

@@ -124,7 +124,7 @@ tag_dir = "{tag_dir}"
 utils_dir = "{utils_dir}"
 
 # Directory for static assets such as SVG icons, images, and cursor files.
-asset_dir = "{asset_dir}"
+assets_dir = "{assets_dir}"
 
 [registry]
 # GitHub repository to fetch the catalog from (owner/repo).
@@ -147,14 +147,14 @@ branch = "{branch}"
 [installed.utils]
 
 # Shared asset usage (for deduplication and sharing across multiple components).
-[installed.asset]
+[installed.assets]
 "#,
         base_dir = project.base_dir,
         components_dir = project.components_dir,
         theme_dir = project.theme_dir,
         tag_dir = project.tag_dir,
         utils_dir = project.utils_dir,
-        asset_dir = project.assets_dir,
+        assets_dir = project.assets_dir,
         repo = repo,
         branch = branch,
     );

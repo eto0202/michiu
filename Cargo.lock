@@ -979,6 +979,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "command_test"
+version = "0.2.2"
+
+[[package]]
 name = "concurrent-queue"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
