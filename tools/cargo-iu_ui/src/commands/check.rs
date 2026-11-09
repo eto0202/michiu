@@ -30,10 +30,7 @@ pub fn execute() -> Result<(), Box<dyn std::error::Error>> {
                     (comp.version.as_str(), "Up to date".green())
                 } else {
                     update_count += 1;
-                    (
-                        comp.version.as_str(),
-                        "Update available!".yellow().bold(),
-                    )
+                    (comp.version.as_str(), "Update available!".yellow().bold())
                 }
             }
             None => ("-", "Not in registry".dimmed()),
@@ -55,10 +52,7 @@ pub fn execute() -> Result<(), Box<dyn std::error::Error>> {
                     (theme.version.as_str(), "Up to date".green())
                 } else {
                     update_count += 1;
-                    (
-                        theme.version.as_str(),
-                        "Update available!".yellow().bold(),
-                    )
+                    (theme.version.as_str(), "Update available!".yellow().bold())
                 }
             }
             None => ("-", "Not in registry".dimmed()),
@@ -102,10 +96,7 @@ pub fn execute() -> Result<(), Box<dyn std::error::Error>> {
                     (util.version.as_str(), "Up to date".green())
                 } else {
                     update_count += 1;
-                    (
-                        util.version.as_str(),
-                        "Update available!".yellow().bold(),
-                    )
+                    (util.version.as_str(), "Update available!".yellow().bold())
                 }
             }
             None => ("-", "Not in registry".dimmed()),

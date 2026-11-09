@@ -85,9 +85,18 @@ pub mod prelude {
             &project.components_dir,
             "// Managed by iu_ui (components)\npub(crate) use super::core;\n",
         ),
-        (&project.theme_dir, "// Managed by iu_ui (themes)\npub(crate) use super::core;\n"),
-        (&project.tag_dir, "// Managed by iu_ui (tags)\npub(crate) use super::core;\n"),
-        (&project.utils_dir, "// Managed by iu_ui (utils)\npub(crate) use super::core;\n"),
+        (
+            &project.theme_dir,
+            "// Managed by iu_ui (themes)\npub(crate) use super::core;\n",
+        ),
+        (
+            &project.tag_dir,
+            "// Managed by iu_ui (tags)\npub(crate) use super::core;\n",
+        ),
+        (
+            &project.utils_dir,
+            "// Managed by iu_ui (utils)\npub(crate) use super::core;\n",
+        ),
     ];
 
     for (dir, comment) in sub_mods {
