@@ -18,7 +18,7 @@ cargo install cargo-iu_ui
 
 | Command                         | Description                                                                     |
 | :------------------------------ | :------------------------------------------------------------------------------ |
-| `cargo iu_ui init`              | Sets up directory structure, downloads `core.rs`, and generates `setting.toml`. |
+| `cargo iu_ui init`              | Sets up directory structure, downloads `core.rs`, and generates `iu_ui.toml`. |
 | `cargo iu_ui list`              | Lists all available catalog components, themes, and tags with install status.   |
 | `cargo iu_ui add <comps...>`    | Downloads and adds one or more components (e.g., `simple_button`).              |
 | `cargo iu_ui add --all`         | Installs all components from the catalog.                                       |
