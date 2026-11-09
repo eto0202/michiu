@@ -1,3 +1,9 @@
+## [unreleased]
+
+### ⚙️ Miscellaneous Tasks
+
+- _(cargo-iu_ui)_ Update `README.md`
+
 ## [0.2.3] - 2026-11-09
 
 ### 🚀 Features
@@ -9,25 +15,25 @@
   - Add `push_external_mask_instance`
   - Rendered using the same Draw call as text, etc.
   - Color is specified by `text_color`.
-- *(iu_ui)* Update components
-- *(tools)* Init
-- *(cargo-iu_ui)* Implement a Cargo subcommand for `iu_ui`
-- *(cargo-iu_ui)* Add the `add` command
-- *(cargo-iu_ui)* Add `theme`, `tag`, `utils` and `check` commands
+- _(iu_ui)_ Update components
+- _(tools)_ Init
+- _(cargo-iu_ui)_ Implement a Cargo subcommand for `iu_ui`
+- _(cargo-iu_ui)_ Add the `add` command
+- _(cargo-iu_ui)_ Add `theme`, `tag`, `utils` and `check` commands
 
 ### 🐛 Bug Fixes
 
-- *(cargo-iu_ui)* Fix `init` command
-- *(cargo-iu_ui)* Fix `add` and `init` commands
+- _(cargo-iu_ui)_ Fix `init` command
+- _(cargo-iu_ui)_ Fix `add` and `init` commands
 
 ### 🚜 Refactor
 
-- *(a11y_catalog)* Change to the Directory Structure
+- _(a11y_catalog)_ Change to the Directory Structure
 - Rename the folder `a11y_catalog` to `iu_ui`
-- *(iu_ui)* Update `README.md`
-- *(cargo-iu_ui)* Update `init` command
-- *(cargo-iu_ui)* Update `init` command
-- *(iu-ui)* Remove `include_bytes` for testing
+- _(iu_ui)_ Update `README.md`
+- _(cargo-iu_ui)_ Update `init` command
+- _(cargo-iu_ui)_ Update `init` command
+- _(iu-ui)_ Remove `include_bytes` for testing
 
 ### ⚙️ Miscellaneous Tasks
 
