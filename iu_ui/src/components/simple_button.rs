@@ -127,8 +127,6 @@ impl MichiuWidget for SimpleButton {
     /// Additional styling or event handlers (such as `.on_click(...)`) can be chained
     /// onto the returned `Entity` to overwrite defaults.
     fn build(&self, theme: &dyn MichiuTheme) -> Entity {
-        // cargo-iu_ui テスト用
-        let _ = include_bytes!("../assets/close.svg");
         let size = match self.size {
             ButtonSize::Sm => (28.0, 28.0),
             ButtonSize::Md => (96.0, 36.0),
