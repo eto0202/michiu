@@ -1,6 +1,6 @@
 {
   "name": "iu_ui",
-  "updated_at": "2026-11-09T21:50:29+09:00",
+  "updated_at": "2026-11-09T22:26:49+09:00",
   "assets": {
     "close.svg": {
       "path": "iu_ui/src/assets/close.svg",
@@ -23,7 +23,7 @@
     },
     "simple_button": {
       "type": "file",
-      "version": "20261109-6ea16fd",
+      "version": "20261109-870e30a",
       "target_name": "simple_button.rs",
       "files": [
         "iu_ui/src/components/simple_button.rs"

@@ -1,4 +1,4 @@
-## [unreleased]
+## [0.2.3] - 2026-11-09
 
 ### 🚀 Features
 
@@ -366,7 +366,8 @@
 
 - Initial release
 
-[unreleased]: https://github.com/eto0202/michiu/compare/v0.2.2...HEAD
+[unreleased]: https://github.com/eto0202/michiu/compare/v0.2.3...HEAD
+[0.2.3]: https://github.com/eto0202/michiu/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/eto0202/michiu/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/eto0202/michiu/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/eto0202/michiu/compare/v0.1.2...v0.2.0
