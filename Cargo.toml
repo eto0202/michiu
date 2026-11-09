@@ -4,6 +4,7 @@ members = [
     "crates/*",
     "examples",
     "iu_ui",
+    "tools/registry_builder",
 ]
 default-members = ["examples"]
 

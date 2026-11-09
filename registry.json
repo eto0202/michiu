@@ -1,0 +1,160 @@
+{
+  "name": "iu_ui",
+  "updated_at": "2026-11-09T08:19:48+09:00",
+  "assets": {
+    "close.svg": {
+      "path": "iu_ui/src/assets/close.svg",
+      "hash": "8a5f5d75845fb65d04dce59528c4cae11821fb136c4b821c2bae0959e0783f70"
+    },
+    "search.svg": {
+      "path": "iu_ui/src/assets/search.svg",
+      "hash": "31cc9c9cb5369e96a9833f540dd177834901458dad24c68b09aec7d5965a44b1"
+    }
+  },
+  "components": {
+    "simple_accordion": {
+      "type": "file",
+      "version": "20261109-e3130f5",
+      "target_name": "simple_accordion.rs",
+      "files": [
+        "iu_ui/src/components/simple_accordion.rs"
+      ],
+      "assets": []
+    },
+    "simple_button": {
+      "type": "file",
+      "version": "20261109-1b67bee",
+      "target_name": "simple_button.rs",
+      "files": [
+        "iu_ui/src/components/simple_button.rs"
+      ],
+      "assets": []
+    },
+    "simple_button_group": {
+      "type": "file",
+      "version": "20261109-1b67bee",
+      "target_name": "simple_button_group.rs",
+      "files": [
+        "iu_ui/src/components/simple_button_group.rs"
+      ],
+      "assets": []
+    },
+    "simple_checkbox": {
+      "type": "file",
+      "version": "20261109-e3130f5",
+      "target_name": "simple_checkbox.rs",
+      "files": [
+        "iu_ui/src/components/simple_checkbox.rs"
+      ],
+      "assets": []
+    },
+    "simple_icon": {
+      "type": "file",
+      "version": "20261109-e3130f5",
+      "target_name": "simple_icon.rs",
+      "files": [
+        "iu_ui/src/components/simple_icon.rs"
+      ],
+      "assets": []
+    },
+    "simple_input": {
+      "type": "file",
+      "version": "20261109-e3130f5",
+      "target_name": "simple_input.rs",
+      "files": [
+        "iu_ui/src/components/simple_input.rs"
+      ],
+      "assets": []
+    },
+    "simple_list": {
+      "type": "file",
+      "version": "20261109-e3130f5",
+      "target_name": "simple_list.rs",
+      "files": [
+        "iu_ui/src/components/simple_list.rs"
+      ],
+      "assets": []
+    },
+    "simple_modal": {
+      "type": "file",
+      "version": "20261109-e3130f5",
+      "target_name": "simple_modal.rs",
+      "files": [
+        "iu_ui/src/components/simple_modal.rs"
+      ],
+      "assets": []
+    },
+    "simple_popover": {
+      "type": "file",
+      "version": "20261109-e3130f5",
+      "target_name": "simple_popover.rs",
+      "files": [
+        "iu_ui/src/components/simple_popover.rs"
+      ],
+      "assets": []
+    },
+    "simple_slider": {
+      "type": "file",
+      "version": "20261109-e3130f5",
+      "target_name": "simple_slider.rs",
+      "files": [
+        "iu_ui/src/components/simple_slider.rs"
+      ],
+      "assets": []
+    },
+    "simple_tab": {
+      "type": "file",
+      "version": "20261109-e3130f5",
+      "target_name": "simple_tab.rs",
+      "files": [
+        "iu_ui/src/components/simple_tab.rs"
+      ],
+      "assets": []
+    },
+    "simple_text": {
+      "type": "file",
+      "version": "20261109-efb7415",
+      "target_name": "simple_text.rs",
+      "files": [
+        "iu_ui/src/components/simple_text.rs"
+      ],
+      "assets": []
+    },
+    "simple_toggle": {
+      "type": "file",
+      "version": "20261109-e3130f5",
+      "target_name": "simple_toggle.rs",
+      "files": [
+        "iu_ui/src/components/simple_toggle.rs"
+      ],
+      "assets": []
+    }
+  },
+  "themes": {
+    "simple_theme": {
+      "version": "20261109-e3130f5",
+      "target_name": "simple_theme.rs",
+      "files": [
+        "iu_ui/src/theme/simple_theme.rs"
+      ]
+    }
+  },
+  "tags": {
+    "simple_tag": {
+      "version": "20261109-e3130f5",
+      "target_name": "simple_tag.rs",
+      "files": [
+        "iu_ui/src/tag/simple_tag.rs"
+      ]
+    }
+  },
+  "utils": {
+    "helper": {
+      "version": "20261109-e3130f5",
+      "target_name": "helper.rs",
+      "files": [
+        "iu_ui/src/utils/helper.rs"
+      ]
+    }
+  }
+}

@@ -31,7 +31,7 @@ jobs:
         run: cargo nextest run --profile ci --no-tests warn
 
       - name: Run doctests
-        run: cargo test --doc --workspace --exclude sample_collection --exclude a11y_catalog
+        run: cargo test --doc --workspace --exclude sample_collection --exclude iu_ui --exclude registry_builder
 
   publish:
     name: Publish to crates.io
@@ -48,6 +48,6 @@ jobs:
         uses: katyo/publish-crates@v2
         with:
           registry-token: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-          publish-delay: 60000
+          publish-delay: 40000
           check-repo: false
-          ignore: "sample_collection, a11y_catalog"
+          ignore: "sample_collection, iu_ui, registry_builder"
