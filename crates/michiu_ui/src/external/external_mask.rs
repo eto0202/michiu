@@ -3,19 +3,19 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use crate::LayoutSize;
 
 pub trait ExternalMask: Send + Sync {
-    /// キャッシュキー（アイコンのパスやハッシュ値など）
+    /// Cache keys (such as icon paths and hash values)
     fn metadata(&self) -> ExternalMaskMetadata;
 
-    /// レンダリング要求時に呼ばれる。
-    /// 指定されたサイズに応じた A8 (R8Unorm) のバイト列と実ピクセルサイズを返す。
-    /// ベクターであればここで CPU ラスタライズを行う
+    /// Called when a rendering request is made.
+    /// Returns a byte array of A8 (R8Unorm) values corresponding to the specified size, along with the actual pixel size.
+    /// If the input is a vector, CPU rasterization is performed here.
     fn resolve_mask(&self, width: u32, height: u32) -> MaskImage;
 }
 
 pub struct MaskImage {
     pub width: u32,
     pub height: u32,
-    /// R8Unorm フォーマットのバイト配列
+    /// Byte array in R8Unorm format
     pub bytes: Vec<u8>,
 }
 
@@ -26,7 +26,7 @@ pub struct ExternalMaskMetadata {
 }
 
 impl ExternalMaskMetadata {
-    /// 通常はこちらを使用。IDはライブラリ側で一意なものが自動採番される。
+    /// This is typically what we use. The library automatically assigns a unique ID.
     #[inline]
     #[must_use]
     pub fn new(size: LayoutSize) -> Self {
@@ -37,8 +37,7 @@ impl ExternalMaskMetadata {
         }
     }
 
-    /// アセットのパスや文字列ハッシュなどを渡し、
-    /// 別のインスタンス間でもアトラス領域を共有（重複ラスタライズを防止）したい場合に使用。
+    /// Use this when you want to share atlas regions (to prevent duplicate rasterization) across different instances by passing asset paths, string hashes, and the like.
     #[inline]
     #[must_use]
     pub fn with_cache_key(mut self, key: u64) -> Self {

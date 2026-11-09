@@ -1,10 +1,12 @@
 use regex::Regex;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
-use std::collections::{BTreeMap, BTreeSet};
-use std::fs;
-use std::path::Path;
-use std::process::Command;
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fs,
+    path::Path,
+    process::Command,
+};
 use walkdir::WalkDir;
 
 #[derive(Serialize)]
