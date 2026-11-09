@@ -45,10 +45,7 @@ fn main() {
     let result = match args.command {
         Commands::Init => commands::init::execute(),
         Commands::List => commands::list::execute(),
-        Commands::Add { .. } => {
-            println!("{}", "Coming soon: add command".yellow());
-            Ok(())
-        }
+        Commands::Add { components, all } => commands::add::execute(components, all),
         Commands::Check => {
             println!("{}", "Coming soon: check command".yellow());
             Ok(())
