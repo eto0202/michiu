@@ -1,14 +1,46 @@
 {
   "name": "iu_ui",
-  "updated_at": "2026-11-09T22:26:49+09:00",
+  "updated_at": "2026-11-12T05:39:53+09:00",
   "assets": {
     "close.svg": {
       "path": "iu_ui/src/assets/close.svg",
       "hash": "8a5f5d75845fb65d04dce59528c4cae11821fb136c4b821c2bae0959e0783f70"
     },
+    "delete.svg": {
+      "path": "iu_ui/src/assets/delete.svg",
+      "hash": "a11287641c9980d10c359c3ab00c5b120c5e980f4d56b1b86e3937a9f20e3c9e"
+    },
+    "download.svg": {
+      "path": "iu_ui/src/assets/download.svg",
+      "hash": "07408f9bd2c7ef55f4dfb74bbd73adea96492948fb1e53dded6bf076e3162f56"
+    },
+    "folder.svg": {
+      "path": "iu_ui/src/assets/folder.svg",
+      "hash": "4b4e96f54f137630a23acb74c34ea234ad3104750ccfcb5b1fdfbc286d12c7ee"
+    },
+    "info.svg": {
+      "path": "iu_ui/src/assets/info.svg",
+      "hash": "dc6df0d50ec8f0461184747dcfa551c76d07c15322ae29bd93325f6ec0834c53"
+    },
+    "menu.svg": {
+      "path": "iu_ui/src/assets/menu.svg",
+      "hash": "23f79a05ed86139a31b28066d1a0560f1536c405302178920eb8429d46c74f8d"
+    },
+    "notifications.svg": {
+      "path": "iu_ui/src/assets/notifications.svg",
+      "hash": "401d57b8eee4ff91a5f67dd40b5ffd3166bfc6fd76c1caa60879f1b8e5c6b3a5"
+    },
     "search.svg": {
       "path": "iu_ui/src/assets/search.svg",
       "hash": "31cc9c9cb5369e96a9833f540dd177834901458dad24c68b09aec7d5965a44b1"
+    },
+    "shopping_cart.svg": {
+      "path": "iu_ui/src/assets/shopping_cart.svg",
+      "hash": "0081eb0a78591dd9394c4f7270ad862126c50f0565e998fd71c32b4c6e5539fe"
+    },
+    "sort.svg": {
+      "path": "iu_ui/src/assets/sort.svg",
+      "hash": "8431ab1b4959e759fa92c6ed1405197e4e22958587a6738e9391ef59cb24a2f5"
     }
   },
   "components": {
@@ -23,7 +55,7 @@
     },
     "simple_button": {
       "type": "file",
-      "version": "20261109-870e30a",
+      "version": "20261112-8b3904c",
       "target_name": "simple_button.rs",
       "files": [
         "iu_ui/src/components/simple_button.rs"
@@ -32,7 +64,7 @@
     },
     "simple_button_group": {
       "type": "file",
-      "version": "20261109-2f544bb",
+      "version": "20261111-7f1649a",
       "target_name": "simple_button_group.rs",
       "files": [
         "iu_ui/src/components/simple_button_group.rs"
@@ -50,7 +82,7 @@
     },
     "simple_icon": {
       "type": "file",
-      "version": "20261109-e3130f5",
+      "version": "20261112-8b3904c",
       "target_name": "simple_icon.rs",
       "files": [
         "iu_ui/src/components/simple_icon.rs"

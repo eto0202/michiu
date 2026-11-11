@@ -4,14 +4,21 @@
 
 - [**breaking**] Add intrinsic sizing and fit-content variants to `Val`
 - _(iu_ui)_ Add and update Components
+- _(iu_ui)_ Update Components
+
+### 📚 Documentation
+
+- _(iu_ui)_ Add docs to `SimpleIcon`
 
 ### 🚜 Refactor
 
 - [**breaking**] Remove the `Other` variant from `MichiuAnyEvent`
+- _(iu_ui)_ Remove the `Button` variant from `IconCategory`
 
 ### ⚙️ Miscellaneous Tasks
 
 - _(cargo-iu_ui)_ Update `README.md`
+- Update `CHANGELOG.md`
 - Update `CHANGELOG.md`
 
 ## [0.2.3] - 2026-11-09
