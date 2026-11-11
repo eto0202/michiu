@@ -1,8 +1,18 @@
 ## [unreleased]
 
+### 🚀 Features
+
+- [**breaking**] Add intrinsic sizing and fit-content variants to `Val`
+- _(iu_ui)_ Add and update Components
+
+### 🚜 Refactor
+
+- [**breaking**] Remove the `Other` variant from `MichiuAnyEvent`
+
 ### ⚙️ Miscellaneous Tasks
 
 - _(cargo-iu_ui)_ Update `README.md`
+- Update `CHANGELOG.md`
 
 ## [0.2.3] - 2026-11-09
 
