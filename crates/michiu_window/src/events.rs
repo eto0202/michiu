@@ -29,7 +29,10 @@ pub enum MichiuAnyEvent {
 /// forcing you to explicitly validate them at your application boundary.
 #[derive(Debug, Clone, PartialEq)]
 pub enum MichiuEvent {
-    /// Issued when the window is first instantiated. (`WM_CREATE`)
+    /// Issued when the window is first instantiated. (`WM_NCCREATE`)
+    Init,
+
+    /// Issued when the window created. (`WM_CREATE`)
     Created,
 
     /// Issued when the user clicks the "Close" (X) button.
@@ -38,6 +41,9 @@ pub enum MichiuEvent {
 
     /// Issued when the window is destroyed. (`WM_DESTROY`)
     Destroyed,
+
+    /// Issued when the wake-up request is received from a background thread. (`WM_NULL`)
+    WakeUp,
 
     /// Issued when the window has been resized.
     /// Holds the unvalidated new dimensions. (`WM_SIZE`)
@@ -49,6 +55,9 @@ pub enum MichiuEvent {
 
     /// Issued when the window gains (`true`) or loses (`false`) focus.
     Focused(bool),
+
+    /// Issued when the window gains (`true`) or loses (`false`) visible. (`WM_SHOWWINDOW`)
+    VisibilityChanged(bool),
 
     /// Issued when a physical keyboard key is pressed or released.
     KeyboardInput {

@@ -236,7 +236,7 @@ use windows::Win32::{
         Input::KeyboardAndMouse::{
             VIRTUAL_KEY, VK_LBUTTON, VK_PACKET, VK_PROCESSKEY, VK_XBUTTON1, VK_XBUTTON2,
         },
-        WindowsAndMessaging::{WM_ENTERSIZEMOVE, WM_EXITSIZEMOVE, WM_NULL},
+        WindowsAndMessaging::{WM_ENTERSIZEMOVE, WM_EXITSIZEMOVE},
     },
 };
 
@@ -647,16 +647,6 @@ impl MichiuApp {
             .is_some();
 
         match raw.msg {
-            WM_NULL => {
-                // バックグラウンドから届いた CSS 更新タスクなどを安全に消化
-                self.context.process_main_thread_tasks();
-
-                // 消化によってレイアウトや描画に変更があった場合のみ再描画を実行
-                if self.context.has_dirty() {
-                    needs_redraw = true;
-                }
-                consumed = true;
-            }
             WM_ENTERSIZEMOVE => {
                 self.context.set_window_resized(true);
                 needs_redraw = true;
@@ -674,6 +664,16 @@ impl MichiuApp {
 
         if let MichiuAnyEvent::Window { event, .. } = event {
             match event {
+                MichiuEvent::WakeUp => {
+                    // バックグラウンドから届いた CSS 更新タスクなどを安全に消化
+                    self.context.process_main_thread_tasks();
+
+                    // 消化によってレイアウトや描画に変更があった場合のみ再描画を実行
+                    if self.context.has_dirty() {
+                        needs_redraw = true;
+                    }
+                    consumed = true;
+                }
                 MichiuEvent::Resized(phy_size) => {
                     let result = phy_size
                         .validate_with(MichiuValidator::window_bounds)
