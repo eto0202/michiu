@@ -1,9 +1,5 @@
 use super::core::{MichiuTheme, MichiuWidget, Oklch};
-use michiu::{
-    accessibility::*,
-    prelude::*,
-    ui::{ExternalMask, ExternalMaskMetadata, MaskImage},
-};
+use michiu::{accessibility::*, prelude::*};
 use resvg::{tiny_skia, usvg};
 use std::{
     borrow::Cow,
@@ -14,7 +10,7 @@ use std::{
 
 /// Visual appearance variants for [`SimpleIcon`].
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
-pub enum IconVariant {
+pub enum IconColor {
     #[default]
     White,
     Gray,
@@ -54,11 +50,70 @@ impl IconCategory {
     }
 }
 
+/// Accessible SVG icon widget compliant with WAI-ARIA and WCAG 2.2 AA.
+///
+/// Designed to render vector graphics efficiently via `ExternalMask` while providing
+/// accessible defaults (decorative by default to prevent screen reader noise, or
+/// labeled as `Role::Image` when conveying standalone information).
+///
+/// # Scope
+/// - **Stand-alone**: Can be used by copying only this file (or struct and its `impl` blocks),
+///   provided `core.rs` (`MichiuWidget`, `MichiuTheme`, `Oklch`) is present in your project.
+///
+/// # Required Assets
+/// - **Crate Dependency**: Requires `resvg = "0.49.0"` (along with `tiny_skia` and `usvg`) in your `Cargo.toml`.
+///   - `cargo add resvg@0.49.0`
+/// - **Icon Assets**: Valid SVG files (with a valid `viewBox` or positive `width`/`height` attributes).
+///
+/// # Event Loop Requirements
+/// - None (Self-contained rasterization and caching within the widget tree).
+///
+/// # Feature Details
+/// - **Keyboard**:
+///   - Non-interactive by default (`focusable_none()`, `pointer_events_none()`).
+///   - Tab focus is intentionally disallowed since static icons do not receive keyboard focus.
+///     For interactive icon buttons, wrap this within a [`SimpleButton`].
+/// - **Screen Reader**:
+///   - **Decoration (`IconCategory::Decoration`, Default)**: Treated as `Role::GenericContainer`
+///     and excluded from redundant reading, ensuring decorative glyphs beside text do not pollute the announcement.
+///   - **Image (`IconCategory::Image(label)`)**: Assigned `Role::Image` with the given accessible label,
+///     allowing screen readers to announce standalone informative icons.
+/// - **Visual / WCAG**:
+///   - **Scalability**: High-quality vector rasterization rendered on demand via `tiny_skia`.
+///   - **Target Sizing**: When standalone, adheres to discrete sizing presets (16px to 48px).
+///     When placed inside interactive widgets (e.g., [`SimpleButton`]), the parent container
+///     satisfies the WCAG 2.5.8 minimum target size (>= 24x24px).
+///   - **Theming & States**: Dynamic OKLCH color binding via `MichiuTheme`. Automatically dims chroma
+///     and adjusts border contrast when `disabled` is set.
+/// - **Performance**:
+///   - Rasterized masks are uniquely cached using the 64-bit hash of the raw SVG byte buffer,
+///     preventing redundant SVG parsing and tessellation on rebuilds.
+/// - **Customization**:
+///   - Additional styling can be chained **directly after calling `.build(&theme)`**.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// // 1. Decorative icon (default, ignored by screen readers, ideal for buttons)
+/// let save_icon = SimpleIcon::from_data(include_bytes!(/* file path */))
+///     .size(IconSize::Sm)
+///     .variant(IconColor::White)
+///     .build(&theme);
+///
+/// let save_icon = include_simple_icon!(/* file path */).build(&theme);
+///
+/// // 2. Informative icon (standalone warning with accessible text)
+/// let warning_icon = SimpleIcon::new(/* file path */)
+///     .category(IconCategory::image("Warning: Low storage"))
+///     .variant(IconColor::Accent)
+///     .size(IconSize::Md)
+///     .build(&theme);
+/// ```
 #[derive(Debug, Clone)]
 pub struct SimpleIcon {
     pub icon: SvgIcon,
     /// Visual style variant (White, Gray, Accent).
-    pub variant: IconVariant,
+    pub variant: IconColor,
     /// Icon dimensions.
     pub size: IconSize,
     /// Whether the icon is disabled.
@@ -128,7 +183,7 @@ impl SimpleIcon {
         };
         Self {
             icon,
-            variant: IconVariant::default(),
+            variant: IconColor::default(),
             size: IconSize::default(),
             disabled: false,
             category: IconCategory::default(),
@@ -136,7 +191,7 @@ impl SimpleIcon {
     }
 
     /// Sets the visual style variant.
-    pub fn variant(mut self, variant: IconVariant) -> Self {
+    pub fn variant(mut self, variant: IconColor) -> Self {
         self.variant = variant;
         self
     }
@@ -167,7 +222,7 @@ impl MichiuWidget for SimpleIcon {
     }
 
     fn a11y_spec(&self) -> &'static str {
-        ""
+        "WAI-ARIA Graphics / WCAG 2.2 AA (Decorative by default, Role::Image when labeled)"
     }
 
     /// Builds and returns the underlying accessible UI entity.
@@ -184,9 +239,9 @@ impl MichiuWidget for SimpleIcon {
         };
 
         let text_color = match self.variant {
-            IconVariant::White => theme.text_on_solid(),
-            IconVariant::Gray => theme.gray_text_low(),
-            IconVariant::Accent => theme.accent_solid(),
+            IconColor::White => theme.text_on_solid(),
+            IconColor::Gray => theme.gray_text_low(),
+            IconColor::Accent => theme.accent_solid(),
         };
         let disabled_text_color = if self.disabled {
             theme.gray_7()

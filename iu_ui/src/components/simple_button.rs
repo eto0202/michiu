@@ -51,7 +51,7 @@ pub enum ButtonSize {
 ///   - Role: `Role::Button` (automatically inferred via `tag::<a11y::AButton>()`).
 ///   - Accessible Name: Inferred from `self.label`.
 /// - **Visual / WCAG**:
-///   - **Target Size**: Minimum 28x28px across all variants (WCAG 2.5.8 Level AA compliant).
+///   - **Target Size**: Minimum 24x24px across all variants (WCAG 2.5.8 Level AA compliant).
 ///   - **Focus Indicator**: 2px focus ring displayed only during keyboard navigation (`focused_visible`),
 ///     maintaining >= 3.0:1 contrast ratio against the background (WCAG 1.4.11, 2.4.7, 2.4.11).
 ///   - **Offset**: Automatically applies an external 2px offset for `Solid` buttons to guarantee
@@ -85,11 +85,19 @@ pub struct SimpleButton {
     pub size: ButtonSize,
     /// Whether the button is disabled.
     pub disabled: bool,
-    /// Whether to Round the Corners (`Modifier::r_full`)
-    pub rounded_full: bool,
+    /// Whether to round the corners (`Modifier::r_full`).
+    pub rounded: bool,
+    /// Optional child entity placed at the start side (left in LTR, right in RTL, e.g., an icon).
     pub start_child: Option<Entity>,
+    /// Optional child entity placed at the end side (right in LTR, left in RTL, e.g., a dropdown arrow).
     pub end_child: Option<Entity>,
+    /// Whether to use right-to-left (RTL) layout direction.
     pub rtl: bool,
+}
+impl Default for SimpleButton {
+    fn default() -> Self {
+        Self::empty()
+    }
 }
 
 impl SimpleButton {
@@ -108,13 +116,14 @@ impl SimpleButton {
             variant: ButtonVariant::default(),
             size: ButtonSize::default(),
             disabled: false,
-            rounded_full: false,
+            rounded: false,
             start_child: None,
             end_child: None,
             rtl: false,
         }
     }
 
+    /// Set the label.
     pub fn with_label(mut self, label: impl Into<String>) -> Self {
         self.label = Some(label.into());
         self
@@ -140,30 +149,29 @@ impl SimpleButton {
     }
 
     /// Set whether to round the corners (`Modifier::r_full`)
-    pub fn rounded_full(mut self, enabled: bool) -> Self {
-        self.rounded_full = enabled;
+    pub fn rounded(mut self, enabled: bool) -> Self {
+        self.rounded = enabled;
         self
     }
 
+    /// Add any `Entity`. If it has a label,
+    /// it will be added to the left (or to the right, if the text runs from RTL).
     pub fn with_start(mut self, entity: Entity) -> Self {
         self.start_child = Some(entity);
         self
     }
 
+    /// Add any `Entity`. If it has a label,
+    /// it will be added to the right (or to the left, if the text runs from RTL).
     pub fn with_end(mut self, entity: Entity) -> Self {
         self.end_child = Some(entity);
         self
     }
 
+    /// Set whether to use right-to-left (RTL) layout direction.
     pub fn rtl(mut self, enabled: bool) -> Self {
         self.rtl = enabled;
         self
-    }
-}
-
-impl Default for SimpleButton {
-    fn default() -> Self {
-        Self::empty()
     }
 }
 
@@ -238,7 +246,7 @@ impl MichiuWidget for SimpleButton {
 
         let offset = theme.focus_ring_offset(self.variant == ButtonVariant::Solid);
 
-        let r = if self.rounded_full { 9999.0 } else { 3.0 };
+        let r = if self.rounded { 9999.0 } else { 3.0 };
 
         let modifier = ii()
             .justify_center()
@@ -269,7 +277,6 @@ impl MichiuWidget for SimpleButton {
             );
 
         let mut entity = flex(modifier).tag::<a11y::AButton>().disable(self.disabled);
-
         let mut label_style = ii().font_size(font_size).text_color(text_color);
 
         if self.rtl {

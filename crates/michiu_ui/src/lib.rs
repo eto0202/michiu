@@ -445,6 +445,7 @@ pub mod prelude {
         context::{Context, MichiuInspector},
         dnd::{DndDragMode, DndDropTarget},
         entity::{Entity, build_ui},
+        external::{ExternalMask, ExternalMaskMetadata, MaskImage},
         input::InputContents,
         m,
         modifier::Modifier,

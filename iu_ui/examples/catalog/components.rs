@@ -49,7 +49,7 @@ pub(crate) fn create_component_entity(comp_type: ComponentType, is_dark: bool) -
                         .with_start(
                             include_simple_icon!("../../src/assets/info.svg")
                                 .size(IconSize::Xs)
-                                .variant(IconVariant::White)
+                                .variant(IconColor::White)
                                 .build(&theme),
                         )
                         .build(&theme),
@@ -57,7 +57,7 @@ pub(crate) fn create_component_entity(comp_type: ComponentType, is_dark: bool) -
                         .with_end(
                             include_simple_icon!("../../src/assets/info.svg")
                                 .size(IconSize::Xs)
-                                .variant(IconVariant::White)
+                                .variant(IconColor::White)
                                 .build(&theme),
                         )
                         .build(&theme),
@@ -79,7 +79,7 @@ pub(crate) fn create_component_entity(comp_type: ComponentType, is_dark: bool) -
                         .with_start(
                             include_simple_icon!("../../src/assets/info.svg")
                                 .size(IconSize::Xs)
-                                .variant(IconVariant::White)
+                                .variant(IconColor::White)
                                 .build(&theme),
                         )
                         .variant(ButtonVariant::Outline)
@@ -88,7 +88,7 @@ pub(crate) fn create_component_entity(comp_type: ComponentType, is_dark: bool) -
                         .with_end(
                             include_simple_icon!("../../src/assets/info.svg")
                                 .size(IconSize::Xs)
-                                .variant(IconVariant::White)
+                                .variant(IconColor::White)
                                 .build(&theme),
                         )
                         .variant(ButtonVariant::Outline)
@@ -104,26 +104,24 @@ pub(crate) fn create_component_entity(comp_type: ComponentType, is_dark: bool) -
             section(
                 "Rounded",
                 [
-                    SimpleButton::new("Rounded")
-                        .rounded_full(true)
-                        .build(&theme),
+                    SimpleButton::new("Rounded").rounded(true).build(&theme),
                     SimpleButton::new("Rounded")
                         .with_start(
                             include_simple_icon!("../../src/assets/info.svg")
                                 .size(IconSize::Xs)
-                                .variant(IconVariant::White)
+                                .variant(IconColor::White)
                                 .build(&theme),
                         )
-                        .rounded_full(true)
+                        .rounded(true)
                         .build(&theme),
                     SimpleButton::empty()
                         .with_end(
                             include_simple_icon!("../../src/assets/info.svg")
                                 .size(IconSize::Xs)
-                                .variant(IconVariant::White)
+                                .variant(IconColor::White)
                                 .build(&theme),
                         )
-                        .rounded_full(true)
+                        .rounded(true)
                         .build(&theme),
                 ],
             ),
@@ -164,7 +162,7 @@ pub(crate) fn create_component_entity(comp_type: ComponentType, is_dark: bool) -
                         .with_start(
                             include_simple_icon!("../../src/assets/info.svg")
                                 .size(IconSize::Xs)
-                                .variant(IconVariant::White)
+                                .variant(IconColor::White)
                                 .build(&theme),
                         )
                         .rtl(true)
@@ -173,7 +171,7 @@ pub(crate) fn create_component_entity(comp_type: ComponentType, is_dark: bool) -
                         .with_end(
                             include_simple_icon!("../../src/assets/info.svg")
                                 .size(IconSize::Xs)
-                                .variant(IconVariant::White)
+                                .variant(IconColor::White)
                                 .build(&theme),
                         )
                         .rtl(true)
@@ -182,13 +180,13 @@ pub(crate) fn create_component_entity(comp_type: ComponentType, is_dark: bool) -
                         .with_start(
                             include_simple_icon!("../../src/assets/info.svg")
                                 .size(IconSize::Xs)
-                                .variant(IconVariant::White)
+                                .variant(IconColor::White)
                                 .build(&theme),
                         )
                         .with_end(
                             include_simple_icon!("../../src/assets/download.svg")
                                 .size(IconSize::Xs)
-                                .variant(IconVariant::White)
+                                .variant(IconColor::White)
                                 .build(&theme),
                         )
                         .rtl(true)
@@ -263,47 +261,47 @@ pub(crate) fn create_component_entity(comp_type: ComponentType, is_dark: bool) -
                         .build(&theme),
                     include_simple_icon!("../../src/assets/search.svg")
                         .size(IconSize::Xs)
-                        .variant(IconVariant::Accent)
+                        .variant(IconColor::Accent)
                         .build(&theme),
                     include_simple_icon!("../../src/assets/sort.svg")
                         .size(IconSize::Sm)
                         .build(&theme),
                     include_simple_icon!("../../src/assets/search.svg")
                         .size(IconSize::Sm)
-                        .variant(IconVariant::Accent)
+                        .variant(IconColor::Accent)
                         .build(&theme),
                     include_simple_icon!("../../src/assets/sort.svg")
                         .size(IconSize::Md)
                         .build(&theme),
                     include_simple_icon!("../../src/assets/search.svg")
                         .size(IconSize::Md)
-                        .variant(IconVariant::Accent)
+                        .variant(IconColor::Accent)
                         .build(&theme),
                     include_simple_icon!("../../src/assets/sort.svg")
                         .size(IconSize::Lg)
                         .build(&theme),
                     include_simple_icon!("../../src/assets/search.svg")
                         .size(IconSize::Lg)
-                        .variant(IconVariant::Accent)
+                        .variant(IconColor::Accent)
                         .build(&theme),
                 ],
             ),
             section(
                 "White",
                 [include_simple_icon!("../../src/assets/info.svg")
-                    .variant(IconVariant::White)
+                    .variant(IconColor::White)
                     .build(&theme)],
             ),
             section(
                 "White",
                 [include_simple_icon!("../../src/assets/info.svg")
-                    .variant(IconVariant::Gray)
+                    .variant(IconColor::Gray)
                     .build(&theme)],
             ),
             section(
                 "Accent",
                 [include_simple_icon!("../../src/assets/delete.svg")
-                    .variant(IconVariant::Accent)
+                    .variant(IconColor::Accent)
                     .build(&theme)],
             ),
             section(
@@ -314,7 +312,7 @@ pub(crate) fn create_component_entity(comp_type: ComponentType, is_dark: bool) -
                         .build(&theme),
                     include_simple_icon!("../../src/assets/download.svg")
                         .category(IconCategory::Decoration)
-                        .variant(IconVariant::Accent)
+                        .variant(IconColor::Accent)
                         .build(&theme),
                 ],
             ),
@@ -326,7 +324,7 @@ pub(crate) fn create_component_entity(comp_type: ComponentType, is_dark: bool) -
                         .build(&theme),
                     include_simple_icon!("../../src/assets/folder.svg")
                         .category(IconCategory::image("Folder"))
-                        .variant(IconVariant::Accent)
+                        .variant(IconColor::Accent)
                         .build(&theme),
                 ],
             ),
