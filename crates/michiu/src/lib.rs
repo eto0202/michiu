@@ -983,7 +983,9 @@ impl MichiuApp {
             .sync_layout(root_id, self.renderer.window_size());
         self.renderer.update_composition_tree(&mut self.context);
 
-        self.renderer.draw(&mut self.context);
+        if let Some(_paint) = self.window.begin_paint() {
+            self.renderer.draw(&mut self.context);
+        }
 
         if self.config.accessibility_support {
             self.context.update_accessibility();

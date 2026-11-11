@@ -459,11 +459,12 @@ pub mod prelude {
             PointerEvents, Transform, Transition,
         },
         utils::{
-            auto, blur, create_signal, div, div_d, div_n, dynamic, external_mask, external_texture,
-            fill, flex, flex_d, get_win32_clipboard, grid_box, h_flex, h_flex_d, hex, hidden_box,
-            hsl, hsla, ii, input, input_area, input_area_d, input_d, offset, oklab, oklaba, oklch,
-            oklcha, pct, px, rgb, rgba, set_win32_clipboard, shadow, spread, text, text_d,
-            use_provided, use_provided_setter, v_flex, v_flex_d,
+            auto, blur, content_, create_signal, div, div_d, div_n, dynamic, external_mask,
+            external_texture, fill, fit, fit_pct, fit_px, flex, flex_d, get_win32_clipboard,
+            grid_box, h_flex, h_flex_d, hex, hidden_box, hsl, hsla, ii, input, input_area,
+            input_area_d, input_d, max_content, min_content, offset, oklab, oklaba, oklch, oklcha,
+            pct, px, rgb, rgba, set_win32_clipboard, shadow, spread, text, text_d, use_provided,
+            use_provided_setter, v_flex, v_flex_d,
         },
     };
 }

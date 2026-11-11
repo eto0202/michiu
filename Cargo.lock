@@ -2577,6 +2577,7 @@ version = "0.2.3"
 dependencies = [
  "michiu",
  "pollster",
+ "resvg",
  "strum",
  "windows",
 ]

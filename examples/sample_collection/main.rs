@@ -233,7 +233,9 @@ fn redraw(app: &mut MichiuApp) {
     let draw_start = std::time::Instant::now();
     // これも必須
     // This is also required
-    app.renderer.draw(&mut app.context);
+    if let Some(_paint) = app.window.begin_paint() {
+        app.renderer.draw(&mut app.context);
+    }
     let draw_elapsed = draw_start.elapsed();
 
     // アクセシビリティ機能を使う場合は必須。`draw` の前でもオッケー。

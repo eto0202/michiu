@@ -290,16 +290,26 @@ impl ResizeStore {
             // 指定値を物理ピクセルに解決する
             let mut resolve_val = |val: Val, is_width: bool, fallback: f32| match val {
                 Val::Px(v) => v,
-                Val::Percent(_) => OutputStore::val_to_px(
+                Val::FitContentPx(limit) => limit,
+
+                // FitContentPercent もドラッグ制限の境界壁としては親の % と同等
+                Val::Percent(p) | Val::FitContentPercent(p) => OutputStore::val_to_px(
                     id,
-                    val,
+                    Val::Percent(p),
                     is_width,
                     win_last_size,
                     topo_parents,
                     out_rects,
                     debug,
                 ),
-                Val::Auto | Val::Stretch => fallback,
+
+                // コンテンツ依存や未指定の値はドラッグを阻害しないよう fallback に
+                Val::Auto
+                | Val::Stretch
+                | Val::Content
+                | Val::FitContent
+                | Val::MinContent
+                | Val::MaxContent => fallback,
             };
 
             let user_min_w = resolve_val(basic.min_size.width, true, 0.0);

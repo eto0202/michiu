@@ -118,6 +118,12 @@ pub enum Val {
     Stretch,
     Px(f32),
     Percent(f32),
+    MinContent,
+    MaxContent,
+    FitContentPx(f32),
+    FitContentPercent(f32),
+    FitContent,
+    Content,
 }
 
 impl Val {
@@ -415,5 +421,466 @@ impl CornerRadius {
             bottom_right: radius,
             bottom_left: radius,
         }
+    }
+}
+
+#[derive(
+    Debug, Clone, Copy, PartialEq, PartialOrd, Default, derive_more::Deref, derive_more::DerefMut,
+)]
+pub struct Pixel(pub f32);
+#[cfg(feature = "serde")]
+impl serde::Serialize for Pixel {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.collect_str(&format_args!("{}px", self.0))
+    }
+}
+#[cfg(feature = "serde")]
+impl<'de> serde::Deserialize<'de> for Pixel {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct PixelVisitor;
+
+        impl serde::de::Visitor<'_> for PixelVisitor {
+            type Value = Pixel;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("a pixel length like \"10px\"")
+            }
+
+            fn visit_str<E>(self, value: &str) -> Result<Pixel, E>
+            where
+                E: serde::de::Error,
+            {
+                let s = value.trim();
+                let num_str = s
+                    .strip_suffix("px")
+                    .ok_or_else(|| serde::de::Error::custom("expected length ending with 'px'"))?;
+
+                num_str
+                    .trim()
+                    .parse::<f32>()
+                    .map(Pixel)
+                    .map_err(serde::de::Error::custom)
+            }
+        }
+
+        deserializer.deserialize_str(PixelVisitor)
+    }
+}
+
+#[derive(
+    Debug, Clone, Copy, PartialEq, PartialOrd, Default, derive_more::Deref, derive_more::DerefMut,
+)]
+pub struct Percent(pub f32);
+#[cfg(feature = "serde")]
+impl serde::Serialize for Percent {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.collect_str(&format_args!("{}%", self.0))
+    }
+}
+#[cfg(feature = "serde")]
+impl<'de> serde::Deserialize<'de> for Percent {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct PercentVisitor;
+
+        impl serde::de::Visitor<'_> for PercentVisitor {
+            type Value = Percent;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("a percentage like \"50%\"")
+            }
+
+            fn visit_str<E>(self, value: &str) -> Result<Percent, E>
+            where
+                E: serde::de::Error,
+            {
+                let s = value.trim();
+                let num_str = s.strip_suffix('%').ok_or_else(|| {
+                    serde::de::Error::custom("expected percentage ending with '%'")
+                })?;
+
+                num_str
+                    .trim()
+                    .parse::<f32>()
+                    .map(Percent)
+                    .map_err(serde::de::Error::custom)
+            }
+        }
+
+        deserializer.deserialize_str(PercentVisitor)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Auto;
+#[cfg(feature = "serde")]
+impl serde::Serialize for Auto {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str("auto")
+    }
+}
+#[cfg(feature = "serde")]
+impl<'de> serde::Deserialize<'de> for Auto {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct AutoVisitor;
+
+        impl serde::de::Visitor<'_> for AutoVisitor {
+            type Value = Auto;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("the string \"auto\"")
+            }
+
+            fn visit_str<E>(self, value: &str) -> Result<Auto, E>
+            where
+                E: serde::de::Error,
+            {
+                if value == "auto" {
+                    Ok(Auto)
+                } else {
+                    Err(serde::de::Error::unknown_variant(value, &["auto"]))
+                }
+            }
+        }
+
+        deserializer.deserialize_str(AutoVisitor)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Stretch;
+#[cfg(feature = "serde")]
+impl serde::Serialize for Stretch {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str("stretch")
+    }
+}
+#[cfg(feature = "serde")]
+impl<'de> serde::Deserialize<'de> for Stretch {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct StretchVisitor;
+
+        impl serde::de::Visitor<'_> for StretchVisitor {
+            type Value = Stretch;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("the string \"stretch\"")
+            }
+
+            fn visit_str<E>(self, value: &str) -> Result<Stretch, E>
+            where
+                E: serde::de::Error,
+            {
+                if value == "stretch" {
+                    Ok(Stretch)
+                } else {
+                    Err(serde::de::Error::unknown_variant(value, &["stretch"]))
+                }
+            }
+        }
+
+        deserializer.deserialize_str(StretchVisitor)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct MinContent;
+#[cfg(feature = "serde")]
+impl serde::Serialize for MinContent {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str("min-content")
+    }
+}
+#[cfg(feature = "serde")]
+impl<'de> serde::Deserialize<'de> for MinContent {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct MinContentVisitor;
+
+        impl serde::de::Visitor<'_> for MinContentVisitor {
+            type Value = MinContent;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("the string \"min-content\"")
+            }
+
+            fn visit_str<E>(self, value: &str) -> Result<MinContent, E>
+            where
+                E: serde::de::Error,
+            {
+                if value == "min-content" {
+                    Ok(MinContent)
+                } else {
+                    Err(serde::de::Error::unknown_variant(value, &["min-content"]))
+                }
+            }
+        }
+
+        deserializer.deserialize_str(MinContentVisitor)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct MaxContent;
+#[cfg(feature = "serde")]
+impl serde::Serialize for MaxContent {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str("max-content")
+    }
+}
+#[cfg(feature = "serde")]
+impl<'de> serde::Deserialize<'de> for MaxContent {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct MaxContentVisitor;
+
+        impl serde::de::Visitor<'_> for MaxContentVisitor {
+            type Value = MaxContent;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("the string \"max-content\"")
+            }
+
+            fn visit_str<E>(self, value: &str) -> Result<MaxContent, E>
+            where
+                E: serde::de::Error,
+            {
+                if value == "max-content" {
+                    Ok(MaxContent)
+                } else {
+                    Err(serde::de::Error::unknown_variant(value, &["max-content"]))
+                }
+            }
+        }
+
+        deserializer.deserialize_str(MaxContentVisitor)
+    }
+}
+
+#[derive(
+    Debug, Clone, Copy, PartialEq, PartialOrd, Default, derive_more::Deref, derive_more::DerefMut,
+)]
+pub struct FitContentPx(pub f32);
+#[cfg(feature = "serde")]
+impl serde::Serialize for FitContentPx {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.collect_str(&format_args!("fit-content({}px)", self.0))
+    }
+}
+#[cfg(feature = "serde")]
+impl<'de> serde::Deserialize<'de> for FitContentPx {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct FitContentPxVisitor;
+
+        impl serde::de::Visitor<'_> for FitContentPxVisitor {
+            type Value = FitContentPx;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("a value like \"fit-content(100px)\"")
+            }
+
+            fn visit_str<E>(self, value: &str) -> Result<FitContentPx, E>
+            where
+                E: serde::de::Error,
+            {
+                let s = value.trim();
+                let inner = s
+                    .strip_prefix("fit-content(")
+                    .and_then(|s| s.strip_suffix(')'))
+                    .ok_or_else(|| serde::de::Error::custom("expected format fit-content(...)"))?
+                    .trim();
+
+                let num_str = inner
+                    .strip_suffix("px")
+                    .ok_or_else(|| serde::de::Error::custom("expected length unit 'px'"))?;
+
+                num_str
+                    .trim()
+                    .parse::<f32>()
+                    .map(FitContentPx)
+                    .map_err(serde::de::Error::custom)
+            }
+        }
+
+        deserializer.deserialize_str(FitContentPxVisitor)
+    }
+}
+
+#[derive(
+    Debug, Clone, Copy, PartialEq, PartialOrd, Default, derive_more::Deref, derive_more::DerefMut,
+)]
+pub struct FitContentPercent(pub f32);
+#[cfg(feature = "serde")]
+impl serde::Serialize for FitContentPercent {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.collect_str(&format_args!("fit-content({}%)", self.0))
+    }
+}
+#[cfg(feature = "serde")]
+impl<'de> serde::Deserialize<'de> for FitContentPercent {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct Visitor;
+
+        impl serde::de::Visitor<'_> for Visitor {
+            type Value = FitContentPercent;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("a value like \"fit-content(50%)\"")
+            }
+
+            fn visit_str<E>(self, value: &str) -> Result<FitContentPercent, E>
+            where
+                E: serde::de::Error,
+            {
+                let s = value.trim();
+
+                let inner = s
+                    .strip_prefix("fit-content(")
+                    .and_then(|s| s.strip_suffix(')'))
+                    .ok_or_else(|| serde::de::Error::custom("expected format fit-content(...)"))?
+                    .trim();
+
+                let num_str = inner
+                    .strip_suffix('%')
+                    .ok_or_else(|| serde::de::Error::custom("expected percentage unit '%'"))?;
+
+                num_str
+                    .trim()
+                    .parse::<f32>()
+                    .map(FitContentPercent)
+                    .map_err(serde::de::Error::custom)
+            }
+        }
+
+        deserializer.deserialize_str(Visitor)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct FitContent;
+#[cfg(feature = "serde")]
+impl serde::Serialize for FitContent {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str("fit-content")
+    }
+}
+#[cfg(feature = "serde")]
+impl<'de> serde::Deserialize<'de> for FitContent {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct FitContentVisitor;
+
+        impl serde::de::Visitor<'_> for FitContentVisitor {
+            type Value = FitContent;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("the string \"fit-content\"")
+            }
+
+            fn visit_str<E>(self, value: &str) -> Result<FitContent, E>
+            where
+                E: serde::de::Error,
+            {
+                if value == "fit-content" {
+                    Ok(FitContent)
+                } else {
+                    Err(serde::de::Error::unknown_variant(value, &["fit-content"]))
+                }
+            }
+        }
+
+        deserializer.deserialize_str(FitContentVisitor)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Content;
+#[cfg(feature = "serde")]
+impl serde::Serialize for Content {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str("content")
+    }
+}
+#[cfg(feature = "serde")]
+impl<'de> serde::Deserialize<'de> for Content {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct ContentVisitor;
+
+        impl serde::de::Visitor<'_> for ContentVisitor {
+            type Value = Content;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("the string \"content\"")
+            }
+
+            fn visit_str<E>(self, value: &str) -> Result<Content, E>
+            where
+                E: serde::de::Error,
+            {
+                if value == "content" {
+                    Ok(Content)
+                } else {
+                    Err(serde::de::Error::unknown_variant(value, &["content"]))
+                }
+            }
+        }
+
+        deserializer.deserialize_str(ContentVisitor)
     }
 }

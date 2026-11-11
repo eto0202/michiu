@@ -240,48 +240,59 @@ impl OutputStore {
         out_rects: &RectsSecondary,
         debug: &mut DebugStore,
     ) -> f32 {
-        match val {
-            Val::Px(v) => v,
-            Val::Percent(p) => {
-                // 親要素の確定サイズを優先取得
-                let parent_size = topo_parents
-                    .at(id)
-                    .and_then(|p_id| out_rects.find(p_id))
-                    .map(|r| LayoutSize::new(r.width, r.height));
+        // 親要素（またはウィンドウ）の基準サイズを取得
+        let get_parent_ref = || {
+            let parent_size = topo_parents
+                .at(id)
+                .and_then(|p_id| out_rects.find(p_id))
+                .map(|r| LayoutSize::new(r.width, r.height));
 
-                // 親要素が未確定または存在しない場合は、最終ウィンドウ寸法を基準にする
-                let ref_size = parent_size.or(win_last_size).unwrap_or_default();
-                let ref_val = if is_width {
-                    ref_size.width
-                } else {
-                    ref_size.height
-                };
-
-                ref_val * (p / 100.0)
+            let ref_size = parent_size.or(win_last_size).unwrap_or_default();
+            if is_width {
+                ref_size.width
+            } else {
+                ref_size.height
             }
-            Val::Auto => {
-                // Auto の場合は前フレームで確定している Taffy のレイアウト結果を実数値の基準値とする
+        };
+
+        // 前フレームで確定している自身の Taffy 結果を取得
+        let prev_size = out_rects
+            .find(id)
+            .map(|r| if is_width { r.width } else { r.height });
+
+        match val {
+            // 固定値・割合
+            Val::Px(v) => v,
+            Val::Percent(p) => get_parent_ref() * (p / 100.0),
+            // 枠いっぱいに広げる
+            Val::Stretch => prev_size.unwrap_or_else(get_parent_ref),
+            // 前フレームの Taffy 計算値をベースにする
+            Val::Auto | Val::Content => {
                 let r = out_rects.find_or_default(id, debug);
                 if is_width { r.width } else { r.height }
             }
-            Val::Stretch => {
-                // すでに Taffy が計算した前フレームの結果があればそれを最優先
-                if let Some(r) = out_rects.find(id) {
-                    return if is_width { r.width } else { r.height };
-                }
-
-                // 初回などでまだ確定値がない場合は、親要素のサイズ（100%）を仮サイズにする
-                let parent_size = topo_parents
-                    .at(id)
-                    .and_then(|p_id| out_rects.find(p_id))
-                    .map(|r| LayoutSize::new(r.width, r.height));
-
-                let ref_size = parent_size.or(win_last_size).unwrap_or_default();
-                if is_width {
-                    ref_size.width
-                } else {
-                    ref_size.height
-                }
+            Val::MinContent => {
+                // 未確定時は 0.0 を仮値にする
+                prev_size.unwrap_or(0.0)
+            }
+            Val::MaxContent => {
+                // 未確定時は親の全幅を仮値にする
+                prev_size.unwrap_or_else(get_parent_ref)
+            }
+            Val::FitContent => {
+                // 未確定時は親サイズを仮値にする
+                prev_size.unwrap_or_else(get_parent_ref)
+            }
+            // 上限付き
+            Val::FitContentPx(limit) => {
+                // 前フレームのサイズと上限値 limit の小さい方を採用
+                // 未確定時は limit を仮サイズにする
+                prev_size.map_or(limit, |s| s.min(limit))
+            }
+            Val::FitContentPercent(p) => {
+                let limit = get_parent_ref() * (p / 100.0);
+                // 前フレームのサイズと計算したパーセント上限値の小さい方を採用
+                prev_size.map_or(limit, |s| s.min(limit))
             }
         }
     }

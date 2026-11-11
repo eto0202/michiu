@@ -1,11 +1,12 @@
 #![expect(clippy::cast_precision_loss)]
 
 use crate::{
-    AlignContent, AlignItems, AlignSelf, Auto, BoxSizing, CornerRadius, Direction, Display, Entity,
-    FlexDirection, FlexWrap, FocusTrigger, Focusable, FontFamily, FontWeight, InputContents,
-    JustifyContent, LayoutOverflow, LayoutPoint, Length, LetterSpacing, LinearGradient, ModValue,
-    Modifier, Overflow, Percent, Pixel, Point, Position, Prop, ReadSignal, Rect, Size, Stretch,
-    TextAlign, Transform, Val,
+    AlignContent, AlignItems, AlignSelf, Auto, BoxSizing, Content, CornerRadius, Direction,
+    Display, Entity, FitContent, FitContentPercent, FitContentPx, FlexDirection, FlexWrap,
+    FocusTrigger, Focusable, FontFamily, FontWeight, InputContents, JustifyContent, LayoutOverflow,
+    LayoutPoint, Length, LetterSpacing, LinearGradient, MaxContent, MinContent, ModValue, Modifier,
+    Overflow, Percent, Pixel, Point, Position, Prop, ReadSignal, Rect, Size, Stretch, TextAlign,
+    Transform, Val,
 };
 use std::borrow::Cow;
 use taffy::{ExpandedDimension, ExpandedLengthPercentage, ExpandedLengthPercentageAuto};
@@ -143,6 +144,12 @@ impl From<Val> for taffy::Dimension {
             Val::Px(v) => Self::length(v),
             Val::Percent(v) => Self::percent(v / 100.0),
             Val::Stretch => Self::stretch(),
+            Val::MinContent => Self::min_content(),
+            Val::MaxContent => Self::max_content(),
+            Val::FitContentPx(v) => Self::fit_content_px(v),
+            Val::FitContentPercent(v) => Self::fit_content_percent(v / 100.0),
+            Val::FitContent => Self::fit_content(),
+            Val::Content => Self::content(),
         }
     }
 }
@@ -154,6 +161,12 @@ impl From<taffy::Dimension> for Val {
             ExpandedDimension::Percent(v) => Self::Percent(v * 100.0),
             ExpandedDimension::Length(v) => Self::Px(v),
             ExpandedDimension::Stretch => Self::Stretch,
+            ExpandedDimension::MinContent => Self::MinContent,
+            ExpandedDimension::MaxContent => Self::MaxContent,
+            ExpandedDimension::FitContentPx(v) => Self::FitContentPx(v),
+            ExpandedDimension::FitContentPercent(v) => Self::FitContentPercent(v * 100.0),
+            ExpandedDimension::FitContent => Self::FitContent,
+            ExpandedDimension::Content => Self::Content,
             _ => Self::Auto,
         }
     }
@@ -163,9 +176,9 @@ impl From<Val> for taffy::LengthPercentage {
     #[inline]
     fn from(val: Val) -> Self {
         match val {
-            Val::Auto | Val::Stretch => Self::length(0.0),
             Val::Px(v) => Self::length(v),
             Val::Percent(v) => Self::percent(v / 100.0),
+            _ => Self::length(0.0),
         }
     }
 }
@@ -185,9 +198,9 @@ impl From<Val> for taffy::LengthPercentageAuto {
     #[inline]
     fn from(val: Val) -> Self {
         match val {
-            Val::Auto | Val::Stretch => Self::auto(),
             Val::Px(v) => Self::length(v),
             Val::Percent(v) => Self::percent(v / 100.0),
+            _ => Self::auto(),
         }
     }
 }
@@ -936,6 +949,60 @@ where
     }
 }
 
+impl<T: Clone + Send + Sync + 'static> IntoModRect<T> for MinContent
+where
+    MinContent: IntoRect<T>,
+{
+    fn into_mod_rect(self) -> ModValue<Rect<T>> {
+        ModValue::Static(self.into_rect())
+    }
+}
+
+impl<T: Clone + Send + Sync + 'static> IntoModRect<T> for MaxContent
+where
+    MaxContent: IntoRect<T>,
+{
+    fn into_mod_rect(self) -> ModValue<Rect<T>> {
+        ModValue::Static(self.into_rect())
+    }
+}
+
+impl<T: Clone + Send + Sync + 'static> IntoModRect<T> for FitContentPx
+where
+    FitContentPx: IntoRect<T>,
+{
+    fn into_mod_rect(self) -> ModValue<Rect<T>> {
+        ModValue::Static(self.into_rect())
+    }
+}
+
+impl<T: Clone + Send + Sync + 'static> IntoModRect<T> for FitContentPercent
+where
+    FitContentPercent: IntoRect<T>,
+{
+    fn into_mod_rect(self) -> ModValue<Rect<T>> {
+        ModValue::Static(self.into_rect())
+    }
+}
+
+impl<T: Clone + Send + Sync + 'static> IntoModRect<T> for FitContent
+where
+    FitContent: IntoRect<T>,
+{
+    fn into_mod_rect(self) -> ModValue<Rect<T>> {
+        ModValue::Static(self.into_rect())
+    }
+}
+
+impl<T: Clone + Send + Sync + 'static> IntoModRect<T> for Content
+where
+    Content: IntoRect<T>,
+{
+    fn into_mod_rect(self) -> ModValue<Rect<T>> {
+        ModValue::Static(self.into_rect())
+    }
+}
+
 impl<V, H, T> IntoModRect<T> for (V, H)
 where
     (V, H): IntoRect<T> + Send + Sync + 'static,
@@ -1026,6 +1093,60 @@ where
     }
 }
 
+impl<T: Clone + Send + Sync + 'static> IntoModSize<T> for MinContent
+where
+    MinContent: IntoSize<T>,
+{
+    fn into_mod_size(self) -> ModValue<Size<T>> {
+        ModValue::Static(self.into_size())
+    }
+}
+
+impl<T: Clone + Send + Sync + 'static> IntoModSize<T> for MaxContent
+where
+    MaxContent: IntoSize<T>,
+{
+    fn into_mod_size(self) -> ModValue<Size<T>> {
+        ModValue::Static(self.into_size())
+    }
+}
+
+impl<T: Clone + Send + Sync + 'static> IntoModSize<T> for FitContentPx
+where
+    FitContentPx: IntoSize<T>,
+{
+    fn into_mod_size(self) -> ModValue<Size<T>> {
+        ModValue::Static(self.into_size())
+    }
+}
+
+impl<T: Clone + Send + Sync + 'static> IntoModSize<T> for FitContentPercent
+where
+    FitContentPercent: IntoSize<T>,
+{
+    fn into_mod_size(self) -> ModValue<Size<T>> {
+        ModValue::Static(self.into_size())
+    }
+}
+
+impl<T: Clone + Send + Sync + 'static> IntoModSize<T> for FitContent
+where
+    FitContent: IntoSize<T>,
+{
+    fn into_mod_size(self) -> ModValue<Size<T>> {
+        ModValue::Static(self.into_size())
+    }
+}
+
+impl<T: Clone + Send + Sync + 'static> IntoModSize<T> for Content
+where
+    Content: IntoSize<T>,
+{
+    fn into_mod_size(self) -> ModValue<Size<T>> {
+        ModValue::Static(self.into_size())
+    }
+}
+
 impl<W, H, T> IntoModSize<T> for (W, H)
 where
     (W, H): IntoSize<T> + Send + Sync + 'static,
@@ -1100,6 +1221,60 @@ where
 impl<T: Clone + Send + Sync + 'static> IntoModPoint<T> for Stretch
 where
     Stretch: IntoPoint<T>,
+{
+    fn into_mod_point(self) -> ModValue<Point<T>> {
+        ModValue::Static(self.into_point())
+    }
+}
+
+impl<T: Clone + Send + Sync + 'static> IntoModPoint<T> for MinContent
+where
+    MinContent: IntoPoint<T>,
+{
+    fn into_mod_point(self) -> ModValue<Point<T>> {
+        ModValue::Static(self.into_point())
+    }
+}
+
+impl<T: Clone + Send + Sync + 'static> IntoModPoint<T> for MaxContent
+where
+    MaxContent: IntoPoint<T>,
+{
+    fn into_mod_point(self) -> ModValue<Point<T>> {
+        ModValue::Static(self.into_point())
+    }
+}
+
+impl<T: Clone + Send + Sync + 'static> IntoModPoint<T> for FitContentPx
+where
+    FitContentPx: IntoPoint<T>,
+{
+    fn into_mod_point(self) -> ModValue<Point<T>> {
+        ModValue::Static(self.into_point())
+    }
+}
+
+impl<T: Clone + Send + Sync + 'static> IntoModPoint<T> for FitContentPercent
+where
+    FitContentPercent: IntoPoint<T>,
+{
+    fn into_mod_point(self) -> ModValue<Point<T>> {
+        ModValue::Static(self.into_point())
+    }
+}
+
+impl<T: Clone + Send + Sync + 'static> IntoModPoint<T> for FitContent
+where
+    FitContent: IntoPoint<T>,
+{
+    fn into_mod_point(self) -> ModValue<Point<T>> {
+        ModValue::Static(self.into_point())
+    }
+}
+
+impl<T: Clone + Send + Sync + 'static> IntoModPoint<T> for Content
+where
+    Content: IntoPoint<T>,
 {
     fn into_mod_point(self) -> ModValue<Point<T>> {
         ModValue::Static(self.into_point())
@@ -1414,6 +1589,42 @@ impl IntoModConvert<Val> for Auto {
 }
 
 impl IntoModConvert<Val> for Stretch {
+    fn into_mod_convert(self) -> ModValue<Val> {
+        ModValue::Static(<Self as Convert<Val>>::convert(self))
+    }
+}
+
+impl IntoModConvert<Val> for MinContent {
+    fn into_mod_convert(self) -> ModValue<Val> {
+        ModValue::Static(<Self as Convert<Val>>::convert(self))
+    }
+}
+
+impl IntoModConvert<Val> for MaxContent {
+    fn into_mod_convert(self) -> ModValue<Val> {
+        ModValue::Static(<Self as Convert<Val>>::convert(self))
+    }
+}
+
+impl IntoModConvert<Val> for FitContentPx {
+    fn into_mod_convert(self) -> ModValue<Val> {
+        ModValue::Static(<Self as Convert<Val>>::convert(self))
+    }
+}
+
+impl IntoModConvert<Val> for FitContentPercent {
+    fn into_mod_convert(self) -> ModValue<Val> {
+        ModValue::Static(<Self as Convert<Val>>::convert(self))
+    }
+}
+
+impl IntoModConvert<Val> for FitContent {
+    fn into_mod_convert(self) -> ModValue<Val> {
+        ModValue::Static(<Self as Convert<Val>>::convert(self))
+    }
+}
+
+impl IntoModConvert<Val> for Content {
     fn into_mod_convert(self) -> ModValue<Val> {
         ModValue::Static(<Self as Convert<Val>>::convert(self))
     }
@@ -1781,6 +1992,42 @@ impl Convert<Val> for Stretch {
         Val::Stretch
     }
 }
+impl Convert<Val> for MinContent {
+    #[inline]
+    fn convert(self) -> Val {
+        Val::MinContent
+    }
+}
+impl Convert<Val> for MaxContent {
+    #[inline]
+    fn convert(self) -> Val {
+        Val::MaxContent
+    }
+}
+impl Convert<Val> for FitContentPx {
+    #[inline]
+    fn convert(self) -> Val {
+        Val::FitContentPx(self.0)
+    }
+}
+impl Convert<Val> for FitContentPercent {
+    #[inline]
+    fn convert(self) -> Val {
+        Val::FitContentPercent(self.0)
+    }
+}
+impl Convert<Val> for FitContent {
+    #[inline]
+    fn convert(self) -> Val {
+        Val::FitContent
+    }
+}
+impl Convert<Val> for Content {
+    #[inline]
+    fn convert(self) -> Val {
+        Val::Content
+    }
+}
 
 impl Convert<Length> for f32 {
     #[inline]
@@ -1912,6 +2159,96 @@ where
     }
 }
 
+impl<T> IntoSize<T> for MinContent
+where
+    MinContent: Convert<T>,
+    T: Clone,
+{
+    #[inline]
+    fn into_size(self) -> Size<T> {
+        let v = self.convert();
+        Size {
+            width: v.clone(),
+            height: v,
+        }
+    }
+}
+
+impl<T> IntoSize<T> for MaxContent
+where
+    MaxContent: Convert<T>,
+    T: Clone,
+{
+    #[inline]
+    fn into_size(self) -> Size<T> {
+        let v = self.convert();
+        Size {
+            width: v.clone(),
+            height: v,
+        }
+    }
+}
+
+impl<T> IntoSize<T> for FitContentPx
+where
+    FitContentPx: Convert<T>,
+    T: Clone,
+{
+    #[inline]
+    fn into_size(self) -> Size<T> {
+        let v = self.convert();
+        Size {
+            width: v.clone(),
+            height: v,
+        }
+    }
+}
+
+impl<T> IntoSize<T> for FitContentPercent
+where
+    FitContentPercent: Convert<T>,
+    T: Clone,
+{
+    #[inline]
+    fn into_size(self) -> Size<T> {
+        let v = self.convert();
+        Size {
+            width: v.clone(),
+            height: v,
+        }
+    }
+}
+
+impl<T> IntoSize<T> for FitContent
+where
+    FitContent: Convert<T>,
+    T: Clone,
+{
+    #[inline]
+    fn into_size(self) -> Size<T> {
+        let v = self.convert();
+        Size {
+            width: v.clone(),
+            height: v,
+        }
+    }
+}
+
+impl<T> IntoSize<T> for Content
+where
+    Content: Convert<T>,
+    T: Clone,
+{
+    #[inline]
+    fn into_size(self) -> Size<T> {
+        let v = self.convert();
+        Size {
+            width: v.clone(),
+            height: v,
+        }
+    }
+}
+
 // 2連タプル (width, height)
 impl<W, H, T> IntoSize<T> for (W, H)
 where
@@ -2019,6 +2356,108 @@ where
 impl<T> IntoRect<T> for Stretch
 where
     Stretch: Convert<T> + Clone,
+    T: Clone,
+{
+    #[inline]
+    fn into_rect(self) -> Rect<T> {
+        let val = self.convert();
+        Rect {
+            top: val.clone(),
+            right: val.clone(),
+            bottom: val.clone(),
+            left: val,
+        }
+    }
+}
+
+impl<T> IntoRect<T> for MinContent
+where
+    MinContent: Convert<T> + Clone,
+    T: Clone,
+{
+    #[inline]
+    fn into_rect(self) -> Rect<T> {
+        let val = self.convert();
+        Rect {
+            top: val.clone(),
+            right: val.clone(),
+            bottom: val.clone(),
+            left: val,
+        }
+    }
+}
+
+impl<T> IntoRect<T> for MaxContent
+where
+    MaxContent: Convert<T> + Clone,
+    T: Clone,
+{
+    #[inline]
+    fn into_rect(self) -> Rect<T> {
+        let val = self.convert();
+        Rect {
+            top: val.clone(),
+            right: val.clone(),
+            bottom: val.clone(),
+            left: val,
+        }
+    }
+}
+
+impl<T> IntoRect<T> for FitContentPx
+where
+    FitContentPx: Convert<T> + Clone,
+    T: Clone,
+{
+    #[inline]
+    fn into_rect(self) -> Rect<T> {
+        let val = self.convert();
+        Rect {
+            top: val.clone(),
+            right: val.clone(),
+            bottom: val.clone(),
+            left: val,
+        }
+    }
+}
+
+impl<T> IntoRect<T> for FitContentPercent
+where
+    FitContentPercent: Convert<T> + Clone,
+    T: Clone,
+{
+    #[inline]
+    fn into_rect(self) -> Rect<T> {
+        let val = self.convert();
+        Rect {
+            top: val.clone(),
+            right: val.clone(),
+            bottom: val.clone(),
+            left: val,
+        }
+    }
+}
+
+impl<T> IntoRect<T> for FitContent
+where
+    FitContent: Convert<T> + Clone,
+    T: Clone,
+{
+    #[inline]
+    fn into_rect(self) -> Rect<T> {
+        let val = self.convert();
+        Rect {
+            top: val.clone(),
+            right: val.clone(),
+            bottom: val.clone(),
+            left: val,
+        }
+    }
+}
+
+impl<T> IntoRect<T> for Content
+where
+    Content: Convert<T> + Clone,
     T: Clone,
 {
     #[inline]

@@ -9,7 +9,7 @@ use crate::{
     JustifyContent, KeyframeAnimation, LayoutOverflow, LayoutPoint, Length, LineHeight,
     LinearGradient, MichiuSoA, Overflow, PointerEvents, Position, PropertyList, Rect,
     ScrollbarDisplay, ScrollbarMode, ScrollbarStyle, TargetStyle, TextAlign, Transform, Transition,
-    UserSelect, Val, VisualProperty, auto, fill, pct,
+    UserSelect, Val, VisualProperty, auto, content_, fill, fit, max_content, min_content, pct,
 };
 use std::{sync::Arc, time::Duration};
 
@@ -1049,6 +1049,27 @@ impl Modifier {
         self.size(fill())
     }
 
+    /// Set both the width and height of the entity to MinContent.
+    #[inline]
+    #[must_use]
+    pub fn size_min(self) -> Self {
+        self.size(min_content())
+    }
+
+    /// Set both the width and height of the entity to MaxContent.
+    #[inline]
+    #[must_use]
+    pub fn size_max(self) -> Self {
+        self.size(max_content())
+    }
+
+    /// Set both the width and height of the entity to FitContent.
+    #[inline]
+    #[must_use]
+    pub fn size_fit(self) -> Self {
+        self.size(fit())
+    }
+
     /// Sets only the width of the entity (the height will retain its existing value).
     #[inline]
     #[must_use]
@@ -1106,6 +1127,27 @@ impl Modifier {
         self.width(fill())
     }
 
+    /// Set the width of the entity to MinContent.
+    #[inline]
+    #[must_use]
+    pub fn w_min(self) -> Self {
+        self.width(min_content())
+    }
+
+    /// Set the width of the entity to MaxContent.
+    #[inline]
+    #[must_use]
+    pub fn w_max(self) -> Self {
+        self.width(max_content())
+    }
+
+    /// Set the width of the entity to FitContent.
+    #[inline]
+    #[must_use]
+    pub fn w_fit(self) -> Self {
+        self.width(fit())
+    }
+
     /// Sets only the height of the entity (the width will retain its existing value).
     #[inline]
     #[must_use]
@@ -1161,6 +1203,27 @@ impl Modifier {
     #[must_use]
     pub fn h_fill(self) -> Self {
         self.height(fill())
+    }
+
+    /// Set the height of the entity to MinContent.
+    #[inline]
+    #[must_use]
+    pub fn h_min(self) -> Self {
+        self.height(min_content())
+    }
+
+    /// Set the height of the entity to MaxContent.
+    #[inline]
+    #[must_use]
+    pub fn h_max(self) -> Self {
+        self.height(max_content())
+    }
+
+    /// Set the height of the entity to FitContent.
+    #[inline]
+    #[must_use]
+    pub fn h_fit(self) -> Self {
+        self.height(fit())
     }
 
     /// Set the minimum size.
@@ -1453,13 +1516,6 @@ impl Modifier {
     #[must_use]
     pub fn m_auto(self) -> Self {
         self.margin(auto())
-    }
-
-    /// Sets the outer margin Stretch
-    #[inline]
-    #[must_use]
-    pub fn m_fill(self) -> Self {
-        self.margin(fill())
     }
 
     /// Sets the left and right outer margins (margin-left, margin-right) all at once.
@@ -3588,20 +3644,6 @@ impl Modifier {
         self.gap(0.0)
     }
 
-    /// Sets the spacing between child entities in the row and column directions to auto.
-    #[inline]
-    #[must_use]
-    pub fn gap_auto(self) -> Self {
-        self.gap(auto())
-    }
-
-    /// Sets the spacing between child entities in the row and column directions to stretch.
-    #[inline]
-    #[must_use]
-    pub fn gap_fill(self) -> Self {
-        self.gap(fill())
-    }
-
     /// Sets the row-gap (vertical) spacing between child entities.
     #[inline]
     #[must_use]
@@ -3890,6 +3932,13 @@ impl Modifier {
     #[must_use]
     pub fn basis_fill(self) -> Self {
         self.basis(fill())
+    }
+
+    /// Sets the base dimensions that serve as the basis for the child entities to content.
+    #[inline]
+    #[must_use]
+    pub fn basis_content(self) -> Self {
+        self.basis(content_())
     }
 
     /// Sets the base dimensions that serve as the basis for the child entities to 100%.
