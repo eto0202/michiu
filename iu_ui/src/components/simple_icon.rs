@@ -25,23 +25,22 @@ pub enum IconVariant {
 /// All sizes strictly satisfy the WCAG 2.5.8 minimum target size requirement (>= 24x24px).
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum IconSize {
+    /// Extra small size: 16x16px.
     Xs,
-    /// Compact square size: 24x24px (exceeds WCAG 2.5.8 minimum of 24x24px).
+    /// Small size: 24x24px.
     #[default]
     Sm,
-    /// Standard size: 36x36px.
+    /// Medium size: 36x36px.
     Md,
-    /// Large size: 48x48px (meets WCAG AAA target size of 44x44px vertically).
+    /// Large size: 48x48px.
     Lg,
-
+    /// Cutom size
     Custom(f32),
 }
 
 /// Icon category for [`SimpleIcon`].
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum IconCategory {
-    // ボタンロールとして扱う。代替テキスト有り。インタラクション可。
-    Button(Cow<'static, str>),
     // 画像として扱う。代替テキスト有り。インタラクション不可。
     Image(Cow<'static, str>),
     // 装飾のためツリーから外す。
@@ -49,9 +48,6 @@ pub enum IconCategory {
     Decoration,
 }
 impl IconCategory {
-    pub fn button(label: impl Into<Cow<'static, str>>) -> Self {
-        Self::Button(label.into())
-    }
     pub fn image(label: impl Into<Cow<'static, str>>) -> Self {
         Self::Image(label.into())
     }
@@ -121,9 +117,11 @@ impl SimpleIcon {
                             "The number of SVG elements exceeds the limit (1,000,000 elements)."
                         }
                     };
-                    panic!("Failed to parse SVG icon.\n[Cause]: {e}\n[Hint]: {hint}");
+                    panic!(
+                        "[Simple Icon Error] Failed to parse SVG icon.\n[Cause]: {e}\n[Hint]: {hint}"
+                    );
                 } else {
-                    panic!("Unexpected error: {e}");
+                    panic!("[Simple Icon Error] Unexpected error: {e}");
                 }
             }
         };
@@ -177,7 +175,7 @@ impl MichiuWidget for SimpleIcon {
     /// onto the returned `Entity` to overwrite defaults.
     fn build(&self, theme: &dyn MichiuTheme) -> Entity {
         let size = match self.size {
-            IconSize::Xs => (12.0, 12.0),
+            IconSize::Xs => (16.0, 16.0),
             IconSize::Sm => (24.0, 24.0),
             IconSize::Md => (36.0, 36.0),
             IconSize::Lg => (48.0, 48.0),
@@ -201,6 +199,7 @@ impl MichiuWidget for SimpleIcon {
         let mut modifier = ii()
             .justify_center()
             .items_center()
+            .min_size(12.0)
             .size(size)
             .text_color(text_color)
             .disabled(
@@ -212,23 +211,6 @@ impl MichiuWidget for SimpleIcon {
 
         let modifier = match &self.category {
             IconCategory::Decoration => modifier,
-            IconCategory::Button(label) => {
-                node.set_role(Role::Button);
-                node.set_label(label.to_string());
-                node.add_action(Action::Click);
-
-                modifier
-                    .hovered(ii().text_color(hover))
-                    .pressed(ii().text_color(active))
-                    .cursor_pointer()
-                    .focusable_self_both()
-                    .focused_visible(
-                        ii().r(3.0)
-                            .outline_solid(2.0)
-                            .outline_offset(2.0)
-                            .outline_color(theme.focus_ring()),
-                    )
-            }
             IconCategory::Image(label) => {
                 node.set_role(Role::Image);
                 node.set_label(label.to_string());

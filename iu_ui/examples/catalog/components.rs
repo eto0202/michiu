@@ -142,55 +142,71 @@ pub(crate) fn create_component_entity(comp_type: ComponentType, is_dark: bool) -
         ]),
         ComponentType::Icon => wrapper([
             section(
-                "Icon",
+                "Size",
                 [
-                    include_simple_icon!("../../src/assets/search.svg")
-                        .category(IconCategory::button("Search"))
+                    include_simple_icon!("../../src/assets/sort.svg")
+                        .size(IconSize::Xs)
                         .build(&theme),
                     include_simple_icon!("../../src/assets/search.svg")
-                        .category(IconCategory::button("Search"))
-                        .disabled(true)
-                        .build(&theme),
-                    include_simple_icon!("../../src/assets/search.svg")
-                        .category(IconCategory::button("Search"))
+                        .size(IconSize::Xs)
                         .variant(IconVariant::Accent)
                         .build(&theme),
+                    include_simple_icon!("../../src/assets/sort.svg")
+                        .size(IconSize::Sm)
+                        .build(&theme),
                     include_simple_icon!("../../src/assets/search.svg")
-                        .category(IconCategory::button("Search"))
-                        .disabled(true)
+                        .size(IconSize::Sm)
+                        .variant(IconVariant::Accent)
+                        .build(&theme),
+                    include_simple_icon!("../../src/assets/sort.svg")
+                        .size(IconSize::Md)
+                        .build(&theme),
+                    include_simple_icon!("../../src/assets/search.svg")
+                        .size(IconSize::Md)
+                        .variant(IconVariant::Accent)
+                        .build(&theme),
+                    include_simple_icon!("../../src/assets/sort.svg")
+                        .size(IconSize::Lg)
+                        .build(&theme),
+                    include_simple_icon!("../../src/assets/search.svg")
+                        .size(IconSize::Lg)
                         .variant(IconVariant::Accent)
                         .build(&theme),
                 ],
             ),
             section(
-                "Icon",
+                "Gray",
+                [include_simple_icon!("../../src/assets/info.svg")
+                    .variant(IconVariant::Gray)
+                    .build(&theme)],
+            ),
+            section(
+                "Accent",
+                [include_simple_icon!("../../src/assets/delete.svg")
+                    .variant(IconVariant::Accent)
+                    .build(&theme)],
+            ),
+            section(
+                "Decoration",
                 [
-                    include_simple_icon!("../../src/assets/search.svg")
-                        .size(IconSize::Xs)
-                        .category(IconCategory::button("Search"))
-                        .build(&theme),
-                    include_simple_icon!("../../src/assets/search.svg")
-                        .size(IconSize::Md)
-                        .variant(IconVariant::Accent)
-                        .category(IconCategory::button("Search"))
-                        .build(&theme),
-                    include_simple_icon!("../../src/assets/search.svg")
-                        .size(IconSize::Md)
-                        .category(IconCategory::image("Search"))
-                        .build(&theme),
-                    include_simple_icon!("../../src/assets/search.svg")
-                        .size(IconSize::Md)
-                        .variant(IconVariant::Accent)
-                        .category(IconCategory::image("Search"))
-                        .build(&theme),
-                    include_simple_icon!("../../src/assets/search.svg")
-                        .size(IconSize::Md)
+                    include_simple_icon!("../../src/assets/menu.svg")
                         .category(IconCategory::Decoration)
                         .build(&theme),
-                    include_simple_icon!("../../src/assets/search.svg")
-                        .size(IconSize::Md)
-                        .variant(IconVariant::Accent)
+                    include_simple_icon!("../../src/assets/download.svg")
                         .category(IconCategory::Decoration)
+                        .variant(IconVariant::Accent)
+                        .build(&theme),
+                ],
+            ),
+            section(
+                "Image",
+                [
+                    include_simple_icon!("../../src/assets/notifications.svg")
+                        .category(IconCategory::image("Notifications"))
+                        .build(&theme),
+                    include_simple_icon!("../../src/assets/folder.svg")
+                        .category(IconCategory::image("Folder"))
+                        .variant(IconVariant::Accent)
                         .build(&theme),
                 ],
             ),
