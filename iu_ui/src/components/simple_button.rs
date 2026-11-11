@@ -78,24 +78,46 @@ pub enum ButtonSize {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SimpleButton {
     /// Accessible button label text.
-    pub label: String,
+    pub label: Option<String>,
     /// Visual style variant (Solid, Outline, Ghost).
     pub variant: ButtonVariant,
     /// Button dimensions.
     pub size: ButtonSize,
     /// Whether the button is disabled.
     pub disabled: bool,
+    /// Whether to Round the Corners (`Modifier::r_full`)
+    pub rounded_full: bool,
+    pub start_child: Option<Entity>,
+    pub end_child: Option<Entity>,
+    pub rtl: bool,
 }
 
 impl SimpleButton {
-    /// Creates a new accessible button with the specified label and default options.
+    /// Creates a new accessible button with the specified label.
     pub fn new(label: impl Into<String>) -> Self {
         Self {
-            label: label.into(),
+            label: Some(label.into()),
+            ..Default::default()
+        }
+    }
+
+    /// Creates a new accessible button.
+    pub fn empty() -> Self {
+        Self {
+            label: None,
             variant: ButtonVariant::default(),
             size: ButtonSize::default(),
             disabled: false,
+            rounded_full: false,
+            start_child: None,
+            end_child: None,
+            rtl: false,
         }
+    }
+
+    pub fn with_label(mut self, label: impl Into<String>) -> Self {
+        self.label = Some(label.into());
+        self
     }
 
     /// Sets the visual style variant.
@@ -115,6 +137,33 @@ impl SimpleButton {
     pub fn disabled(mut self, disabled: bool) -> Self {
         self.disabled = disabled;
         self
+    }
+
+    /// Set whether to round the corners (`Modifier::r_full`)
+    pub fn rounded_full(mut self, enabled: bool) -> Self {
+        self.rounded_full = enabled;
+        self
+    }
+
+    pub fn with_start(mut self, entity: Entity) -> Self {
+        self.start_child = Some(entity);
+        self
+    }
+
+    pub fn with_end(mut self, entity: Entity) -> Self {
+        self.end_child = Some(entity);
+        self
+    }
+
+    pub fn rtl(mut self, enabled: bool) -> Self {
+        self.rtl = enabled;
+        self
+    }
+}
+
+impl Default for SimpleButton {
+    fn default() -> Self {
+        Self::empty()
     }
 }
 
@@ -189,11 +238,14 @@ impl MichiuWidget for SimpleButton {
 
         let offset = theme.focus_ring_offset(self.variant == ButtonVariant::Solid);
 
+        let r = if self.rounded_full { 9999.0 } else { 3.0 };
+
         let modifier = ii()
             .justify_center()
             .items_center()
-            .r(3.0)
+            .r(r)
             .p(padding)
+            .gap(6.0)
             .min_size(24.0)
             .size_fit()
             .bg_color(bg)
@@ -216,12 +268,25 @@ impl MichiuWidget for SimpleButton {
                     .outline_color(theme.focus_ring()),
             );
 
-        flex(modifier)
-            .tag::<a11y::AButton>()
-            .disable(self.disabled)
-            .label(
-                self.label.clone(),
-                ii().font_size(font_size).text_color(text_color),
-            )
+        let mut entity = flex(modifier).tag::<a11y::AButton>().disable(self.disabled);
+
+        let mut label_style = ii().font_size(font_size).text_color(text_color);
+
+        if self.rtl {
+            entity = entity.modify(ii().flex_row_reverse());
+            label_style = label_style.rtl();
+        }
+
+        if let Some(left) = self.start_child {
+            entity = entity.child(left);
+        }
+        if let Some(center) = self.label.clone() {
+            entity = entity.label(center, label_style);
+        }
+        if let Some(right) = self.end_child {
+            entity = entity.child(right);
+        }
+
+        entity
     }
 }

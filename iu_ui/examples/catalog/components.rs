@@ -41,7 +41,28 @@ pub(crate) fn create_component_entity(comp_type: ComponentType, is_dark: bool) -
                         .build(&theme),
                 ],
             ),
-            section("Solid", [SimpleButton::new("Solid").build(&theme)]),
+            section(
+                "Solid",
+                [
+                    SimpleButton::new("Solid").build(&theme),
+                    SimpleButton::new("Solid")
+                        .with_start(
+                            include_simple_icon!("../../src/assets/info.svg")
+                                .size(IconSize::Xs)
+                                .variant(IconVariant::White)
+                                .build(&theme),
+                        )
+                        .build(&theme),
+                    SimpleButton::empty()
+                        .with_end(
+                            include_simple_icon!("../../src/assets/info.svg")
+                                .size(IconSize::Xs)
+                                .variant(IconVariant::White)
+                                .build(&theme),
+                        )
+                        .build(&theme),
+                ],
+            ),
             section(
                 "Secondary",
                 [SimpleButton::new("Secondary")
@@ -50,15 +71,61 @@ pub(crate) fn create_component_entity(comp_type: ComponentType, is_dark: bool) -
             ),
             section(
                 "Outline",
-                [SimpleButton::new("Outline")
-                    .variant(ButtonVariant::Outline)
-                    .build(&theme)],
+                [
+                    SimpleButton::new("Outline")
+                        .variant(ButtonVariant::Outline)
+                        .build(&theme),
+                    SimpleButton::new("Outline")
+                        .with_start(
+                            include_simple_icon!("../../src/assets/info.svg")
+                                .size(IconSize::Xs)
+                                .variant(IconVariant::White)
+                                .build(&theme),
+                        )
+                        .variant(ButtonVariant::Outline)
+                        .build(&theme),
+                    SimpleButton::empty()
+                        .with_end(
+                            include_simple_icon!("../../src/assets/info.svg")
+                                .size(IconSize::Xs)
+                                .variant(IconVariant::White)
+                                .build(&theme),
+                        )
+                        .variant(ButtonVariant::Outline)
+                        .build(&theme),
+                ],
             ),
             section(
                 "Ghost",
                 [SimpleButton::new("Ghost")
                     .variant(ButtonVariant::Ghost)
                     .build(&theme)],
+            ),
+            section(
+                "Rounded",
+                [
+                    SimpleButton::new("Rounded")
+                        .rounded_full(true)
+                        .build(&theme),
+                    SimpleButton::new("Rounded")
+                        .with_start(
+                            include_simple_icon!("../../src/assets/info.svg")
+                                .size(IconSize::Xs)
+                                .variant(IconVariant::White)
+                                .build(&theme),
+                        )
+                        .rounded_full(true)
+                        .build(&theme),
+                    SimpleButton::empty()
+                        .with_end(
+                            include_simple_icon!("../../src/assets/info.svg")
+                                .size(IconSize::Xs)
+                                .variant(IconVariant::White)
+                                .build(&theme),
+                        )
+                        .rounded_full(true)
+                        .build(&theme),
+                ],
             ),
             section(
                 "Disabled",
@@ -78,6 +145,53 @@ pub(crate) fn create_component_entity(comp_type: ComponentType, is_dark: bool) -
                     SimpleButton::new("Ghost")
                         .disabled(true)
                         .variant(ButtonVariant::Ghost)
+                        .build(&theme),
+                ],
+            ),
+            section(
+                "Rtl",
+                [
+                    SimpleButton::new("زر الأمر").rtl(true).build(&theme),
+                    SimpleButton::new("הכפתור").rtl(true).build(&theme),
+                    SimpleButton::new("دکمه‌ها").rtl(true).build(&theme),
+                    SimpleButton::new("קנעפּל").rtl(true).build(&theme),
+                ],
+            ),
+            section(
+                "Rtl with child",
+                [
+                    SimpleButton::new("קנעפּל")
+                        .with_start(
+                            include_simple_icon!("../../src/assets/info.svg")
+                                .size(IconSize::Xs)
+                                .variant(IconVariant::White)
+                                .build(&theme),
+                        )
+                        .rtl(true)
+                        .build(&theme),
+                    SimpleButton::new("קנעפּל")
+                        .with_end(
+                            include_simple_icon!("../../src/assets/info.svg")
+                                .size(IconSize::Xs)
+                                .variant(IconVariant::White)
+                                .build(&theme),
+                        )
+                        .rtl(true)
+                        .build(&theme),
+                    SimpleButton::new("קנעפּל")
+                        .with_start(
+                            include_simple_icon!("../../src/assets/info.svg")
+                                .size(IconSize::Xs)
+                                .variant(IconVariant::White)
+                                .build(&theme),
+                        )
+                        .with_end(
+                            include_simple_icon!("../../src/assets/download.svg")
+                                .size(IconSize::Xs)
+                                .variant(IconVariant::White)
+                                .build(&theme),
+                        )
+                        .rtl(true)
                         .build(&theme),
                 ],
             ),
@@ -175,7 +289,13 @@ pub(crate) fn create_component_entity(comp_type: ComponentType, is_dark: bool) -
                 ],
             ),
             section(
-                "Gray",
+                "White",
+                [include_simple_icon!("../../src/assets/info.svg")
+                    .variant(IconVariant::White)
+                    .build(&theme)],
+            ),
+            section(
+                "White",
                 [include_simple_icon!("../../src/assets/info.svg")
                     .variant(IconVariant::Gray)
                     .build(&theme)],

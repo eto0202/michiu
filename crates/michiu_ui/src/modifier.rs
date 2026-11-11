@@ -418,6 +418,20 @@ impl Modifier {
         self
     }
 
+    /// Sets the inline [`Direction::Rtl`] for text and entities.
+    #[inline]
+    #[must_use]
+    pub fn rtl(self) -> Self {
+        self.direction(Direction::Rtl)
+    }
+
+    /// Sets the inline [`Direction::Ltr`] for text and entities.
+    #[inline]
+    #[must_use]
+    pub fn ltr(self) -> Self {
+        self.direction(Direction::Ltr)
+    }
+
     /// Register the scrollbar style ([`ScrollbarStyle`]).
     #[inline]
     #[must_use]

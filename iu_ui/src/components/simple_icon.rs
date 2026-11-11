@@ -16,6 +16,7 @@ use std::{
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum IconVariant {
     #[default]
+    White,
     Gray,
     Accent,
 }
@@ -56,7 +57,7 @@ impl IconCategory {
 #[derive(Debug, Clone)]
 pub struct SimpleIcon {
     pub icon: SvgIcon,
-    /// Visual style variant (Gray, Accent).
+    /// Visual style variant (White, Gray, Accent).
     pub variant: IconVariant,
     /// Icon dimensions.
     pub size: IconSize,
@@ -182,13 +183,10 @@ impl MichiuWidget for SimpleIcon {
             IconSize::Custom(s) => (s, s),
         };
 
-        let (text_color, hover, active) = match self.variant {
-            IconVariant::Gray => (theme.gray_solid(), theme.gray_solid_hover(), theme.gray_8()),
-            IconVariant::Accent => (
-                theme.accent_solid(),
-                theme.accent_solid_hover(),
-                theme.accent_8(),
-            ),
+        let text_color = match self.variant {
+            IconVariant::White => theme.text_on_solid(),
+            IconVariant::Gray => theme.gray_text_low(),
+            IconVariant::Accent => theme.accent_solid(),
         };
         let disabled_text_color = if self.disabled {
             theme.gray_7()
@@ -199,6 +197,7 @@ impl MichiuWidget for SimpleIcon {
         let mut modifier = ii()
             .justify_center()
             .items_center()
+            .pointer_events_none()
             .min_size(12.0)
             .size(size)
             .text_color(text_color)
