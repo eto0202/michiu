@@ -79,6 +79,12 @@ pub enum ButtonSize {
 pub struct SimpleButton {
     /// Accessible button label text.
     pub label: Option<String>,
+    /// An explicit accessible name for assistive technologies like screen readers.
+    ///
+    /// By default, the visible `label` is used as the accessible name.
+    /// Set this field when creating an icon-only button (where there is no visible text)
+    /// or when you want to override the visible label with a more descriptive name.
+    pub accessible_name: Option<String>,
     /// Visual style variant (Solid, Outline, Ghost).
     pub variant: ButtonVariant,
     /// Button dimensions.
@@ -113,6 +119,7 @@ impl SimpleButton {
     pub fn empty() -> Self {
         Self {
             label: None,
+            accessible_name: None,
             variant: ButtonVariant::default(),
             size: ButtonSize::default(),
             disabled: false,
@@ -126,6 +133,14 @@ impl SimpleButton {
     /// Set the label.
     pub fn with_label(mut self, label: impl Into<String>) -> Self {
         self.label = Some(label.into());
+        self
+    }
+
+    /// Set accessible name.
+    ///
+    /// Overwrite the displayed label with a more specific accessibility name.
+    pub fn accessible_name(mut self, name: impl Into<String>) -> Self {
+        self.accessible_name = Some(name.into());
         self
     }
 
@@ -292,6 +307,10 @@ impl MichiuWidget for SimpleButton {
         }
         if let Some(right) = self.end_child {
             entity = entity.child(right);
+        }
+
+        if let Some(name) = self.accessible_name.clone() {
+            entity = entity.a11y_label(Role::Button, name);
         }
 
         entity

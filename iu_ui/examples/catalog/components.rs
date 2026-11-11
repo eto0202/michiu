@@ -54,6 +54,7 @@ pub(crate) fn create_component_entity(comp_type: ComponentType, is_dark: bool) -
                         )
                         .build(&theme),
                     SimpleButton::empty()
+                        .accessible_name("Information")
                         .with_end(
                             include_simple_icon!("../../src/assets/info.svg")
                                 .size(IconSize::Xs)
@@ -85,6 +86,7 @@ pub(crate) fn create_component_entity(comp_type: ComponentType, is_dark: bool) -
                         .variant(ButtonVariant::Outline)
                         .build(&theme),
                     SimpleButton::empty()
+                        .accessible_name("Information")
                         .with_end(
                             include_simple_icon!("../../src/assets/info.svg")
                                 .size(IconSize::Xs)
@@ -115,6 +117,7 @@ pub(crate) fn create_component_entity(comp_type: ComponentType, is_dark: bool) -
                         .rounded(true)
                         .build(&theme),
                     SimpleButton::empty()
+                        .accessible_name("Information")
                         .with_end(
                             include_simple_icon!("../../src/assets/info.svg")
                                 .size(IconSize::Xs)
