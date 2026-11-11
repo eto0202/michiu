@@ -209,9 +209,9 @@
 //! ```no_run
 //! # use michiu::prelude::*;
 //! # use windows::Win32::UI::WindowsAndMessaging::WM_NULL;
-//! # fn handle_raw(app: &mut MichiuApp, raw: MichiuRawEvent) {
-//! match raw.msg {
-//!     WM_NULL => {
+//! # fn handle_raw(app: &mut MichiuApp, event: MichiuEvent) {
+//! match event {
+//!     MichiuEvent::WakeUp => {
 //!         // 1. Drain background tasks
 //!         app.context.process_main_thread_tasks();
 //!
