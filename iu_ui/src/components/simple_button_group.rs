@@ -18,12 +18,14 @@ pub enum ButtonGroupVariant {
 /// All sizes strictly satisfy the WCAG 2.5.8 minimum target size requirement (>= 24x24px).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ButtonGroupSize {
-    /// Compact square size: 28x28px (exceeds WCAG 2.5.8 minimum of 24x24px).
+    /// Extra small size.
+    Xs,
+    /// Small size.
     Sm,
-    /// Standard size: 96x36px.
+    /// Standard size.
     #[default]
     Md,
-    /// Large size: 120x44px (meets WCAG AAA target size of 44x44px vertically).
+    /// Large size.
     Lg,
 }
 
@@ -127,7 +129,7 @@ impl SimpleButtonGroup {
             direction: FlexDirection::Row,
             items: items.into_iter().collect(),
             variant: ButtonGroupVariant::default(),
-            size: ButtonGroupSize::Sm,
+            size: ButtonGroupSize::default(),
         }
     }
 
@@ -166,7 +168,7 @@ impl Default for SimpleButtonGroup {
 
 impl MichiuWidget for SimpleButtonGroup {
     fn name(&self) -> &'static str {
-        "Button Group"
+        "Simple Button Group"
     }
 
     fn a11y_spec(&self) -> &'static str {
@@ -174,10 +176,11 @@ impl MichiuWidget for SimpleButtonGroup {
     }
 
     fn build(&self, theme: &dyn MichiuTheme) -> Entity {
-        let size = match self.size {
-            ButtonGroupSize::Sm => (28.0, 28.0),
-            ButtonGroupSize::Md => (96.0, 36.0),
-            ButtonGroupSize::Lg => (120.0, 44.0),
+        let (font_size, padding) = match self.size {
+            ButtonGroupSize::Xs => (14.0, 4.0),
+            ButtonGroupSize::Sm => (14.0, 6.0),
+            ButtonGroupSize::Md => (15.0, 8.0),
+            ButtonGroupSize::Lg => (15.0, 10.0),
         };
 
         let (bg, hover, active, border, separator, text_color, focus_ring) = match self.variant {
@@ -210,11 +213,11 @@ impl MichiuWidget for SimpleButtonGroup {
             ),
         };
 
-        // ボタンの外枠・サイズ・ホバー・フォーカス枠を統一するモディファイア
         let btn_modifier = ii()
             .justify_center()
             .items_center()
-            .size(size)
+            .min_size(24.0)
+            .p(padding)
             .r(3.0)
             .cursor_pointer()
             .bg_color(Color::TRANSPARENT)
@@ -247,16 +250,21 @@ impl MichiuWidget for SimpleButtonGroup {
                 }
                 // 単純なテキストラベル
                 ButtonGroupItem::Label(text) => {
-                    children.push(
-                        flex(&btn_modifier)
-                            .tag::<a11y::AButton>()
-                            .label(text.clone(), ii().font_size(14.0).text_color(text_color)),
-                    );
+                    children.push(flex(&btn_modifier).tag::<a11y::AButton>().label(
+                        text.clone(),
+                        ii().font_size(font_size).text_color(text_color),
+                    ));
                 }
                 // セパレーター
                 ButtonGroupItem::Separator => {
-                    children
-                        .push(div(separator_size.clone().bg_color(separator)).a11y(NO_A11Y_NODE));
+                    children.push(
+                        div(separator_size
+                            .clone()
+                            .shrink_0()
+                            .self_center()
+                            .bg_color(separator))
+                        .a11y(NO_A11Y_NODE),
+                    );
                 }
             }
         }
@@ -264,7 +272,8 @@ impl MichiuWidget for SimpleButtonGroup {
         flex(
             ii().flex_direction(self.direction)
                 .justify_center()
-                .items_center()
+                .items_stretch()
+                .size_fit()
                 .p(2.0)
                 .gap(2.0)
                 .r(3.0)

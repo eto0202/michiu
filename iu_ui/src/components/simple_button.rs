@@ -4,9 +4,11 @@ use michiu::{accessibility::*, prelude::*};
 /// Visual appearance variants for [`SimpleButton`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ButtonVariant {
-    /// Filled background using `theme.solid()`.
+    /// Filled background using `theme.accent_solid()`.
     #[default]
     Solid,
+    /// Filled background using `theme.gray_solid()`.
+    Secondary,
     /// Transparent background with an outline border using `theme.border()`.
     Outline,
     /// Fully transparent background that subtly highlights on hover.
@@ -18,12 +20,14 @@ pub enum ButtonVariant {
 /// All sizes strictly satisfy the WCAG 2.5.8 minimum target size requirement (>= 24x24px).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ButtonSize {
-    /// Compact square size: 28x28px (exceeds WCAG 2.5.8 minimum of 24x24px).
+    /// Extra small size
+    Xs,
+    /// Small size.
     Sm,
-    /// Standard size: 96x36px.
+    /// Standard size.
     #[default]
     Md,
-    /// Large size: 120x44px (meets WCAG AAA target size of 44x44px vertically).
+    /// Large size.
     Lg,
 }
 
@@ -116,7 +120,7 @@ impl SimpleButton {
 
 impl MichiuWidget for SimpleButton {
     fn name(&self) -> &'static str {
-        "Button"
+        "Simple Button"
     }
 
     fn a11y_spec(&self) -> &'static str {
@@ -128,10 +132,11 @@ impl MichiuWidget for SimpleButton {
     /// Additional styling or event handlers (such as `.on_click(...)`) can be chained
     /// onto the returned `Entity` to overwrite defaults.
     fn build(&self, theme: &dyn MichiuTheme) -> Entity {
-        let size = match self.size {
-            ButtonSize::Sm => (28.0, 28.0),
-            ButtonSize::Md => (96.0, 36.0),
-            ButtonSize::Lg => (120.0, 44.0),
+        let (font_size, padding) = match self.size {
+            ButtonSize::Xs => (14.0, 4.0),
+            ButtonSize::Sm => (14.0, 6.0),
+            ButtonSize::Md => (15.0, 8.0),
+            ButtonSize::Lg => (15.0, 10.0),
         };
 
         let (bg, hover, active, border, text_color) = match self.variant {
@@ -139,6 +144,13 @@ impl MichiuWidget for SimpleButton {
                 theme.accent_solid(),
                 theme.accent_solid_hover(),
                 theme.accent_8(),
+                Color::TRANSPARENT,
+                theme.text_on_solid(),
+            ),
+            ButtonVariant::Secondary => (
+                theme.gray_solid(),
+                theme.gray_solid_hover(),
+                theme.gray_8(),
                 Color::TRANSPARENT,
                 theme.text_on_solid(),
             ),
@@ -159,7 +171,9 @@ impl MichiuWidget for SimpleButton {
         };
         let (disabled_bg, disabled_border, text_color) = if self.disabled {
             match self.variant {
-                ButtonVariant::Solid => (theme.gray_7(), Color::TRANSPARENT, theme.gray_text_low()),
+                ButtonVariant::Solid | ButtonVariant::Secondary => {
+                    (theme.gray_7(), Color::TRANSPARENT, theme.gray_text_low())
+                }
                 ButtonVariant::Outline => {
                     (Color::TRANSPARENT, theme.gray_4(), theme.gray_text_low())
                 }
@@ -178,8 +192,10 @@ impl MichiuWidget for SimpleButton {
         let modifier = ii()
             .justify_center()
             .items_center()
-            .size(size)
             .r(3.0)
+            .p(padding)
+            .min_size(24.0)
+            .size_fit()
             .bg_color(bg)
             .border_solid(1.0)
             .border_color(border)
@@ -205,7 +221,7 @@ impl MichiuWidget for SimpleButton {
             .disable(self.disabled)
             .label(
                 self.label.clone(),
-                ii().font_size(14.0).text_color(text_color),
+                ii().font_size(font_size).text_color(text_color),
             )
     }
 }

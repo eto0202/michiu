@@ -7,6 +7,7 @@ mod app;
 mod components;
 mod logger;
 
+// cargo build -p iu_ui --examples --release
 fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let _ = MichiuWindow::init_dpi_awareness();
     let com = MichiuComContext::new_ro_single()?;
@@ -43,7 +44,7 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
 
     let (mut app, mut pump) = MichiuAppBuilder::new(window)
         .with_accessibility_support(true)
-        .with_capacity_config(CapacityConfig::from_base_nodes(1024))
+        .with_capacity_config(CapacityConfig::from_base_nodes(512))
         .with_inspector(inspector)
         .with_sync_mode(AutoSyncMode::DwmFlush)
         .with_default_shortcuts(true)

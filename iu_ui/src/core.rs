@@ -1,4 +1,4 @@
-use michiu::prelude::*;
+use michiu::{prelude::*, ui::IntoModValue};
 
 /// Common trait for accessible components registered in the catalog.
 pub trait MichiuWidget {
@@ -453,5 +453,19 @@ impl Oklch {
     /// Returns the color components as a raw tuple `(L, C, H)`.
     pub const fn tuple(&self) -> (f32, f32, f32) {
         (self.0, self.1, self.2)
+    }
+    pub fn into_color(self) -> Color {
+        self.into()
+    }
+}
+impl From<Color> for Oklch {
+    fn from(value: Color) -> Self {
+        let (l, c, h) = value.to_oklch();
+        Self(l, c, h)
+    }
+}
+impl From<Oklch> for Color {
+    fn from(value: Oklch) -> Self {
+        oklch(value.0, value.1, value.2)
     }
 }
