@@ -673,7 +673,6 @@ mod tests {
                     }
                 }
                 MichiuAnyEvent::User(_) => panic!("Expected Event"),
-                MichiuAnyEvent::Other => {}
             }
         });
     }

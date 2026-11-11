@@ -21,9 +21,6 @@ pub enum MichiuAnyEvent {
     ///
     /// Extensible via `Box<dyn Any + Send>`.
     User(Box<dyn Any + Send>),
-
-    /// Other Events
-    Other,
 }
 
 /// Represents specific events sent by the OS windowing and input system.
@@ -211,7 +208,6 @@ mod tests {
                 assert!(matches!(event, MichiuEvent::CloseRequested));
             }
             MichiuAnyEvent::User(_) => panic!("Expected MichiuEvent::Event"),
-            MichiuAnyEvent::Other => {}
         }
     }
 
