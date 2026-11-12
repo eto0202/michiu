@@ -4,7 +4,7 @@ use crate::logger::logger;
 use michiu::{prelude::*, ui::CapacityConfig};
 
 mod app;
-mod components;
+mod component_type;
 mod logger;
 
 // cargo build -p iu_ui --examples --release

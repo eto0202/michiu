@@ -261,7 +261,7 @@ impl MichiuWidget for SimpleButton {
 
         let offset = theme.focus_ring_offset(self.variant == ButtonVariant::Solid);
 
-        let r = if self.rounded { 9999.0 } else { 3.0 };
+        let r = if self.rounded { 9999.0 } else { 5.0 };
 
         let modifier = ii()
             .justify_center()

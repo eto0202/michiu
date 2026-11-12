@@ -276,7 +276,7 @@ impl MichiuWidget for SimpleButtonGroup {
                 .size_fit()
                 .p(2.0)
                 .gap(2.0)
-                .r(3.0)
+                .r(5.0)
                 .bg_color(bg)
                 .border_solid(1.0)
                 .border_color(border),
