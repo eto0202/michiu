@@ -22,6 +22,69 @@ pub(crate) fn container(theme: &SimpleBlueTheme) -> Entity {
             ],
         ),
         section(
+            "Column",
+            [
+                simple_button_group!["Extra", "|", "Small"]
+                    .size(ButtonGroupSize::Xs)
+                    .direction(FlexDirection::Column)
+                    .build(theme),
+                simple_button_group!["Small", "|", "Small"]
+                    .size(ButtonGroupSize::Sm)
+                    .direction(FlexDirection::Column)
+                    .build(theme),
+                simple_button_group!["Medium", "|", "Medium"]
+                    .size(ButtonGroupSize::Md)
+                    .direction(FlexDirection::Column)
+                    .build(theme),
+                simple_button_group!["Large", "|", "Large"]
+                    .size(ButtonGroupSize::Lg)
+                    .direction(FlexDirection::Column)
+                    .build(theme),
+            ],
+        ),
+        section(
+            "Primary",
+            [
+                simple_button_group!["1", "|", "2"]
+                    .intent(ButtonGroupIntent::Primary)
+                    .variant(ButtonGroupVariant::Solid)
+                    .build(theme),
+                simple_button_group!["1", "|", "2"]
+                    .intent(ButtonGroupIntent::Primary)
+                    .variant(ButtonGroupVariant::Soft)
+                    .build(theme),
+                simple_button_group!["1", "|", "2"]
+                    .intent(ButtonGroupIntent::Primary)
+                    .variant(ButtonGroupVariant::Outline)
+                    .build(theme),
+                simple_button_group!["1", "|", "2"]
+                    .intent(ButtonGroupIntent::Primary)
+                    .variant(ButtonGroupVariant::Ghost)
+                    .build(theme),
+            ],
+        ),
+        section(
+            "Secondary",
+            [
+                simple_button_group!["1", "|", "2"]
+                    .intent(ButtonGroupIntent::Secondary)
+                    .variant(ButtonGroupVariant::Solid)
+                    .build(theme),
+                simple_button_group!["1", "|", "2"]
+                    .intent(ButtonGroupIntent::Secondary)
+                    .variant(ButtonGroupVariant::Soft)
+                    .build(theme),
+                simple_button_group!["1", "|", "2"]
+                    .intent(ButtonGroupIntent::Secondary)
+                    .variant(ButtonGroupVariant::Outline)
+                    .build(theme),
+                simple_button_group!["1", "|", "2"]
+                    .intent(ButtonGroupIntent::Secondary)
+                    .variant(ButtonGroupVariant::Ghost)
+                    .build(theme),
+            ],
+        ),
+        section(
             "Solid",
             [simple_button_group!["Solid", "|", "1", "2", "|", "3"]
                 .variant(ButtonGroupVariant::Solid)
@@ -38,27 +101,6 @@ pub(crate) fn container(theme: &SimpleBlueTheme) -> Entity {
             [simple_button_group!["Ghost", "|", "1", "2", "|", "3"]
                 .variant(ButtonGroupVariant::Ghost)
                 .build(theme)],
-        ),
-        section(
-            "Column",
-            [
-                simple_button_group!["Extra Small", "|", "1", "2", "|", "3"]
-                    .size(ButtonGroupSize::Xs)
-                    .direction(FlexDirection::Column)
-                    .build(theme),
-                simple_button_group!["Small", "|", "1", "2", "|", "3"]
-                    .size(ButtonGroupSize::Sm)
-                    .direction(FlexDirection::Column)
-                    .build(theme),
-                simple_button_group!["Medium", "|", "1", "2", "|", "3"]
-                    .size(ButtonGroupSize::Md)
-                    .direction(FlexDirection::Column)
-                    .build(theme),
-                simple_button_group!["Large", "|", "1", "2", "|", "3"]
-                    .size(ButtonGroupSize::Lg)
-                    .direction(FlexDirection::Column)
-                    .build(theme),
-            ],
         ),
     ])
 }

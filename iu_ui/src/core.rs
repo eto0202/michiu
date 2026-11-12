@@ -439,6 +439,79 @@ pub trait MichiuTheme: Send + Sync {
     fn focus_ring_offset(&self, is_solid: bool) -> f32 {
         if is_solid { 2.0 } else { 0.0 }
     }
+
+    // =========================================================================
+    // Semantic Base Color Anchors
+    // =========================================================================
+
+    /// Destructive (Red) base color: Hue 27.0°
+    fn destructive_base(&self) -> Oklch {
+        let (l, c, _) = self.accent().tuple();
+        // 極端に彩度が低いモノトーン設定でも警告色として機能するよう最低彩度を担保
+        let chroma = c.clamp(0.18, 0.26);
+        Oklch(l, chroma, 27.0)
+    }
+
+    /// Success (Green) base color: Hue 148.0°
+    fn success_base(&self) -> Oklch {
+        let (l, c, _) = self.accent().tuple();
+        // 緑は明るく見えやすいため彩度はやや控えめに
+        let chroma = (c * 0.85).clamp(0.14, 0.22);
+        Oklch(l, chroma, 148.0)
+    }
+
+    /// Warning (Amber) base color: Hue 72.0°
+    fn warning_base(&self) -> Oklch {
+        let (l, c, _) = self.accent().tuple();
+        // アンバーは十分な鮮やかさが必要
+        let chroma = c.clamp(0.16, 0.24);
+        Oklch(l, chroma, 72.0)
+    }
+
+    /// Default Warning text color, delegating to [`gray_12`](Self::gray_12) (**Step 12**).
+    fn text_on_warning_solid(&self) -> Color {
+        // 白ではなく、濃いグレー（Step 12 など）または黒にする
+        self.gray_12()
+    }
+
+    /// 任意のベースカラーから 12 ステップ色を生成
+    fn scale_step(&self, base: Oklch, step: u8) -> Color {
+        let is_dark = self.is_dark();
+        let (_, c, h) = base.tuple();
+
+        let (lightness, chroma_ratio) = match step {
+            1 => (if is_dark { 0.1785 } else { 0.9521 }, 0.15),
+            2 => (if is_dark { 0.2143 } else { 0.9401 }, 0.25),
+            3 => (if is_dark { 0.2559 } else { 0.9097 }, 0.40),
+            4 => (if is_dark { 0.2856 } else { 0.8822 }, 0.55),
+            5 => (if is_dark { 0.3141 } else { 0.8576 }, 0.70),
+            6 => (if is_dark { 0.3498 } else { 0.8328 }, 0.80),
+            7 => (if is_dark { 0.4024 } else { 0.7952 }, 0.90),
+            8 => (if is_dark { 0.5032 } else { 0.5800 }, 1.00),
+            9 => (if is_dark { 0.5403 } else { 0.5560 }, 1.00),
+            10 => (if is_dark { 0.5849 } else { 0.5180 }, 1.00),
+            11 => (if is_dark { 0.7690 } else { 0.4459 }, 0.90),
+            12 => (if is_dark { 0.9497 } else { 0.2435 }, 0.40),
+            _ => (0.5, 0.0),
+        };
+
+        Color::oklch(lightness, c * chroma_ratio, h)
+    }
+
+    /// Destructive の各ステップ色
+    fn destructive(&self, step: u8) -> Color {
+        self.scale_step(self.destructive_base(), step)
+    }
+
+    /// Success の各ステップ色
+    fn success(&self, step: u8) -> Color {
+        self.scale_step(self.success_base(), step)
+    }
+
+    /// Warning の各ステップ色
+    fn warning(&self, step: u8) -> Color {
+        self.scale_step(self.warning_base(), step)
+    }
 }
 
 /// A lightweight representation of a color in the OKLCH color space.

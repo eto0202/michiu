@@ -7,77 +7,87 @@ pub(crate) fn container(theme: &SimpleBlueTheme) -> Entity {
         section(
             "Size",
             [
-                include_simple_icon!("../../../src/assets/sort.svg")
+                include_simple_icon!("../../../src/assets/search.svg")
                     .size(IconSize::Xs)
                     .build(theme),
                 include_simple_icon!("../../../src/assets/search.svg")
-                    .size(IconSize::Xs)
-                    .variant(IconColor::Accent)
-                    .build(theme),
-                include_simple_icon!("../../../src/assets/sort.svg")
                     .size(IconSize::Sm)
                     .build(theme),
                 include_simple_icon!("../../../src/assets/search.svg")
-                    .size(IconSize::Sm)
-                    .variant(IconColor::Accent)
-                    .build(theme),
-                include_simple_icon!("../../../src/assets/sort.svg")
                     .size(IconSize::Md)
                     .build(theme),
                 include_simple_icon!("../../../src/assets/search.svg")
-                    .size(IconSize::Md)
-                    .variant(IconColor::Accent)
-                    .build(theme),
-                include_simple_icon!("../../../src/assets/sort.svg")
                     .size(IconSize::Lg)
                     .build(theme),
                 include_simple_icon!("../../../src/assets/search.svg")
-                    .size(IconSize::Lg)
-                    .variant(IconColor::Accent)
+                    .size(IconSize::Custom(60.0))
                     .build(theme),
             ],
         ),
         section(
-            "White",
-            [include_simple_icon!("../../../src/assets/info.svg")
-                .variant(IconColor::White)
+            "Follow parent (true)",
+            [SimpleButton::new("Notifications")
+                .variant(ButtonVariant::Outline)
+                .intent(ButtonIntent::Secondary)
+                .size(ButtonSize::Md)
+                .tint_child(false)
+                .with_start(
+                    include_simple_icon!("../../../src/assets/notifications.svg")
+                        .intent(IconIntent::Warning)
+                        .size(IconSize::Sm)
+                        .follow_parent(true)
+                        .build(theme),
+                )
                 .build(theme)],
         ),
         section(
-            "Gray",
+            "Primary",
             [include_simple_icon!("../../../src/assets/info.svg")
-                .variant(IconColor::Gray)
+                .intent(IconIntent::Primary)
+                .size(IconSize::Md)
                 .build(theme)],
         ),
         section(
-            "Accent",
+            "Secondary",
+            [include_simple_icon!("../../../src/assets/info.svg")
+                .intent(IconIntent::Secondary)
+                .size(IconSize::Md)
+                .build(theme)],
+        ),
+        section(
+            "Destructive",
+            [include_simple_icon!("../../../src/assets/info.svg")
+                .intent(IconIntent::Destructive)
+                .size(IconSize::Md)
+                .build(theme)],
+        ),
+        section(
+            "Success",
             [include_simple_icon!("../../../src/assets/delete.svg")
-                .variant(IconColor::Accent)
+                .intent(IconIntent::Success)
+                .size(IconSize::Md)
+                .build(theme)],
+        ),
+        section(
+            "Warning",
+            [include_simple_icon!("../../../src/assets/sort.svg")
+                .intent(IconIntent::Warning)
+                .size(IconSize::Md)
                 .build(theme)],
         ),
         section(
             "Decoration",
-            [
-                include_simple_icon!("../../../src/assets/menu.svg")
-                    .category(IconCategory::Decoration)
-                    .build(theme),
-                include_simple_icon!("../../../src/assets/download.svg")
-                    .category(IconCategory::Decoration)
-                    .variant(IconColor::Accent)
-                    .build(theme),
-            ],
+            [include_simple_icon!("../../../src/assets/download.svg")
+                .category(IconCategory::Decoration)
+                .size(IconSize::Md)
+                .build(theme)],
         ),
         section(
             "Image",
-            [
-                include_simple_icon!("../../../src/assets/notifications.svg")
-                    .category(IconCategory::image("Notifications"))
-                    .build(theme),
-                include_simple_icon!("../../../src/assets/folder.svg")
-                    .category(IconCategory::image("Folder"))
-                    .variant(IconColor::Accent)
-                    .build(theme),
-            ],
+            [include_simple_icon!("../../../src/assets/folder.svg")
+                .category(IconCategory::image("Folder"))
+                .size(IconSize::Md)
+                .build(theme)],
         ),
     ])
 }

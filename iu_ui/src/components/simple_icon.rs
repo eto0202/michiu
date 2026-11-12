@@ -10,11 +10,13 @@ use std::{
 
 /// Visual appearance variants for [`SimpleIcon`].
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
-pub enum IconColor {
+pub enum IconIntent {
     #[default]
-    White,
-    Gray,
-    Accent,
+    Primary,
+    Secondary,
+    Destructive,
+    Success,
+    Warning,
 }
 
 /// Sizing options for [`SimpleIcon`].
@@ -23,9 +25,9 @@ pub enum IconColor {
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum IconSize {
     /// Extra small size: 16x16px.
+    #[default]
     Xs,
     /// Small size: 24x24px.
-    #[default]
     Sm,
     /// Medium size: 36x36px.
     Md,
@@ -112,14 +114,16 @@ impl IconCategory {
 #[derive(Debug, Clone)]
 pub struct SimpleIcon {
     pub icon: SvgIcon,
-    /// Visual style variant (White, Gray, Accent).
-    pub variant: IconColor,
+    /// Visual style intent.
+    pub intent: IconIntent,
     /// Icon dimensions.
     pub size: IconSize,
     /// Whether the icon is disabled.
     pub disabled: bool,
     /// Icon category (Button, Image, Decoration)
     pub category: IconCategory,
+    /// Whether to change the text color based on the parent's state (such as hover).
+    pub follow_parent: bool,
 }
 
 impl SimpleIcon {
@@ -183,16 +187,17 @@ impl SimpleIcon {
         };
         Self {
             icon,
-            variant: IconColor::default(),
+            intent: IconIntent::default(),
             size: IconSize::default(),
             disabled: false,
             category: IconCategory::default(),
+            follow_parent: false,
         }
     }
 
-    /// Sets the visual style variant.
-    pub fn variant(mut self, variant: IconColor) -> Self {
-        self.variant = variant;
+    /// Sets the visual style intent.
+    pub fn intent(mut self, intent: IconIntent) -> Self {
+        self.intent = intent;
         self
     }
 
@@ -212,6 +217,12 @@ impl SimpleIcon {
     /// Set the icon category.
     pub fn category(mut self, cat: IconCategory) -> Self {
         self.category = cat;
+        self
+    }
+
+    /// Set whether to change the text color based on the parent's state (such as hover).
+    pub fn follow_parent(mut self, enabled: bool) -> Self {
+        self.follow_parent = enabled;
         self
     }
 }
@@ -238,13 +249,20 @@ impl MichiuWidget for SimpleIcon {
             IconSize::Custom(s) => (s, s),
         };
 
-        let text_color = match self.variant {
-            IconColor::White => theme.text_on_solid(),
-            IconColor::Gray => theme.gray_text_low(),
-            IconColor::Accent => theme.accent_solid(),
+        let (text_color, hover, active) = match self.intent {
+            IconIntent::Primary => (theme.accent_9(), theme.accent_10(), theme.accent_11()),
+            IconIntent::Secondary => (theme.gray_9(), theme.gray_10(), theme.gray_11()),
+            IconIntent::Destructive => (
+                theme.destructive(9),
+                theme.destructive(10),
+                theme.destructive(11),
+            ),
+            IconIntent::Success => (theme.success(9), theme.success(10), theme.success(11)),
+            IconIntent::Warning => (theme.warning(9), theme.warning(10), theme.warning(11)),
         };
+
         let disabled_text_color = if self.disabled {
-            theme.gray_7()
+            theme.gray_8()
         } else {
             text_color
         };
@@ -261,14 +279,19 @@ impl MichiuWidget for SimpleIcon {
                     .cursor_default()
                     .focusable_none(),
             );
-        let mut node = Node::new(Role::GenericContainer);
 
-        let modifier = match &self.category {
-            IconCategory::Decoration => modifier,
+        if self.follow_parent {
+            modifier = modifier
+                .hovered_parent(ii().text_color(hover))
+                .pressed_parent(ii().text_color(active));
+        }
+
+        let mut node = Node::new(Role::GenericContainer);
+        match &self.category {
+            IconCategory::Decoration => {}
             IconCategory::Image(label) => {
                 node.set_role(Role::Image);
                 node.set_label(label.to_string());
-                modifier
             }
         };
 
@@ -344,6 +367,6 @@ impl ExternalMask for SvgIcon {
 #[macro_export]
 macro_rules! include_simple_icon {
     ($path:expr) => {
-        $crate::SimpleIcon::from_data(include_bytes!($path))
+        SimpleIcon::from_data(include_bytes!($path))
     };
 }

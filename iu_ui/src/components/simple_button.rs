@@ -4,15 +4,31 @@ use michiu::{accessibility::*, prelude::*};
 /// Visual appearance variants for [`SimpleButton`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ButtonVariant {
-    /// Filled background using `theme.accent_solid()`.
+    /// Fully filled high-contrast background.
     #[default]
     Solid,
-    /// Filled background using `theme.gray_solid()`.
-    Secondary,
-    /// Transparent background with an outline border using `theme.border()`.
+    /// Subtle tinted background with no border.
+    Soft,
+    /// Transparent background with a distinct colored border.
     Outline,
-    /// Fully transparent background that subtly highlights on hover.
+    /// Transparent background that reveals a subtle background only when hovered.
     Ghost,
+}
+
+/// Defines the semantic purpose and color palette applied to a button.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ButtonIntent {
+    /// Primary brand accent color.
+    #[default]
+    Primary,
+    /// Neutral gray palette.
+    Secondary,
+    /// Critical danger palette (Red).
+    Destructive,
+    /// Positive success palette (Green).
+    Success,
+    /// Cautionary palette (Amber/Yellow).
+    Warning,
 }
 
 /// Sizing options for [`SimpleButton`].
@@ -87,6 +103,8 @@ pub struct SimpleButton {
     pub accessible_name: Option<String>,
     /// Visual style variant (Solid, Outline, Ghost).
     pub variant: ButtonVariant,
+    /// Set the color palette to be applied to the button.
+    pub intent: ButtonIntent,
     /// Button dimensions.
     pub size: ButtonSize,
     /// Whether the button is disabled.
@@ -99,6 +117,9 @@ pub struct SimpleButton {
     pub end_child: Option<Entity>,
     /// Whether to use right-to-left (RTL) layout direction.
     pub rtl: bool,
+    /// Whether to match the **text color** of child elements to their own background color.
+    ///  (If `true`, the text color is matched to that of the label.)
+    pub tint_child: bool,
 }
 impl Default for SimpleButton {
     fn default() -> Self {
@@ -127,6 +148,8 @@ impl SimpleButton {
             start_child: None,
             end_child: None,
             rtl: false,
+            intent: ButtonIntent::default(),
+            tint_child: true,
         }
     }
 
@@ -147,6 +170,11 @@ impl SimpleButton {
     /// Sets the visual style variant.
     pub fn variant(mut self, variant: ButtonVariant) -> Self {
         self.variant = variant;
+        self
+    }
+
+    pub fn intent(mut self, intent: ButtonIntent) -> Self {
+        self.intent = intent;
         self
     }
 
@@ -188,6 +216,13 @@ impl SimpleButton {
         self.rtl = enabled;
         self
     }
+
+    /// Set whether to match the **text color** of child elements to their own background color.
+    /// (If `true`, the text color is matched to that of the label.)
+    pub fn tint_child(mut self, enabled: bool) -> Self {
+        self.tint_child = enabled;
+        self
+    }
 }
 
 impl MichiuWidget for SimpleButton {
@@ -211,49 +246,77 @@ impl MichiuWidget for SimpleButton {
             ButtonSize::Lg => (15.0, 10.0),
         };
 
-        let (bg, hover, active, border, text_color) = match self.variant {
-            ButtonVariant::Solid => (
-                theme.accent_solid(),
-                theme.accent_solid_hover(),
+        let (s3, s4, s5, s7, s8, s9, s10, s11, text) = match self.intent {
+            ButtonIntent::Primary => (
+                theme.accent_3(),
+                theme.accent_4(),
+                theme.accent_5(),
+                theme.accent_7(),
                 theme.accent_8(),
-                Color::TRANSPARENT,
+                theme.accent_9(),
+                theme.accent_10(),
+                theme.accent_11(),
                 theme.text_on_solid(),
             ),
-            ButtonVariant::Secondary => (
-                theme.gray_solid(),
-                theme.gray_solid_hover(),
+            ButtonIntent::Secondary => (
+                theme.gray_3(),
+                theme.gray_4(),
+                theme.gray_5(),
+                theme.gray_7(),
                 theme.gray_8(),
-                Color::TRANSPARENT,
-                theme.text_on_solid(),
+                theme.gray_9(),
+                theme.gray_10(),
+                theme.gray_11(),
+                theme.text_high(),
             ),
-            ButtonVariant::Outline => (
-                Color::TRANSPARENT,
-                theme.gray_bg_ui_hover(),
-                theme.gray_border(),
-                theme.gray_bg_ui_active(),
-                theme.gray_text_high(),
+            ButtonIntent::Destructive => (
+                theme.destructive(3),
+                theme.destructive(4),
+                theme.destructive(5),
+                theme.destructive(7),
+                theme.destructive(8),
+                theme.destructive(9),
+                theme.destructive(10),
+                theme.destructive(11),
+                theme.text_high(),
             ),
-            ButtonVariant::Ghost => (
-                Color::TRANSPARENT,
-                theme.gray_bg_ui_hover(),
-                theme.gray_bg_ui_active(),
-                Color::TRANSPARENT,
-                theme.gray_text_high(),
+            ButtonIntent::Success => (
+                theme.success(3),
+                theme.success(4),
+                theme.success(5),
+                theme.success(7),
+                theme.success(8),
+                theme.success(9),
+                theme.success(10),
+                theme.success(11),
+                theme.text_high(),
+            ),
+            ButtonIntent::Warning => (
+                theme.warning(3),
+                theme.warning(4),
+                theme.warning(5),
+                theme.warning(7),
+                theme.warning(8),
+                theme.warning(9),
+                theme.warning(10),
+                theme.warning(11),
+                theme.text_on_warning_solid(),
             ),
         };
+
+        let (mut bg, mut hover, mut active, mut border, mut text_color) = match self.variant {
+            ButtonVariant::Solid => (s9, s10, s11, Color::TRANSPARENT, text),
+            ButtonVariant::Soft => (s3, s4, s5, s7, s11),
+            ButtonVariant::Outline => (Color::TRANSPARENT, s3, s4, s7, s11),
+            ButtonVariant::Ghost => (Color::TRANSPARENT, s3, s4, Color::TRANSPARENT, s11),
+        };
+
         let (disabled_bg, disabled_border, text_color) = if self.disabled {
             match self.variant {
-                ButtonVariant::Solid | ButtonVariant::Secondary => {
-                    (theme.gray_7(), Color::TRANSPARENT, theme.gray_text_low())
-                }
-                ButtonVariant::Outline => {
-                    (Color::TRANSPARENT, theme.gray_4(), theme.gray_text_low())
-                }
-                ButtonVariant::Ghost => (
-                    Color::TRANSPARENT,
-                    Color::TRANSPARENT,
-                    theme.gray_text_low(),
-                ),
+                ButtonVariant::Solid => (theme.gray_3(), Color::TRANSPARENT, theme.gray_8()),
+                ButtonVariant::Soft => (theme.gray_2(), Color::TRANSPARENT, theme.gray_8()),
+                ButtonVariant::Outline => (Color::TRANSPARENT, theme.gray_6(), theme.gray_8()),
+                ButtonVariant::Ghost => (Color::TRANSPARENT, Color::TRANSPARENT, theme.gray_8()),
             }
         } else {
             (bg, border, text_color)
@@ -293,19 +356,29 @@ impl MichiuWidget for SimpleButton {
 
         let mut entity = flex(modifier).tag::<a11y::AButton>().disable(self.disabled);
         let mut label_style = ii().font_size(font_size).text_color(text_color);
+        let child_style = ii()
+            .hovered_parent(ii().text_color(text_color))
+            .pressed_parent(ii().text_color(text_color))
+            .text_color(text_color);
 
         if self.rtl {
             entity = entity.modify(ii().flex_row_reverse());
             label_style = label_style.rtl();
         }
 
-        if let Some(left) = self.start_child {
+        if let Some(mut left) = self.start_child {
+            if self.tint_child {
+                left = left.modify(&child_style);
+            }
             entity = entity.child(left);
         }
         if let Some(center) = self.label.clone() {
             entity = entity.label(center, label_style);
         }
-        if let Some(right) = self.end_child {
+        if let Some(mut right) = self.end_child {
+            if self.tint_child {
+                right = right.modify(&child_style);
+            }
             entity = entity.child(right);
         }
 

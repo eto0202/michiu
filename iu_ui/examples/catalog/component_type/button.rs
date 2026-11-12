@@ -18,88 +18,142 @@ pub(crate) fn container(theme: &SimpleBlueTheme) -> Entity {
             ],
         ),
         section(
+            "Tint child (false)",
+            [SimpleButton::new("Information")
+                .variant(ButtonVariant::Outline)
+                .tint_child(false)
+                .with_start(
+                    include_simple_icon!("../../../src/assets/info.svg")
+                        .intent(IconIntent::Warning)
+                        .build(theme),
+                )
+                .build(theme)],
+        ),
+        section(
             "Solid",
             [
-                SimpleButton::new("Solid").build(theme),
-                SimpleButton::new("Solid")
-                    .with_start(
-                        include_simple_icon!("../../../src/assets/info.svg")
-                            .size(IconSize::Xs)
-                            .variant(IconColor::White)
-                            .build(theme),
-                    )
+                SimpleButton::new("Primary")
+                    .intent(ButtonIntent::Primary)
                     .build(theme),
                 SimpleButton::empty()
                     .accessible_name("Information")
-                    .with_end(
-                        include_simple_icon!("../../../src/assets/info.svg")
-                            .size(IconSize::Xs)
-                            .variant(IconColor::White)
-                            .build(theme),
-                    )
+                    .with_start(include_simple_icon!("../../../src/assets/info.svg").build(theme))
+                    .build(theme),
+                SimpleButton::new("Secondary")
+                    .intent(ButtonIntent::Secondary)
+                    .build(theme),
+                SimpleButton::new("Destructive")
+                    .intent(ButtonIntent::Destructive)
+                    .build(theme),
+                SimpleButton::new("Success")
+                    .intent(ButtonIntent::Success)
+                    .build(theme),
+                SimpleButton::new("Warning")
+                    .intent(ButtonIntent::Warning)
                     .build(theme),
             ],
         ),
         section(
-            "Secondary",
-            [SimpleButton::new("Secondary")
-                .variant(ButtonVariant::Secondary)
-                .build(theme)],
+            "Soft",
+            [
+                SimpleButton::new("Primary")
+                    .variant(ButtonVariant::Soft)
+                    .intent(ButtonIntent::Primary)
+                    .build(theme),
+                SimpleButton::empty()
+                    .variant(ButtonVariant::Soft)
+                    .accessible_name("Information")
+                    .with_start(include_simple_icon!("../../../src/assets/info.svg").build(theme))
+                    .build(theme),
+                SimpleButton::new("Secondary")
+                    .variant(ButtonVariant::Soft)
+                    .intent(ButtonIntent::Secondary)
+                    .build(theme),
+                SimpleButton::new("Destructive")
+                    .variant(ButtonVariant::Soft)
+                    .intent(ButtonIntent::Destructive)
+                    .build(theme),
+                SimpleButton::new("Success")
+                    .variant(ButtonVariant::Soft)
+                    .intent(ButtonIntent::Success)
+                    .build(theme),
+                SimpleButton::new("Warning")
+                    .variant(ButtonVariant::Soft)
+                    .intent(ButtonIntent::Warning)
+                    .build(theme),
+            ],
         ),
         section(
             "Outline",
             [
-                SimpleButton::new("Outline")
+                SimpleButton::new("Primary")
                     .variant(ButtonVariant::Outline)
-                    .build(theme),
-                SimpleButton::new("Outline")
-                    .with_start(
-                        include_simple_icon!("../../../src/assets/info.svg")
-                            .size(IconSize::Xs)
-                            .variant(IconColor::White)
-                            .build(theme),
-                    )
-                    .variant(ButtonVariant::Outline)
+                    .intent(ButtonIntent::Primary)
                     .build(theme),
                 SimpleButton::empty()
-                    .accessible_name("Information")
-                    .with_end(
-                        include_simple_icon!("../../../src/assets/info.svg")
-                            .size(IconSize::Xs)
-                            .variant(IconColor::White)
-                            .build(theme),
-                    )
                     .variant(ButtonVariant::Outline)
+                    .accessible_name("Information")
+                    .with_start(include_simple_icon!("../../../src/assets/info.svg").build(theme))
+                    .build(theme),
+                SimpleButton::new("Secondary")
+                    .variant(ButtonVariant::Outline)
+                    .intent(ButtonIntent::Secondary)
+                    .build(theme),
+                SimpleButton::new("Destructive")
+                    .variant(ButtonVariant::Outline)
+                    .intent(ButtonIntent::Destructive)
+                    .build(theme),
+                SimpleButton::new("Success")
+                    .variant(ButtonVariant::Outline)
+                    .intent(ButtonIntent::Success)
+                    .build(theme),
+                SimpleButton::new("Warning")
+                    .variant(ButtonVariant::Outline)
+                    .intent(ButtonIntent::Warning)
                     .build(theme),
             ],
         ),
         section(
             "Ghost",
-            [SimpleButton::new("Ghost")
-                .variant(ButtonVariant::Ghost)
-                .build(theme)],
+            [
+                SimpleButton::new("Primary")
+                    .variant(ButtonVariant::Ghost)
+                    .intent(ButtonIntent::Primary)
+                    .build(theme),
+                SimpleButton::empty()
+                    .variant(ButtonVariant::Ghost)
+                    .accessible_name("Information")
+                    .with_start(include_simple_icon!("../../../src/assets/info.svg").build(theme))
+                    .build(theme),
+                SimpleButton::new("Secondary")
+                    .variant(ButtonVariant::Ghost)
+                    .intent(ButtonIntent::Secondary)
+                    .build(theme),
+                SimpleButton::new("Destructive")
+                    .variant(ButtonVariant::Ghost)
+                    .intent(ButtonIntent::Destructive)
+                    .build(theme),
+                SimpleButton::new("Success")
+                    .variant(ButtonVariant::Ghost)
+                    .intent(ButtonIntent::Success)
+                    .build(theme),
+                SimpleButton::new("Warning")
+                    .variant(ButtonVariant::Ghost)
+                    .intent(ButtonIntent::Warning)
+                    .build(theme),
+            ],
         ),
         section(
             "Rounded",
             [
                 SimpleButton::new("Rounded").rounded(true).build(theme),
                 SimpleButton::new("Rounded")
-                    .with_start(
-                        include_simple_icon!("../../../src/assets/info.svg")
-                            .size(IconSize::Xs)
-                            .variant(IconColor::White)
-                            .build(theme),
-                    )
+                    .with_start(include_simple_icon!("../../../src/assets/info.svg").build(theme))
                     .rounded(true)
                     .build(theme),
                 SimpleButton::empty()
                     .accessible_name("Information")
-                    .with_end(
-                        include_simple_icon!("../../../src/assets/info.svg")
-                            .size(IconSize::Xs)
-                            .variant(IconColor::White)
-                            .build(theme),
-                    )
+                    .with_end(include_simple_icon!("../../../src/assets/info.svg").build(theme))
                     .rounded(true)
                     .build(theme),
             ],
@@ -107,17 +161,19 @@ pub(crate) fn container(theme: &SimpleBlueTheme) -> Entity {
         section(
             "Disabled",
             [
-                SimpleButton::new("Solid")
+                SimpleButton::new("Solid").disabled(true).build(theme),
+                SimpleButton::empty()
                     .disabled(true)
-                    .variant(ButtonVariant::Solid)
+                    .accessible_name("Information")
+                    .with_start(include_simple_icon!("../../../src/assets/info.svg").build(theme))
+                    .build(theme),
+                SimpleButton::new("Soft")
+                    .disabled(true)
+                    .variant(ButtonVariant::Soft)
                     .build(theme),
                 SimpleButton::new("Outline")
                     .disabled(true)
                     .variant(ButtonVariant::Outline)
-                    .build(theme),
-                SimpleButton::new("Secondary")
-                    .disabled(true)
-                    .variant(ButtonVariant::Secondary)
                     .build(theme),
                 SimpleButton::new("Ghost")
                     .disabled(true)
@@ -138,36 +194,16 @@ pub(crate) fn container(theme: &SimpleBlueTheme) -> Entity {
             "Rtl with child",
             [
                 SimpleButton::new("קנעפּל")
-                    .with_start(
-                        include_simple_icon!("../../../src/assets/info.svg")
-                            .size(IconSize::Xs)
-                            .variant(IconColor::White)
-                            .build(theme),
-                    )
+                    .with_start(include_simple_icon!("../../../src/assets/info.svg").build(theme))
                     .rtl(true)
                     .build(theme),
                 SimpleButton::new("קנעפּל")
-                    .with_end(
-                        include_simple_icon!("../../../src/assets/info.svg")
-                            .size(IconSize::Xs)
-                            .variant(IconColor::White)
-                            .build(theme),
-                    )
+                    .with_end(include_simple_icon!("../../../src/assets/info.svg").build(theme))
                     .rtl(true)
                     .build(theme),
                 SimpleButton::new("קנעפּל")
-                    .with_start(
-                        include_simple_icon!("../../../src/assets/info.svg")
-                            .size(IconSize::Xs)
-                            .variant(IconColor::White)
-                            .build(theme),
-                    )
-                    .with_end(
-                        include_simple_icon!("../../../src/assets/download.svg")
-                            .size(IconSize::Xs)
-                            .variant(IconColor::White)
-                            .build(theme),
-                    )
+                    .with_start(include_simple_icon!("../../../src/assets/info.svg").build(theme))
+                    .with_end(include_simple_icon!("../../../src/assets/download.svg").build(theme))
                     .rtl(true)
                     .build(theme),
             ],

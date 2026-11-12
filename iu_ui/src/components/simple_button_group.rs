@@ -4,13 +4,25 @@ use michiu::{accessibility::*, prelude::*};
 /// Visual appearance variants for [`SimpleButtonGroup`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ButtonGroupVariant {
-    /// Filled background using `theme.bg_ui()` / `theme.solid()`.
+    /// Fully filled high-contrast background.
     #[default]
     Solid,
-    /// Transparent background with an outline border using `theme.border()`.
+    /// Subtle tinted background with no border.
+    Soft,
+    /// Transparent background with a distinct colored border.
     Outline,
-    /// Fully transparent background that subtly highlights on hover.
+    /// Transparent background that reveals a subtle background only when hovered.
     Ghost,
+}
+
+/// Defines the semantic purpose and color palette applied to a button.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ButtonGroupIntent {
+    /// Primary brand accent color.
+    #[default]
+    Primary,
+    /// Neutral gray palette.
+    Secondary,
 }
 
 /// Inner button sizing options for [`SimpleButtonGroup`].
@@ -110,8 +122,14 @@ pub struct SimpleButtonGroup {
     pub items: Vec<ButtonGroupItem>,
     /// Visual style variant (Solid, Outline, Ghost).
     pub variant: ButtonGroupVariant,
+    /// Set the color palette to be applied to the button group.
+    pub intent: ButtonGroupIntent,
     /// Button dimensions.
     pub size: ButtonGroupSize,
+    /// Whether the button group is disabled.
+    pub disabled: bool,
+    /// Whether to round the corners (`Modifier::r_full`).
+    pub rounded: bool,
 }
 
 impl SimpleButtonGroup {
@@ -129,7 +147,10 @@ impl SimpleButtonGroup {
             direction: FlexDirection::Row,
             items: items.into_iter().collect(),
             variant: ButtonGroupVariant::default(),
+            intent: ButtonGroupIntent::default(),
             size: ButtonGroupSize::default(),
+            disabled: false,
+            rounded: false,
         }
     }
 
@@ -145,9 +166,28 @@ impl SimpleButtonGroup {
         self
     }
 
+    /// Set the color palette to be applied to the button group.
+    pub fn intent(mut self, intent: ButtonGroupIntent) -> Self {
+        self.intent = intent;
+        self
+    }
+
     /// Sets the dimensions of the button.
     pub fn size(mut self, size: ButtonGroupSize) -> Self {
         self.size = size;
+        self
+    }
+
+    /// Sets whether the button group is disabled.
+    /// All Chroma values will be set to 0.0, and the Lightness of the border will be adjusted.
+    pub fn disabled(mut self, disabled: bool) -> Self {
+        self.disabled = disabled;
+        self
+    }
+
+    /// Set whether to round the corners (`Modifier::r_full`)
+    pub fn rounded(mut self, enabled: bool) -> Self {
+        self.rounded = enabled;
         self
     }
 }
@@ -183,32 +223,52 @@ impl MichiuWidget for SimpleButtonGroup {
             ButtonGroupSize::Lg => (15.0, 10.0),
         };
 
-        let (bg, hover, active, border, separator, text_color, focus_ring) = match self.variant {
-            ButtonGroupVariant::Solid => (
-                theme.accent_solid(),
-                theme.accent_solid_hover(),
+        let (s3, s4, s5, s7, s8, s9, s10, s11, text) = match self.intent {
+            ButtonGroupIntent::Primary => (
+                theme.accent_3(),
+                theme.accent_4(),
+                theme.accent_5(),
+                theme.accent_7(),
                 theme.accent_8(),
-                Color::TRANSPARENT,
-                theme.text_on_solid().with_lightness(0.8),
-                theme.text_on_solid(),
+                theme.accent_9(),
+                theme.accent_10(),
+                theme.accent_11(),
                 theme.text_on_solid(),
             ),
-            ButtonGroupVariant::Outline => (
-                Color::TRANSPARENT,
-                theme.gray_bg_ui_hover(),
-                theme.gray_bg_ui_active(),
-                theme.gray_border(),
-                theme.gray_border(),
-                theme.gray_text_high(),
-                theme.focus_ring(),
+            ButtonGroupIntent::Secondary => (
+                theme.gray_3(),
+                theme.gray_4(),
+                theme.gray_5(),
+                theme.gray_7(),
+                theme.gray_8(),
+                theme.gray_9(),
+                theme.gray_10(),
+                theme.gray_11(),
+                theme.text_high(),
             ),
+        };
+
+        let (bg, hover, active, border, text_color, separator, focus_ring) = match self.variant {
+            ButtonGroupVariant::Solid => (
+                s9,
+                s10,
+                s11,
+                Color::TRANSPARENT,
+                text,
+                theme.text_high(),
+                text,
+            ),
+            ButtonGroupVariant::Soft => (s3, s4, s5, s7, s11, s7, theme.focus_ring()),
+            ButtonGroupVariant::Outline => {
+                (Color::TRANSPARENT, s3, s4, s7, s11, s7, theme.focus_ring())
+            }
             ButtonGroupVariant::Ghost => (
                 Color::TRANSPARENT,
-                theme.gray_bg_ui_hover(),
-                theme.gray_bg_ui_active(),
+                s3,
+                s4,
                 Color::TRANSPARENT,
-                theme.gray_border(),
-                theme.gray_text_high(),
+                s11,
+                s7,
                 theme.focus_ring(),
             ),
         };
@@ -334,7 +394,7 @@ macro_rules! simple_button_group {
     ($($item:expr),* $(,)?) => {
         SimpleButtonGroup::new([
             $(
-                $crate::components::simple_button_group::ButtonGroupItem::from($item),
+                ButtonGroupItem::from($item),
             )*
         ])
     };
