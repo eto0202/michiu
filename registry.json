@@ -1,6 +1,6 @@
 {
   "name": "iu_ui",
-  "updated_at": "2026-11-12T07:49:06+09:00",
+  "updated_at": "2026-11-13T19:00:43+09:00",
   "assets": {
     "close.svg": {
       "path": "iu_ui/src/assets/close.svg",
@@ -55,7 +55,7 @@
     },
     "simple_button": {
       "type": "file",
-      "version": "20261112-89a82a1",
+      "version": "20261113-bf49311",
       "target_name": "simple_button.rs",
       "files": [
         "iu_ui/src/components/simple_button.rs"
@@ -64,7 +64,7 @@
     },
     "simple_button_group": {
       "type": "file",
-      "version": "20261111-7f1649a",
+      "version": "20261113-bf49311",
       "target_name": "simple_button_group.rs",
       "files": [
         "iu_ui/src/components/simple_button_group.rs"
@@ -82,7 +82,7 @@
     },
     "simple_icon": {
       "type": "file",
-      "version": "20261112-8b3904c",
+      "version": "20261113-70bba05",
       "target_name": "simple_icon.rs",
       "files": [
         "iu_ui/src/components/simple_icon.rs"
