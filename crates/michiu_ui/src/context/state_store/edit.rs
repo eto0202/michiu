@@ -1001,8 +1001,7 @@ impl TextEditStore {
             contents
                 .placeholder
                 .as_ref()
-                .map(std::string::ToString::to_string)
-                .unwrap_or_default()
+                .map_or_default(std::string::ToString::to_string)
                 .into()
         } else {
             text_val_for_display.to_string().into()

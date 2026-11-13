@@ -5388,8 +5388,7 @@ impl Modifier {
             .inner
             .visual_property
             .transform
-            .map(|m| Transform { matrix: m })
-            .unwrap_or_default();
+            .map_or_default(|m| Transform { matrix: m });
         self.transform(current.scale(x, y))
     }
 
@@ -5401,8 +5400,7 @@ impl Modifier {
             .inner
             .visual_property
             .transform
-            .map(|m| Transform { matrix: m })
-            .unwrap_or_default();
+            .map_or_default(|m| Transform { matrix: m });
         self.transform(current.translate(x, y))
     }
 
@@ -5414,8 +5412,7 @@ impl Modifier {
             .inner
             .visual_property
             .transform
-            .map(|m| Transform { matrix: m })
-            .unwrap_or_default();
+            .map_or_default(|m| Transform { matrix: m });
         self.transform(current.rotate(radians))
     }
 

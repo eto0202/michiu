@@ -62,8 +62,7 @@ impl CssSetSignalExt for ReadSignal<CssMapSet> {
     fn class(&self, sheet_key: &str, class_name: &str) -> Modifier {
         self.get()
             .get(sheet_key)
-            .map(|css_map| css_map.class(class_name))
-            .unwrap_or_default()
+            .map_or_default(|css_map| css_map.class(class_name))
     }
 
     #[inline]

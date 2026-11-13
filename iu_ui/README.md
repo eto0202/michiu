@@ -234,8 +234,17 @@ pub struct SimpleButton { ... }
 - [Accessible Palette](https://accessiblepalette.com/)
 - [Radix Colors](https://www.radix-ui.com/colors)
 - [oklch.com](https://oklch.com/)
+
+---
+
 - [WAI-ARIA Authoring Practices Guide (APG)](https://www.w3.org/WAI/ARIA/apg/patterns/)
 - [Web Content Accessibility Guidelines (WCAG) 2.2](https://www.w3.org/TR/WCAG22/)
+- [WCAG2ICT](https://www.w3.org/WAI/standards-guidelines/wcag/non-web-ict/)
+- [EN 301 549 V4.1.1](https://www.etsi.org/deliver/etsi_en/301500_301599/301549/04.01.01_60/en_301549v040101p.pdf)
+- [Section 508](https://www.section508.gov/)
+
+---
+
 - [Accessibility Insights for Windows](https://accessibilityinsights.io/docs/windows/overview/)
 
 ---
@@ -482,10 +491,21 @@ pub struct SimpleButton { ... }
 - [Accessible Palette](https://accessiblepalette.com/)
 - [Radix Colors](https://www.radix-ui.com/colors)
 - [oklch.com](https://oklch.com/)
+
+---
+
 - [WAI-ARIA Authoring Practices Guide (APG)](https://www.w3.org/WAI/ARIA/apg/patterns/)
 - [Web Content Accessibility Guidelines (WCAG) 2.2](https://www.w3.org/TR/WCAG22/)
-- [Accessibility Insights for Windows](https://accessibilityinsights.io/docs/windows/overview/)
+- [WCAG2ICT](https://www.w3.org/WAI/standards-guidelines/wcag/non-web-ict/)
+- [EN 301 549 V4.1.1](https://www.etsi.org/deliver/etsi_en/301500_301599/301549/04.01.01_60/en_301549v040101p.pdf)
+- [Section 508](https://www.section508.gov/)
 - [JIS X 8341-3:2016 達成基準 早見表（レベルA & AA）](https://waic.jp/resource/jis-x-8341-3-2016/)
+- [JIS規格 簡易閲覧サイト (JIS X 8341-6)](https://kikakurui.com/x8/X8341-6-2013-01.html)
+- [デジタル庁デザインシステム](https://design.digital.go.jp/dads/)
+
+---
+
+- [Accessibility Insights for Windows](https://accessibilityinsights.io/docs/windows/overview/)
 
 ---
 

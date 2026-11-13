@@ -12,6 +12,7 @@ default-members = ["examples"]
 [workspace.package]
 version = "0.2.3"
 edition = "2024"
+rust-version = "1.98.0"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/eto0202/michiu"
 authors = ["eto0202"]

@@ -48,7 +48,7 @@ impl VisualPropertiesSecondary {
     }
     #[inline]
     pub(crate) fn font(&self, id: Entity) -> FontDate {
-        self.find(id).map(|v| v.font.clone()).unwrap_or_default()
+        self.find(id).map_or_default(|v| v.font.clone())
     }
 
     #[inline]

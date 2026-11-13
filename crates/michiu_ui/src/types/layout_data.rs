@@ -439,29 +439,26 @@ impl VisualProperty {
         id: Entity,
         rnd_visual: &VisualPropertiesSecondary,
     ) -> CurrentStyle {
-        rnd_visual
-            .find(id)
-            .map(|v| CurrentStyle {
-                bg_color: v.bg_color.unwrap_or(Color::TRANSPARENT),
-                border_color: v.border_color.unwrap_or(Color::TRANSPARENT),
-                outline_width: v.outline_width.unwrap_or(EdgeInsets::ZERO),
-                outline_color: v.outline_color.unwrap_or(Color::TRANSPARENT),
-                outline_offset: v.outline_offset.unwrap_or(0.0),
-                opacity: v.opacity.unwrap_or(1.0),
-                transform: v.transform.unwrap_or(IDENTITY_MATRIX),
-                transform_origin: v.transform_origin.unwrap_or(Point::ORIGIN),
-                corner_radius: v.corner_radius.unwrap_or(CornerRadius::ZERO),
-                shadow_params: v.shadow_params.unwrap_or(BoxShadow::none()),
-                text_color: v.text_color.unwrap_or(Color::WHITE),
-                font_size: v.font.size.unwrap_or(16.0),
-                font_family: v.font.family.clone(),
-                font_weight: v.font.weight.unwrap_or_default(),
-                font_style: v.font.style.unwrap_or_default(),
-                spacing: v.font.spacing.unwrap_or_default(),
-                auto_wrap: v.auto_wrap.unwrap_or(false),
-                pointer_events: v.pointer_events.unwrap_or_default(),
-            })
-            .unwrap_or_default()
+        rnd_visual.find(id).map_or_default(|v| CurrentStyle {
+            bg_color: v.bg_color.unwrap_or(Color::TRANSPARENT),
+            border_color: v.border_color.unwrap_or(Color::TRANSPARENT),
+            outline_width: v.outline_width.unwrap_or(EdgeInsets::ZERO),
+            outline_color: v.outline_color.unwrap_or(Color::TRANSPARENT),
+            outline_offset: v.outline_offset.unwrap_or(0.0),
+            opacity: v.opacity.unwrap_or(1.0),
+            transform: v.transform.unwrap_or(IDENTITY_MATRIX),
+            transform_origin: v.transform_origin.unwrap_or(Point::ORIGIN),
+            corner_radius: v.corner_radius.unwrap_or(CornerRadius::ZERO),
+            shadow_params: v.shadow_params.unwrap_or(BoxShadow::none()),
+            text_color: v.text_color.unwrap_or(Color::WHITE),
+            font_size: v.font.size.unwrap_or(16.0),
+            font_family: v.font.family.clone(),
+            font_weight: v.font.weight.unwrap_or_default(),
+            font_style: v.font.style.unwrap_or_default(),
+            spacing: v.font.spacing.unwrap_or_default(),
+            auto_wrap: v.auto_wrap.unwrap_or(false),
+            pointer_events: v.pointer_events.unwrap_or_default(),
+        })
     }
 
     /// 目標値を参照経由で構築
@@ -470,37 +467,34 @@ impl VisualProperty {
         id: Entity,
         rnd_base_visual: &BaseVisualPropertiesSecondary,
     ) -> TargetStyle {
-        rnd_base_visual
-            .find(id)
-            .map(|v| TargetStyle {
-                pointer_events: v.pointer_events,
-                cursor: v.cursor,
-                resizable_cursor: v.resizable_cursor,
-                bg_color: v.bg_color,
-                border_color: v.border_color,
-                opacity: v.opacity,
-                transform: v.transform,
-                transform_origin: v.transform_origin,
-                transform_inherit: v.transform_inherit,
-                corner_radius: v.corner_radius,
-                shadow_params: v.shadow_params,
-                shadow_color: v.shadow_color,
-                text_color: v.text_color,
-                select_bg_color: v.select_bg_color,
-                select_text_color: v.select_text_color,
-                border_lengths: v.border_lengths,
-                border_styles: v.border_styles,
-                border_alignments: v.border_alignments,
-                outline_width: v.outline_width,
-                outline_color: v.outline_color,
-                outline_lengths: v.outline_lengths,
-                outline_styles: v.outline_styles,
-                outline_alignments: v.outline_alignments,
-                outline_offset: v.outline_offset,
-                font: v.font.clone(),
-                auto_wrap: v.auto_wrap,
-            })
-            .unwrap_or_default()
+        rnd_base_visual.find(id).map_or_default(|v| TargetStyle {
+            pointer_events: v.pointer_events,
+            cursor: v.cursor,
+            resizable_cursor: v.resizable_cursor,
+            bg_color: v.bg_color,
+            border_color: v.border_color,
+            opacity: v.opacity,
+            transform: v.transform,
+            transform_origin: v.transform_origin,
+            transform_inherit: v.transform_inherit,
+            corner_radius: v.corner_radius,
+            shadow_params: v.shadow_params,
+            shadow_color: v.shadow_color,
+            text_color: v.text_color,
+            select_bg_color: v.select_bg_color,
+            select_text_color: v.select_text_color,
+            border_lengths: v.border_lengths,
+            border_styles: v.border_styles,
+            border_alignments: v.border_alignments,
+            outline_width: v.outline_width,
+            outline_color: v.outline_color,
+            outline_lengths: v.outline_lengths,
+            outline_styles: v.outline_styles,
+            outline_alignments: v.outline_alignments,
+            outline_offset: v.outline_offset,
+            font: v.font.clone(),
+            auto_wrap: v.auto_wrap,
+        })
     }
 
     /// 指定された `VisualProperty` と `ComponentMask` を基に自身のスタイルをマージ。

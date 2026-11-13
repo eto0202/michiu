@@ -149,10 +149,9 @@ impl DndStore {
             },
             DndDragPlaceholderParent::Custom(p_id) => {
                 let rect = out_rects.find_or_default(p_id, debug);
-                let (border_left, border_top) = lay_basic
-                    .find(p_id)
-                    .map(|l| (l.border.left.to_px_or_zero(), l.border.top.to_px_or_zero()))
-                    .unwrap_or_default();
+                let (border_left, border_top) = lay_basic.find(p_id).map_or_default(|l| {
+                    (l.border.left.to_px_or_zero(), l.border.top.to_px_or_zero())
+                });
 
                 PlaceholderAttachment {
                     parent: Some(p_id),

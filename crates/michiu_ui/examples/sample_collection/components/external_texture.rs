@@ -197,8 +197,7 @@ impl ImageExternalTexture {
     fn extract_file_name(path: impl AsRef<Path>) -> String {
         path.as_ref()
             .file_name()
-            .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_default()
+            .map_or_default(|n| n.to_string_lossy().into_owned())
     }
 }
 

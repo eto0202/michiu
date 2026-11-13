@@ -24,14 +24,14 @@ define_secondary!(pub struct ResolvedFlexSecondary(FlexLayout));
 impl FlexLayoutsSecondary {
     #[inline]
     pub(crate) fn flex_direction(&self, id: Entity) -> FlexDirection {
-        self.find(id).map(|f| f.flex_direction).unwrap_or_default()
+        self.find(id).map_or_default(|f| f.flex_direction)
     }
 }
 
 impl ResolvedFlexSecondary {
     #[inline]
     pub(crate) fn text_algin(&self, id: Entity) -> TextAlign {
-        self.find(id).map(|f| f.text_align).unwrap_or_default()
+        self.find(id).map_or_default(|f| f.text_align)
     }
 }
 
