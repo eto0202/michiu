@@ -244,7 +244,7 @@ impl MichiuWidget for SimpleButtonGroup {
                 theme.gray_9(),
                 theme.gray_10(),
                 theme.gray_11(),
-                theme.text_high(),
+                theme.text_on_solid(),
             ),
         };
 
@@ -255,7 +255,7 @@ impl MichiuWidget for SimpleButtonGroup {
                 s11,
                 Color::TRANSPARENT,
                 text,
-                theme.text_high(),
+                text.with_lightness(0.75),
                 text,
             ),
             ButtonGroupVariant::Soft => (s3, s4, s5, s7, s11, s7, theme.focus_ring()),
@@ -277,19 +277,7 @@ impl MichiuWidget for SimpleButtonGroup {
             .justify_center()
             .items_center()
             .min_size(24.0)
-            .p(padding)
-            .r(3.0)
-            .cursor_pointer()
-            .bg_color(Color::TRANSPARENT)
-            .hovered(ii().bg_color(hover))
-            .pressed(ii().bg_color(active))
-            .focusable_self_both()
-            .focused_visible(
-                ii().border_color(Color::TRANSPARENT)
-                    .outline_solid(2.0)
-                    .outline_offset(0.0)
-                    .outline_color(focus_ring),
-            );
+            .bg_color(Color::TRANSPARENT);
 
         let separator_size = match self.direction {
             FlexDirection::Row | FlexDirection::RowReverse => ii().size((1.0, pct(80.0))).m_x(1.0),
@@ -303,17 +291,32 @@ impl MichiuWidget for SimpleButtonGroup {
                 // ユーザーが渡したカスタム Entity
                 ButtonGroupItem::Button(user_entity) => {
                     children.push(
-                        flex(&btn_modifier)
-                            .tag::<a11y::AButton>()
-                            .child(*user_entity),
+                        flex(btn_modifier.clone()).tag::<a11y::AButton>().child(
+                            (*user_entity).modify(
+                                ii().r(3.0)
+                                    .size_full()
+                                    .border_color(Color::TRANSPARENT)
+                                    .focusable_self_both()
+                                    .focused_visible(
+                                        ii().border_color(Color::TRANSPARENT)
+                                            .outline_solid(2.0)
+                                            .outline_offset(0.0)
+                                            .outline_color(focus_ring),
+                                    ),
+                            ),
+                        ),
                     );
                 }
                 // 単純なテキストラベル
                 ButtonGroupItem::Label(text) => {
-                    children.push(flex(&btn_modifier).tag::<a11y::AButton>().label(
-                        text.clone(),
-                        ii().font_size(font_size).text_color(text_color),
-                    ));
+                    children.push(
+                        flex(btn_modifier.clone().p(padding))
+                            .tag::<a11y::AButton>()
+                            .label(
+                                text.clone(),
+                                ii().font_size(font_size).text_color(text_color),
+                            ),
+                    );
                 }
                 // セパレーター
                 ButtonGroupItem::Separator => {

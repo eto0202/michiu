@@ -45,19 +45,19 @@ pub(crate) fn container(theme: &SimpleBlueTheme) -> Entity {
         section(
             "Primary",
             [
-                simple_button_group!["1", "|", "2"]
+                simple_button_group!["1", "|", "2", "3"]
                     .intent(ButtonGroupIntent::Primary)
                     .variant(ButtonGroupVariant::Solid)
                     .build(theme),
-                simple_button_group!["1", "|", "2"]
+                simple_button_group!["1", "|", "2", "3"]
                     .intent(ButtonGroupIntent::Primary)
                     .variant(ButtonGroupVariant::Soft)
                     .build(theme),
-                simple_button_group!["1", "|", "2"]
+                simple_button_group!["1", "|", "2", "3"]
                     .intent(ButtonGroupIntent::Primary)
                     .variant(ButtonGroupVariant::Outline)
                     .build(theme),
-                simple_button_group!["1", "|", "2"]
+                simple_button_group!["1", "|", "2", "3"]
                     .intent(ButtonGroupIntent::Primary)
                     .variant(ButtonGroupVariant::Ghost)
                     .build(theme),
@@ -66,19 +66,19 @@ pub(crate) fn container(theme: &SimpleBlueTheme) -> Entity {
         section(
             "Secondary",
             [
-                simple_button_group!["1", "|", "2"]
+                simple_button_group!["1", "|", "2", "3"]
                     .intent(ButtonGroupIntent::Secondary)
                     .variant(ButtonGroupVariant::Solid)
                     .build(theme),
-                simple_button_group!["1", "|", "2"]
+                simple_button_group!["1", "|", "2", "3"]
                     .intent(ButtonGroupIntent::Secondary)
                     .variant(ButtonGroupVariant::Soft)
                     .build(theme),
-                simple_button_group!["1", "|", "2"]
+                simple_button_group!["1", "|", "2", "3"]
                     .intent(ButtonGroupIntent::Secondary)
                     .variant(ButtonGroupVariant::Outline)
                     .build(theme),
-                simple_button_group!["1", "|", "2"]
+                simple_button_group!["1", "|", "2", "3"]
                     .intent(ButtonGroupIntent::Secondary)
                     .variant(ButtonGroupVariant::Ghost)
                     .build(theme),
@@ -86,21 +86,166 @@ pub(crate) fn container(theme: &SimpleBlueTheme) -> Entity {
         ),
         section(
             "Solid",
-            [simple_button_group!["Solid", "|", "1", "2", "|", "3"]
+            [
+                simple_button_group![
+                    "Solid",
+                    "|",
+                    SimpleButton::new("Btn").build(theme),
+                    "|",
+                    SimpleButton::empty()
+                        .accessible_name("Information")
+                        .with_start(
+                            include_simple_icon!("../../../src/assets/info.svg").build(theme)
+                        )
+                        .build(theme),
+                ]
                 .variant(ButtonGroupVariant::Solid)
-                .build(theme)],
+                .build(theme),
+                simple_button_group![
+                    "Solid",
+                    "|",
+                    SimpleButton::new("Btn")
+                        .intent(ButtonIntent::Secondary)
+                        .build(theme),
+                    "|",
+                    SimpleButton::empty()
+                        .intent(ButtonIntent::Secondary)
+                        .accessible_name("Information")
+                        .with_start(
+                            include_simple_icon!("../../../src/assets/info.svg").build(theme)
+                        )
+                        .build(theme),
+                ]
+                .intent(ButtonGroupIntent::Secondary)
+                .variant(ButtonGroupVariant::Solid)
+                .build(theme),
+            ],
+        ),
+        section(
+            "Soft",
+            [
+                simple_button_group![
+                    "Soft",
+                    "|",
+                    SimpleButton::new("Btn")
+                        .variant(ButtonVariant::Soft)
+                        .build(theme),
+                    "|",
+                    SimpleButton::empty()
+                        .variant(ButtonVariant::Soft)
+                        .accessible_name("Information")
+                        .with_start(
+                            include_simple_icon!("../../../src/assets/info.svg").build(theme)
+                        )
+                        .build(theme),
+                ]
+                .variant(ButtonGroupVariant::Soft)
+                .build(theme),
+                simple_button_group![
+                    "Soft",
+                    "|",
+                    SimpleButton::new("Btn")
+                        .intent(ButtonIntent::Secondary)
+                        .variant(ButtonVariant::Soft)
+                        .build(theme),
+                    "|",
+                    SimpleButton::empty()
+                        .intent(ButtonIntent::Secondary)
+                        .variant(ButtonVariant::Soft)
+                        .accessible_name("Information")
+                        .with_start(
+                            include_simple_icon!("../../../src/assets/info.svg").build(theme)
+                        )
+                        .build(theme),
+                ]
+                .intent(ButtonGroupIntent::Secondary)
+                .variant(ButtonGroupVariant::Soft)
+                .build(theme),
+            ],
         ),
         section(
             "Outline",
-            [simple_button_group!["Outline", "|", "1", "2", "|", "3"]
+            [
+                simple_button_group![
+                    "Outline",
+                    "|",
+                    SimpleButton::new("Btn")
+                        .variant(ButtonVariant::Outline)
+                        .build(theme),
+                    "|",
+                    SimpleButton::empty()
+                        .variant(ButtonVariant::Outline)
+                        .accessible_name("Information")
+                        .with_start(
+                            include_simple_icon!("../../../src/assets/info.svg").build(theme)
+                        )
+                        .build(theme),
+                ]
                 .variant(ButtonGroupVariant::Outline)
-                .build(theme)],
+                .build(theme),
+                simple_button_group![
+                    "Outline",
+                    "|",
+                    SimpleButton::new("Btn")
+                        .intent(ButtonIntent::Secondary)
+                        .variant(ButtonVariant::Outline)
+                        .build(theme),
+                    "|",
+                    SimpleButton::empty()
+                        .intent(ButtonIntent::Secondary)
+                        .variant(ButtonVariant::Outline)
+                        .accessible_name("Information")
+                        .with_start(
+                            include_simple_icon!("../../../src/assets/info.svg").build(theme)
+                        )
+                        .build(theme),
+                ]
+                .intent(ButtonGroupIntent::Secondary)
+                .variant(ButtonGroupVariant::Outline)
+                .build(theme),
+            ],
         ),
         section(
             "Ghost",
-            [simple_button_group!["Ghost", "|", "1", "2", "|", "3"]
+            [
+                simple_button_group![
+                    "Ghost",
+                    "|",
+                    SimpleButton::new("Btn")
+                        .variant(ButtonVariant::Ghost)
+                        .build(theme),
+                    "|",
+                    SimpleButton::empty()
+                        .variant(ButtonVariant::Ghost)
+                        .accessible_name("Information")
+                        .with_start(
+                            include_simple_icon!("../../../src/assets/info.svg").build(theme)
+                        )
+                        .build(theme),
+                ]
                 .variant(ButtonGroupVariant::Ghost)
-                .build(theme)],
+                .build(theme),
+                simple_button_group![
+                    "Ghost",
+                    "|",
+                    SimpleButton::new("Btn")
+                        .intent(ButtonIntent::Secondary)
+                        .variant(ButtonVariant::Ghost)
+                        .build(theme),
+                    "|",
+                    SimpleButton::empty()
+                        .intent(ButtonIntent::Secondary)
+                        .variant(ButtonVariant::Ghost)
+                        .accessible_name("Information")
+                        .with_start(
+                            include_simple_icon!("../../../src/assets/info.svg").build(theme)
+                        )
+                        .build(theme),
+                ]
+                .intent(ButtonGroupIntent::Secondary)
+                .variant(ButtonGroupVariant::Ghost)
+                .build(theme),
+            ],
         ),
     ])
 }

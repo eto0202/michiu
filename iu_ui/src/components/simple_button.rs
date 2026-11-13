@@ -305,7 +305,7 @@ impl MichiuWidget for SimpleButton {
         };
 
         let (mut bg, mut hover, mut active, mut border, mut text_color) = match self.variant {
-            ButtonVariant::Solid => (s9, s10, s11, Color::TRANSPARENT, text),
+            ButtonVariant::Solid => (s9, s10, s11, Color::TRANSPARENT, theme.text_on_solid()),
             ButtonVariant::Soft => (s3, s4, s5, s7, s11),
             ButtonVariant::Outline => (Color::TRANSPARENT, s3, s4, s7, s11),
             ButtonVariant::Ghost => (Color::TRANSPARENT, s3, s4, Color::TRANSPARENT, s11),
