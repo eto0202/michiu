@@ -1,4 +1,4 @@
-use michiu::{prelude::*, ui::IntoModValue};
+use michiu::prelude::*;
 
 /// Common trait for accessible components registered in the catalog.
 pub trait MichiuWidget {

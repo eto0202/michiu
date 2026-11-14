@@ -1,4 +1,4 @@
-#![allow(unused, clippy::type_complexity)]
+#![allow(unused_imports)]
 
 pub mod components;
 pub mod core;

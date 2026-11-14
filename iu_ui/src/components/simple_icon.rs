@@ -1,5 +1,3 @@
-use crate::IconSize::Custom;
-
 use super::core::{MichiuTheme, MichiuWidget, Oklch};
 use michiu::{accessibility::*, prelude::*};
 use resvg::{tiny_skia, usvg};
@@ -239,7 +237,7 @@ impl SimpleIcon {
     /// Set size custom
     #[inline]
     pub fn size_custom(self, s: f32) -> Self {
-        self.size(Custom(s))
+        self.size(IconSize::Custom(s))
     }
     /// Set size [`IconSize::Xs`]
     #[inline]

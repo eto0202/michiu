@@ -367,7 +367,7 @@ impl MichiuWidget for SimpleButton {
             ButtonSize::Lg => (16.0, 10.0),
         };
 
-        let (s3, s4, s5, s7, s8, s9, s10, s11, text) = match self.intent {
+        let (s3, s4, s5, s7, _s8, s9, s10, s11, _text_color) = match self.intent {
             ButtonIntent::Primary => (
                 theme.accent_3(),
                 theme.accent_4(),
@@ -425,7 +425,7 @@ impl MichiuWidget for SimpleButton {
             ),
         };
 
-        let (mut bg, mut hover, mut active, mut border, mut text_color) = match self.variant {
+        let (bg, hover, active, border, text_color) = match self.variant {
             ButtonVariant::Solid => (s9, s10, s11, Color::TRANSPARENT, theme.text_on_solid()),
             ButtonVariant::Soft => (s3, s4, s5, s7, s11),
             ButtonVariant::Outline => (Color::TRANSPARENT, s3, s4, s7, s11),

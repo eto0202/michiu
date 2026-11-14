@@ -312,7 +312,7 @@ impl MichiuWidget for SimpleButtonGroup {
             ButtonGroupSize::Lg => (15.0, 12.0),
         };
 
-        let (s3, s4, s5, s7, s8, s9, s10, s11, text) = match self.intent {
+        let (s3, s4, s5, s7, _s8, s9, s10, s11, text) = match self.intent {
             ButtonGroupIntent::Primary => (
                 theme.accent_3(),
                 theme.accent_4(),
@@ -337,7 +337,7 @@ impl MichiuWidget for SimpleButtonGroup {
             ),
         };
 
-        let (bg, hover, active, border, text_color, separator, focus_ring) = match self.variant {
+        let (bg, _hover, _active, border, text_color, separator, focus_ring) = match self.variant {
             ButtonGroupVariant::Solid => (
                 s9,
                 s10,
