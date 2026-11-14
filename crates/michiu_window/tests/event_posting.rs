@@ -63,24 +63,24 @@ fn test_integration_event_posting_and_translation_lifecycle() {
             // スレッドアフィニティに違反せず、安全に WindowHandle 経由で HWND を取得
             let bg_hwnd = handle_clone.hwnd();
 
-            // 通常のウィンドウメッセージ (WM_CLOSE) の生ポスト
-            // UIスレッド側で Event::CloseRequested に翻訳
-            unsafe {
-                let _ = PostMessageW(Some(bg_hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
-            }
-
             // 未知のユーザー定義メッセージ (WM_USER + 888) の生ポスト
-            // UIスレッド側で Event::UnsafeRaw に翻訳
+            // UIスレッド側で MichiuRawEvent に翻訳
             unsafe {
                 let _ = PostMessageW(Some(bg_hwnd), WM_USER + 888, WPARAM(777), LPARAM(999));
             }
 
             // 標準ウィンドウメッセージ (WM_SIZE) の生ポスト
             // LPARAM に幅 800 (下位16ビット)、高さ 600 (上位16ビット) をビットパッキング
-            // UIスレッド側で Event::Resized(Unvalidated<PhysicalSize>) に翻訳
+            // UIスレッド側で Resized(Unvalidated<PhysicalSize>) に翻訳
             let size_lparam = LPARAM(0b11_0010_0000 | (600 << 16));
             unsafe {
                 let _ = PostMessageW(Some(bg_hwnd), WM_SIZE, WPARAM(0), size_lparam);
+            }
+
+            // 通常のウィンドウメッセージ (WM_CLOSE) の生ポスト
+            // UIスレッド側で CloseRequested に翻訳
+            unsafe {
+                let _ = PostMessageW(Some(bg_hwnd), WM_CLOSE, WPARAM(0), LPARAM(0));
             }
         });
 
@@ -149,6 +149,7 @@ fn test_integration_event_posting_and_translation_lifecycle() {
                             _ => {}
                         }
                     }
+                    MichiuAnyEvent::Raw => {}
                 }
             });
 
@@ -173,7 +174,7 @@ fn test_integration_event_posting_and_translation_lifecycle() {
         );
         assert!(
             raw_event_received,
-            "Failed to receive or verify UnsafeRaw window event"
+            "Failed to receive or verify Raw window event"
         );
         assert!(
             size_event_received,

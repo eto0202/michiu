@@ -756,7 +756,10 @@ pub(crate) fn translate_and_dispatch(
 
             Some(LRESULT(0)) // 処理完了
         }
-        _ => None,
+        _ => {
+            dispatch_to_active_handler(MichiuAnyEvent::Raw, id, raw);
+            None
+        }
     }
 }
 
