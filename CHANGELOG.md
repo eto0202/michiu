@@ -5,21 +5,34 @@
 - [**breaking**] Add intrinsic sizing and fit-content variants to `Val`
 - _(iu_ui)_ Add and update Components
 - _(iu_ui)_ Update Components
+- _(michiu_window)_ Add lifecycle and wake-up events to `MichiuEvent`
+- Add `accessible_name` to `SimpleButton`
+- _(iu_ui)_ Update `SimpleButtonGroup`
+- _(iu_ui)_ Update components
+
+### 🐛 Bug Fixes
+
+- Fix Clippy warning
 
 ### 📚 Documentation
 
 - _(iu_ui)_ Add docs to `SimpleIcon`
+- _(michiu)_ Update docs
 
 ### 🚜 Refactor
 
 - [**breaking**] Remove the `Other` variant from `MichiuAnyEvent`
 - _(iu_ui)_ Remove the `Button` variant from `IconCategory`
+- _(iu_ui)_ Change the file structure of `examples/catalog`
 
 ### ⚙️ Miscellaneous Tasks
 
 - _(cargo-iu_ui)_ Update `README.md`
 - Update `CHANGELOG.md`
 - Update `CHANGELOG.md`
+- _(iu_ui)_ Update `registry.json` and `CHANGELOG.md`
+- Update `registry.json`
+- _(iu_ui)_ Update `registry.json`
 
 ## [0.2.3] - 2026-11-09
 
