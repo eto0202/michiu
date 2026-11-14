@@ -77,6 +77,20 @@ pub fn create_signal<T: Send + 'static>(initial_value: T) -> (ReadSignal<T>, Wri
     with_context(|cx| cx.create_signal(initial_value))
 }
 
+/// Generates read signal directly from the `Context`.
+///
+/// This function must be called within the scope of `build_ui`.
+pub fn create_r_signal<T: Send + 'static>(initial_value: T) -> ReadSignal<T> {
+    with_context(|cx| cx.create_r_signal(initial_value))
+}
+
+/// Generates write signal directly from the `Context`.
+///
+/// This function must be called within the scope of `build_ui`.
+pub fn create_w_signal<T: Send + 'static>(initial_value: T) -> WriteSignal<T> {
+    with_context(|cx| cx.create_w_signal(initial_value))
+}
+
 /// Retrieves context signals ([`ReadSignal<T>`]) provided by ancestor entities, including itself.
 ///
 /// Travers the UI tree upward and searches for and returns signals of type `T` provided via `.provide()`.

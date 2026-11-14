@@ -694,6 +694,20 @@ impl Context {
         )
     }
 
+    /// Generates read signal directly from the `Context`.
+    #[inline]
+    pub fn create_r_signal<T: Send + 'static>(&mut self, initial_value: T) -> ReadSignal<T> {
+        let (read, _) = self.create_signal(initial_value);
+        read
+    }
+
+    /// Generates write signal directly from the `Context`.
+    #[inline]
+    pub fn create_w_signal<T: Send + 'static>(&mut self, initial_value: T) -> WriteSignal<T> {
+        let (_, write) = self.create_signal(initial_value);
+        write
+    }
+
     /// Provides a signal context to the specified entity, or to the root entity if None is specified.
     #[inline]
     pub fn provide<T: Send + 'static>(&mut self, e: Option<Entity>, read_signal: ReadSignal<T>) {
