@@ -212,9 +212,10 @@ pub mod input_func;
 
 use crate::{
     BasicLayout, ComponentMask, Context, DebugStore, EffectCategory, ExternalMask, ExternalTexture,
-    ExternalVisual, IntoOptionProp, LayoutSize, MichiuError, MichiuSoA, MichiuTrace, ModTarget,
-    Modifier, ReadSignal, ResultTraceExt, ScrollBarState, ScrollbarDisplay, ScrollbarStyle,
-    SystemStore, Val, a11y::A11yInferenceTag, div_n, trace_error,
+    ExternalVisual, FlexLayout, IntoOptionProp, LayoutSize, MichiuError, MichiuSoA, MichiuTrace,
+    ModTarget, Modifier, OptionTraceExt, ReadSignal, ResultTraceExt, ScrollBarState,
+    ScrollbarDisplay, ScrollbarStyle, SystemStore, Val, VisualProperty, a11y::A11yInferenceTag,
+    div_n, trace_error,
 };
 #[cfg(feature = "trace-lifecycle")]
 use crate::{ContextState, trace_lifecycle};
@@ -409,6 +410,36 @@ impl Entity {
     #[must_use]
     pub fn children_list(self) -> Vec<Entity> {
         with_context(|cx| cx.children_list(self).collect())
+    }
+
+    /// Get the `BasicLayout`.
+    #[inline]
+    #[must_use]
+    pub fn basic_layout(self) -> BasicLayout {
+        with_context(|cx| {
+            cx.try_basic_layout(self)
+                .unwrap_or_default_trace(Some(self), &mut cx.debug)
+        })
+    }
+
+    /// Get the `FlexLayout`.
+    #[inline]
+    #[must_use]
+    pub fn flex_layout(self) -> FlexLayout {
+        with_context(|cx| {
+            cx.try_flex_layout(self)
+                .unwrap_or_default_trace(Some(self), &mut cx.debug)
+        })
+    }
+
+    /// Get the `VisualProperty`.
+    #[inline]
+    #[must_use]
+    pub fn visual_property(self) -> VisualProperty {
+        with_context(|cx| {
+            cx.try_visual_property(self)
+                .unwrap_or_default_trace(Some(self), &mut cx.debug)
+        })
     }
 
     /// Provides a context (signal) of type `T`.

@@ -412,14 +412,14 @@ impl Context {
     /// Get the [`FlexLayout`] currently set for the specified entity.
     #[inline]
     #[must_use]
-    pub fn get_flex_layout(&self, e: Entity) -> Option<FlexLayout> {
+    pub fn try_flex_layout(&self, e: Entity) -> Option<FlexLayout> {
         self.layouts.lay_flex.find(e).copied()
     }
 
     /// Get the [`VisualProperty`] currently set for the specified entity.
     #[inline]
     #[must_use]
-    pub fn get_visual_property(&self, e: Entity) -> Option<VisualProperty> {
+    pub fn try_visual_property(&self, e: Entity) -> Option<VisualProperty> {
         self.renders.rnd_visual.find(e).cloned()
     }
 
