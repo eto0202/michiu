@@ -1,11 +1,20 @@
-#![allow(unused)]
+#![allow(
+    unused,
+    clippy::print_stdout,
+    clippy::print_stderr,
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::panic
+)]
 
 mod commands;
 mod config;
 mod registry;
 
 use clap::{Parser, Subcommand};
-use colored::*;
+use colored::Colorize;
+
+use crate::commands::resource::ResourceKind;
 
 #[derive(Parser)]
 #[command(name = "cargo")]
@@ -24,7 +33,7 @@ struct IuUiArgs {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Initialize the folder structure and iu_ui.toml
+    /// Initialize the folder structure and `iu_ui.toml`
     Init,
     /// List items in the remote catalog
     List,
@@ -72,19 +81,17 @@ fn main() {
         Commands::List => commands::list::execute(),
         Commands::Add { components, all } => commands::add::execute(components, all),
         Commands::Theme { themes, all } => {
-            commands::resource::execute(commands::resource::ResourceKind::Theme, themes, all)
+            commands::resource::execute(&ResourceKind::Theme, themes, all)
         }
-        Commands::Tag { tags, all } => {
-            commands::resource::execute(commands::resource::ResourceKind::Tag, tags, all)
-        }
+        Commands::Tag { tags, all } => commands::resource::execute(&ResourceKind::Tag, tags, all),
         Commands::Utils { utils, all } => {
-            commands::resource::execute(commands::resource::ResourceKind::Utils, utils, all)
+            commands::resource::execute(&ResourceKind::Utils, utils, all)
         }
         Commands::Check => commands::check::execute(),
     };
 
     if let Err(err) = result {
-        eprintln!("{} {}", "Error:".red().bold(), err);
+        eprintln!("{} {err}", "Error:".red().bold());
         std::process::exit(1);
     }
 }

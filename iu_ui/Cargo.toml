@@ -28,3 +28,5 @@ features = [
     "Win32_Foundation",
     "Win32_UI_WindowsAndMessaging",
 ]
+
+[lints]
