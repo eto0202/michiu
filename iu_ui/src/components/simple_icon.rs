@@ -81,6 +81,7 @@ impl IconCategory {
 ///     and excluded from redundant reading, ensuring decorative glyphs beside text do not pollute the announcement.
 ///   - **Image (`IconCategory::Image(label)`)**: Assigned `Role::Image` with the given accessible label,
 ///     allowing screen readers to announce standalone informative icons.
+///   - Description: Inferred from `self.desc()`
 /// - **Visual / WCAG**:
 ///   - **Scalability**: High-quality vector rasterization rendered on demand via `tiny_skia`.
 ///   - **Target Sizing**: When standalone, adheres to discrete sizing presets (16px to 48px).
@@ -99,17 +100,17 @@ impl IconCategory {
 /// ```rust,ignore
 /// // 1. Decorative icon (default, ignored by screen readers, ideal for buttons)
 /// let save_icon = SimpleIcon::from_data(include_bytes!(/* file path */))
-///     .size(IconSize::Sm)
-///     .variant(IconColor::White)
+///     .sm()
+///     .primary()
 ///     .build(&theme);
 ///
 /// let save_icon = include_simple_icon!(/* file path */).build(&theme);
 ///
 /// // 2. Informative icon (standalone warning with accessible text)
 /// let warning_icon = SimpleIcon::new(/* file path */)
-///     .category(IconCategory::image("Warning: Low storage"))
-///     .variant(IconColor::Accent)
-///     .size(IconSize::Md)
+///     .image("Warning: Low storage")
+///     .warning()
+///     .md()
 ///     .build(&theme);
 /// ```
 #[derive(Debug, Clone)]
@@ -121,10 +122,12 @@ pub struct SimpleIcon {
     pub size: IconSize,
     /// Whether the icon is disabled.
     pub disabled: bool,
-    /// Icon category (Button, Image, Decoration)
+    /// Icon category (Image, Decoration)
     pub category: IconCategory,
     /// Whether to change the text color based on the parent's state (such as hover).
     pub follow_parent: bool,
+    /// Supplementary information and detailed descriptions intended for assistive technologies such as screen readers.
+    pub description: Option<Cow<'static, str>>,
 }
 
 impl SimpleIcon {
@@ -193,7 +196,15 @@ impl SimpleIcon {
             disabled: false,
             category: IconCategory::default(),
             follow_parent: false,
+            description: None,
         }
+    }
+
+    /// Configure supplementary information and detailed descriptions to be provided to assistive technologies such as screen readers.
+    #[inline]
+    pub fn desc(mut self, desc: impl Into<Cow<'static, str>>) -> Self {
+        self.description = Some(desc.into());
+        self
     }
 
     /// Sets the visual style intent.
@@ -380,6 +391,9 @@ impl MichiuWidget for SimpleIcon {
             IconCategory::Image(label) => {
                 node.set_role(Role::Image);
                 node.set_label(label.to_string());
+                if let Some(desc) = self.description.clone() {
+                    node.set_description(desc);
+                }
             }
         };
 

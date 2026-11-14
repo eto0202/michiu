@@ -8,15 +8,20 @@ pub(crate) fn container(theme: &SimpleBlueTheme) -> Entity {
             "Size",
             [
                 simple_button_group!["Extra", "|", "Small"]
+                    .a11y_name("Extra Small Gropu")
+                    .desc("This is Extra Small Gropu")
                     .xs()
                     .build(theme),
                 simple_button_group!["Small", "|", "Small"]
+                    .a11y_name("Small Gropu")
                     .sm()
                     .build(theme),
                 simple_button_group!["Medium", "|", "Medium"]
+                    .a11y_name("Medium Gropu")
                     .md()
                     .build(theme),
                 simple_button_group!["Large", "|", "Large"]
+                    .a11y_name("Large Gropu")
                     .lg()
                     .build(theme),
             ],
@@ -268,7 +273,7 @@ pub(crate) fn container(theme: &SimpleBlueTheme) -> Entity {
             ],
         ),
         section(
-            "Rounded",
+            "Rounded Row",
             [
                 simple_button_group![
                     SimpleButton::empty()
@@ -300,6 +305,47 @@ pub(crate) fn container(theme: &SimpleBlueTheme) -> Entity {
                     "|",
                     SimpleButton::new("1").outline().secondary().build(theme)
                 ]
+                .outline()
+                .secondary()
+                .r_full()
+                .build(theme),
+            ],
+        ),
+        section(
+            "Rounded Column",
+            [
+                simple_button_group![
+                    SimpleButton::empty()
+                        .outline()
+                        .a11y_name("Information")
+                        .with_start(
+                            include_simple_icon!("../../../src/assets/info.svg").build(theme)
+                        )
+                        .build(theme),
+                    "|",
+                    SimpleButton::new("Solid").outline().build(theme),
+                    "|",
+                    SimpleButton::new("1").outline().build(theme)
+                ]
+                .column()
+                .outline()
+                .r_full()
+                .build(theme),
+                simple_button_group![
+                    SimpleButton::empty()
+                        .outline()
+                        .secondary()
+                        .a11y_name("Information")
+                        .with_start(
+                            include_simple_icon!("../../../src/assets/info.svg").build(theme)
+                        )
+                        .build(theme),
+                    "|",
+                    SimpleButton::new("Soft").outline().secondary().build(theme),
+                    "|",
+                    SimpleButton::new("1").outline().secondary().build(theme)
+                ]
+                .column()
                 .outline()
                 .secondary()
                 .r_full()

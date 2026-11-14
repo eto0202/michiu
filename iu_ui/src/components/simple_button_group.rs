@@ -1,5 +1,6 @@
 use super::core::{MichiuTheme, MichiuWidget};
 use michiu::{accessibility::*, prelude::*};
+use std::borrow::Cow;
 
 /// Visual appearance variants for [`SimpleButtonGroup`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -75,8 +76,10 @@ pub enum ButtonGroupItem {
 ///   - `Tab` / `Shift + Tab`: Moves focus sequentially between interactive buttons within the group.
 ///   - `Space` / `Enter`: Activates the currently focused button.
 /// - **Screen Reader**:
-///   - Role: `Role::Button` for each interactive child item.
+///   - Role: If `accessible_name` is set, `Role::Group` is set by default.
+///   - The role of a child element follows the settings of that child element.
 ///   - Separators are excluded from the accessibility tree via `NO_A11Y_NODE` to prevent announcement noise.
+///   - Description: Inferred from `self.desc()`
 /// - **Visual / WCAG**:
 ///   - **Target Size**: Minimum 28x28px per button slot (exceeds WCAG 2.5.8 minimum of 24x24px).
 ///   - **Focus Indicator**: 2px outline displayed only on keyboard focus (`focused_visible`),
@@ -92,7 +95,7 @@ pub enum ButtonGroupItem {
 /// ```rust
 /// // 1. Simple text & separator layout
 /// let group = SimpleButtonGroup::new(["1".into(), "|".into(), "2".into()])
-///     .variant(ButtonGroupVariant::Outline)
+///     .outline()
 ///     .build(&theme);
 ///
 /// let group = simple_button_group!["1", "|", "2", "3", "4", "|", "5",].build(&theme);
@@ -111,7 +114,7 @@ pub enum ButtonGroupItem {
 ///
 /// // 3. Vertical toolbar
 /// let vertical_toolbar = simple_button_group!["1", "2", "|", "3"]
-///     .direction(FlexDirection::Column)
+///     .column()
 ///     .build(&theme);
 /// ```
 #[derive(Debug, Clone, PartialEq)]
@@ -130,6 +133,14 @@ pub struct SimpleButtonGroup {
     pub disabled: bool,
     /// Whether to round the corners (`Modifier::r_full`).
     pub rounded: bool,
+    /// Accessible names provided to assistive technologies such as screen readers
+    ///
+    /// If set to `None`, it will be ignored by assistive technologies.
+    pub accessible_name: Option<String>,
+    /// `Role` for the entire Button Group
+    pub group_role: Option<Role>,
+    /// Supplementary information and detailed descriptions intended for assistive technologies such as screen readers.
+    pub description: Option<Cow<'static, str>>,
 }
 
 impl SimpleButtonGroup {
@@ -152,7 +163,33 @@ impl SimpleButtonGroup {
             size: ButtonGroupSize::default(),
             disabled: false,
             rounded: false,
+            accessible_name: None,
+            group_role: None,
+            description: None,
         }
+    }
+
+    /// Set an accessible name to be communicated to assistive technologies such as screen readers.
+    ///
+    /// If set to `None`, it will be ignored by assistive technologies.
+    #[inline]
+    pub fn a11y_name(mut self, name: impl Into<String>) -> Self {
+        self.accessible_name = Some(name.into());
+        self
+    }
+
+    /// Set the `Role` for the entire button group.
+    #[inline]
+    pub fn role(mut self, r: Role) -> Self {
+        self.group_role = Some(r);
+        self
+    }
+
+    /// Configure supplementary information and detailed descriptions to be provided to assistive technologies such as screen readers.
+    #[inline]
+    pub fn desc(mut self, desc: impl Into<Cow<'static, str>>) -> Self {
+        self.description = Some(desc.into());
+        self
     }
 
     /// Sets the layout direction of the group.
@@ -410,15 +447,41 @@ impl MichiuWidget for SimpleButtonGroup {
                     let c_l: f32 = c_p.left.into();
 
                     let (r_child, p) = if is_first && self.rounded {
-                        ((9999.0, 3.0, 3.0, 9999.0), (c_t, c_r, c_b, c_l + padding))
+                        match self.direction {
+                            FlexDirection::Row => {
+                                ((9999.0, 3.0, 3.0, 9999.0), (c_t, c_r, c_b, c_l + padding))
+                            }
+                            FlexDirection::Column => {
+                                ((9999.0, 9999.0, 3.0, 3.0), (c_t + padding, c_r, c_b, c_l))
+                            }
+                            FlexDirection::RowReverse => {
+                                ((3.0, 9999.0, 9999.0, 3.0), (c_t, c_r + padding, c_b, c_l))
+                            }
+                            FlexDirection::ColumnReverse => {
+                                ((3.0, 3.0, 9999.0, 9999.0), (c_t, c_r, c_b + padding, c_l))
+                            }
+                        }
                     } else if is_last && self.rounded {
-                        ((3.0, 9999.0, 9999.0, 3.0), (c_t, c_r + padding, c_b, c_l))
+                        match self.direction {
+                            FlexDirection::Row => {
+                                ((3.0, 9999.0, 9999.0, 3.0), (c_t, c_r + padding, c_b, c_l))
+                            }
+                            FlexDirection::Column => {
+                                ((3.0, 3.0, 9999.0, 9999.0), (c_t, c_r, c_b + padding, c_l))
+                            }
+                            FlexDirection::RowReverse => {
+                                ((9999.0, 3.0, 3.0, 9999.0), (c_t, c_r, c_b, c_l + padding))
+                            }
+                            FlexDirection::ColumnReverse => {
+                                ((9999.0, 9999.0, 3.0, 3.0), (c_t + padding, c_r, c_b, c_l))
+                            }
+                        }
                     } else {
                         ((3.0, 3.0, 3.0, 3.0), (c_t, c_r, c_b, c_l))
                     };
 
                     children.push(
-                        flex(btn_modifier.clone()).tag::<a11y::AButton>().child(
+                        flex(btn_modifier.clone()).a11y(NO_A11Y_NODE).child(
                             (*user_entity).disable(self.disabled).modify(
                                 ii().r(r_child)
                                     .p(p)
@@ -442,14 +505,10 @@ impl MichiuWidget for SimpleButtonGroup {
                     );
                 }
                 ButtonGroupItem::Label(text) => {
-                    children.push(
-                        flex(btn_modifier.clone().p(padding))
-                            .tag::<a11y::AButton>()
-                            .label(
-                                text.clone(),
-                                ii().font_size(font_size).text_color(text_color),
-                            ),
-                    );
+                    children.push(flex(btn_modifier.clone().p(padding)).label(
+                        text.clone(),
+                        ii().font_size(font_size).text_color(text_color),
+                    ));
                 }
                 ButtonGroupItem::Separator => {
                     children.push(
@@ -468,6 +527,15 @@ impl MichiuWidget for SimpleButtonGroup {
 
         let r = if self.rounded { 9999.0 } else { 5.0 };
 
+        let mut node = Node::new(Role::GenericContainer);
+        if let Some(name) = self.accessible_name.clone() {
+            node.set_role(self.group_role.unwrap_or(Role::Group));
+            node.set_label(name);
+            if let Some(desc) = self.description.clone() {
+                node.set_description(desc);
+            }
+        }
+
         flex(
             ii().flex_direction(self.direction)
                 .justify_center()
@@ -481,6 +549,7 @@ impl MichiuWidget for SimpleButtonGroup {
                 .border_color(border)
                 .disabled(ii().bg_color(disabled_bg).border_color(disabled_border)),
         )
+        .a11y(node)
         .disable(self.disabled)
         .children(children)
     }

@@ -1,5 +1,6 @@
 use super::core::{MichiuTheme, MichiuWidget};
 use michiu::{accessibility::*, prelude::*};
+use std::borrow::Cow;
 
 /// Visual appearance variants for [`SimpleButton`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -65,7 +66,8 @@ pub enum ButtonSize {
 ///   - `Space` / `Enter`: Activates the button.
 /// - **Screen Reader**:
 ///   - Role: `Role::Button` (automatically inferred via `tag::<a11y::AButton>()`).
-///   - Accessible Name: Inferred from `self.label`.
+///   - Accessible Name: Inferred from `self.label()` or `self.a11y_name()`.
+///   - Description: Inferred from `self.desc()`
 /// - **Visual / WCAG**:
 ///   - **Target Size**: Minimum 24x24px across all variants (WCAG 2.5.8 Level AA compliant).
 ///   - **Focus Indicator**: 2px focus ring displayed only during keyboard navigation (`focused_visible`),
@@ -85,8 +87,8 @@ pub enum ButtonSize {
 ///
 /// // 2. Customizing variant, events, and styles (overwritten after build)
 /// let delete_button = SimpleButton::new("Delete")
-///     .variant(ButtonVariant::Outline)
-///     .size(ButtonSize::Md)
+///     .outline()
+///     .md()
 ///     .build(&theme)
 ///     .modify(ii().bg_color(Color::WHITE)) // Overwrites default border
 ///     .on_click(|| println!("Delete clicked!"));
@@ -101,7 +103,7 @@ pub struct SimpleButton {
     /// Set this field when creating an icon-only button (where there is no visible text)
     /// or when you want to override the visible label with a more descriptive name.
     pub accessible_name: Option<String>,
-    /// Visual style variant (Solid, Outline, Ghost).
+    /// Visual style variant (Solid, Soft, Outline, Ghost).
     pub variant: ButtonVariant,
     /// Set the color palette to be applied to the button.
     pub intent: ButtonIntent,
@@ -120,6 +122,8 @@ pub struct SimpleButton {
     /// Whether to match the **text color** of child elements to their own background color.
     ///  (If `true`, the text color is matched to that of the label.)
     pub tint_child: bool,
+    /// Supplementary information and detailed descriptions intended for assistive technologies such as screen readers.
+    pub description: Option<Cow<'static, str>>,
 }
 impl Default for SimpleButton {
     fn default() -> Self {
@@ -152,6 +156,7 @@ impl SimpleButton {
             rtl: false,
             intent: ButtonIntent::default(),
             tint_child: true,
+            description: None,
         }
     }
 
@@ -168,6 +173,13 @@ impl SimpleButton {
     #[inline]
     pub fn a11y_name(mut self, name: impl Into<String>) -> Self {
         self.accessible_name = Some(name.into());
+        self
+    }
+
+    /// Configure supplementary information and detailed descriptions to be provided to assistive technologies such as screen readers.
+    #[inline]
+    pub fn desc(mut self, desc: impl Into<Cow<'static, str>>) -> Self {
+        self.description = Some(desc.into());
         self
     }
 
@@ -434,9 +446,9 @@ impl MichiuWidget for SimpleButton {
 
         let (disabled_bg, disabled_border, text_color) = if self.disabled {
             match self.variant {
-                ButtonVariant::Solid => (theme.gray_3(), Color::TRANSPARENT, theme.gray_8()),
-                ButtonVariant::Soft => (theme.gray_2(), Color::TRANSPARENT, theme.gray_8()),
-                ButtonVariant::Outline => (Color::TRANSPARENT, theme.gray_6(), theme.gray_8()),
+                ButtonVariant::Solid => (theme.gray_4(), Color::TRANSPARENT, theme.gray_8()),
+                ButtonVariant::Soft => (theme.gray_3(), Color::TRANSPARENT, theme.gray_8()),
+                ButtonVariant::Outline => (Color::TRANSPARENT, theme.gray_7(), theme.gray_8()),
                 ButtonVariant::Ghost => (Color::TRANSPARENT, Color::TRANSPARENT, theme.gray_8()),
             }
         } else {
@@ -503,10 +515,18 @@ impl MichiuWidget for SimpleButton {
             entity = entity.child(right);
         }
 
+        let mut node = Node::new(Role::Button);
+
+        if let Some(label) = self.label.clone() {
+            node.set_label(label);
+        }
         if let Some(name) = self.accessible_name.clone() {
-            entity = entity.a11y_label(Role::Button, name);
+            node.set_label(name);
+        }
+        if let Some(desc) = self.description.clone() {
+            node.set_description(desc);
         }
 
-        entity
+        entity.a11y(node)
     }
 }

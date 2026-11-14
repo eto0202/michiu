@@ -7,8 +7,14 @@ pub(crate) fn container(theme: &SimpleBlueTheme) -> Entity {
         section(
             "Size",
             [
-                SimpleButton::new("Extra Small").xs().build(theme),
-                SimpleButton::new("Small").sm().build(theme),
+                SimpleButton::new("Extra Small")
+                    .a11y_name("Extra Small Sample")
+                    .xs()
+                    .build(theme),
+                SimpleButton::new("Small")
+                    .desc("This is Small Button Smaple")
+                    .sm()
+                    .build(theme),
                 SimpleButton::new("Medium").md().build(theme),
                 SimpleButton::new("Large").lg().build(theme),
             ],

@@ -8,6 +8,7 @@ pub(crate) fn container(theme: &SimpleBlueTheme) -> Entity {
             "Size",
             [
                 include_simple_icon!("../../../src/assets/search.svg")
+                    .desc("This is Search icon Smaple")
                     .xs()
                     .build(theme),
                 include_simple_icon!("../../../src/assets/search.svg")
