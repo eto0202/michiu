@@ -35,3 +35,5 @@ features = [
 [features]
 dhat-heap = ["dep:dhat"]
 trace-lifecycle = ["michiu/trace-lifecycle"]
+
+[lints]
