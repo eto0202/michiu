@@ -1,3 +1,5 @@
+use crate::IconSize::Custom;
+
 use super::core::{MichiuTheme, MichiuWidget, Oklch};
 use michiu::{accessibility::*, prelude::*};
 use resvg::{tiny_skia, usvg};
@@ -47,6 +49,7 @@ pub enum IconCategory {
     Decoration,
 }
 impl IconCategory {
+    #[inline]
     pub fn image(label: impl Into<Cow<'static, str>>) -> Self {
         Self::Image(label.into())
     }
@@ -196,42 +199,129 @@ impl SimpleIcon {
     }
 
     /// Sets the visual style intent.
+    #[inline]
     pub fn intent(mut self, intent: IconIntent) -> Self {
         self.intent = intent;
         self
     }
+    /// Set intent [`IconIntent::Primary`]
+    #[inline]
+    pub fn primary(self) -> Self {
+        self.intent(IconIntent::Primary)
+    }
+    /// Set intent [`IconIntent::Secondary`]
+    #[inline]
+    pub fn secondary(self) -> Self {
+        self.intent(IconIntent::Secondary)
+    }
+    /// Set intent [`IconIntent::Destructive`]
+    #[inline]
+    pub fn destructive(self) -> Self {
+        self.intent(IconIntent::Destructive)
+    }
+    /// Set intent [`IconIntent::Success`]
+    #[inline]
+    pub fn success(self) -> Self {
+        self.intent(IconIntent::Success)
+    }
+    /// Set intent [`IconIntent::Warning`]
+    #[inline]
+    pub fn warning(self) -> Self {
+        self.intent(IconIntent::Warning)
+    }
 
     /// Sets the dimensions of the icon.
+    #[inline]
     pub fn size(mut self, size: IconSize) -> Self {
         self.size = size;
         self
     }
+    /// Set size custom
+    #[inline]
+    pub fn size_custom(self, s: f32) -> Self {
+        self.size(Custom(s))
+    }
+    /// Set size [`IconSize::Xs`]
+    #[inline]
+    pub fn xs(self) -> Self {
+        self.size(IconSize::Xs)
+    }
+    /// Set size [`IconSize::Sm`]
+    #[inline]
+    pub fn sm(self) -> Self {
+        self.size(IconSize::Sm)
+    }
+    /// Set size [`IconSize::Md`]
+    #[inline]
+    pub fn md(self) -> Self {
+        self.size(IconSize::Md)
+    }
+    /// Set size [`IconSize::Lg`]
+    #[inline]
+    pub fn lg(self) -> Self {
+        self.size(IconSize::Lg)
+    }
 
     /// Sets whether the icon is disabled.
     /// All Chroma values will be set to 0.0, and the Lightness of the border will be adjusted.
-    pub fn disabled(mut self, disabled: bool) -> Self {
+    #[inline]
+    pub fn with_disabled(mut self, disabled: bool) -> Self {
         self.disabled = disabled;
         self
     }
+    /// Set disabled `true`
+    #[inline]
+    pub fn disabled(self) -> Self {
+        self.with_disabled(true)
+    }
+    /// Set disabled `false`
+    #[inline]
+    pub fn enabled(self) -> Self {
+        self.with_disabled(false)
+    }
 
     /// Set the icon category.
+    #[inline]
     pub fn category(mut self, cat: IconCategory) -> Self {
         self.category = cat;
         self
     }
+    /// Set category [`IconCategory::Image`]
+    #[inline]
+    pub fn image(self, label: impl Into<Cow<'static, str>>) -> Self {
+        self.category(IconCategory::Image(label.into()))
+    }
+    /// Set category [`IconCategory::Decoration`]
+    #[inline]
+    pub fn decoration(self) -> Self {
+        self.category(IconCategory::Decoration)
+    }
 
     /// Set whether to change the text color based on the parent's state (such as hover).
+    #[inline]
     pub fn follow_parent(mut self, enabled: bool) -> Self {
         self.follow_parent = enabled;
         self
     }
+    /// Set follow parent `true`
+    #[inline]
+    pub fn follow_allow(self) -> Self {
+        self.follow_parent(true)
+    }
+    /// Set follow parent `false`
+    #[inline]
+    pub fn follow_deny(self) -> Self {
+        self.follow_parent(false)
+    }
 }
 
 impl MichiuWidget for SimpleIcon {
+    #[inline]
     fn name(&self) -> &'static str {
         "Simple Icon"
     }
 
+    #[inline]
     fn a11y_spec(&self) -> &'static str {
         "WAI-ARIA Graphics / WCAG 2.2 AA (Decorative by default, Role::Image when labeled)"
     }
@@ -309,12 +399,14 @@ pub struct SvgIcon {
 }
 
 impl SvgIcon {
+    #[inline]
     pub fn new(path: impl AsRef<Path>) -> std::result::Result<Self, Box<dyn std::error::Error>> {
         let path = path.as_ref();
         let svg_data = std::fs::read(path)?;
         Self::from_data(&svg_data)
     }
 
+    #[inline]
     pub fn from_data(svg_data: &[u8]) -> std::result::Result<Self, Box<dyn std::error::Error>> {
         let opt = usvg::Options::default();
         let tree = usvg::Tree::from_data(svg_data, &opt)?;

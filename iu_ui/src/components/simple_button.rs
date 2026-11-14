@@ -129,6 +129,7 @@ impl Default for SimpleButton {
 
 impl SimpleButton {
     /// Creates a new accessible button with the specified label.
+    #[inline]
     pub fn new(label: impl Into<String>) -> Self {
         Self {
             label: Some(label.into()),
@@ -137,6 +138,7 @@ impl SimpleButton {
     }
 
     /// Creates a new accessible button.
+    #[inline]
     pub fn empty() -> Self {
         Self {
             label: None,
@@ -154,6 +156,7 @@ impl SimpleButton {
     }
 
     /// Set the label.
+    #[inline]
     pub fn with_label(mut self, label: impl Into<String>) -> Self {
         self.label = Some(label.into());
         self
@@ -162,43 +165,136 @@ impl SimpleButton {
     /// Set accessible name.
     ///
     /// Overwrite the displayed label with a more specific accessibility name.
-    pub fn accessible_name(mut self, name: impl Into<String>) -> Self {
+    #[inline]
+    pub fn a11y_name(mut self, name: impl Into<String>) -> Self {
         self.accessible_name = Some(name.into());
         self
     }
 
     /// Sets the visual style variant.
+    #[inline]
     pub fn variant(mut self, variant: ButtonVariant) -> Self {
         self.variant = variant;
         self
     }
+    /// Set variant [`ButtonVariant::Solid`]
+    #[inline]
+    pub fn solid(self) -> Self {
+        self.variant(ButtonVariant::Solid)
+    }
+    /// Set variant [`ButtonVariant::Soft`]
+    #[inline]
+    pub fn soft(self) -> Self {
+        self.variant(ButtonVariant::Soft)
+    }
+    /// Set variant [`ButtonVariant::Outline`]
+    #[inline]
+    pub fn outline(self) -> Self {
+        self.variant(ButtonVariant::Outline)
+    }
+    /// Set variant [`ButtonVariant::Ghost`]
+    #[inline]
+    pub fn ghost(self) -> Self {
+        self.variant(ButtonVariant::Ghost)
+    }
 
+    /// Set the semantic purpose and color palette applied to a button.
+    #[inline]
     pub fn intent(mut self, intent: ButtonIntent) -> Self {
         self.intent = intent;
         self
     }
+    /// Set intent [`ButtonIntent::Primary`]
+    #[inline]
+    pub fn primary(self) -> Self {
+        self.intent(ButtonIntent::Primary)
+    }
+    /// Set intent [`ButtonIntent::Secondary`]
+    #[inline]
+    pub fn secondary(self) -> Self {
+        self.intent(ButtonIntent::Secondary)
+    }
+    /// Set intent [`ButtonIntent::Destructive`]
+    #[inline]
+    pub fn destructive(self) -> Self {
+        self.intent(ButtonIntent::Destructive)
+    }
+    /// Set intent [`ButtonIntent::Success`]
+    #[inline]
+    pub fn success(self) -> Self {
+        self.intent(ButtonIntent::Success)
+    }
+    /// Set intent [`ButtonIntent::Warning`]
+    #[inline]
+    pub fn warning(self) -> Self {
+        self.intent(ButtonIntent::Warning)
+    }
 
     /// Sets the dimensions of the button.
+    #[inline]
     pub fn size(mut self, size: ButtonSize) -> Self {
         self.size = size;
         self
     }
+    /// Set size [`ButtonSize::Xs`]
+    #[inline]
+    pub fn xs(self) -> Self {
+        self.size(ButtonSize::Xs)
+    }
+    /// Set size [`ButtonSize::Sm`]
+    #[inline]
+    pub fn sm(self) -> Self {
+        self.size(ButtonSize::Sm)
+    }
+    /// Set size [`ButtonSize::Md`]
+    #[inline]
+    pub fn md(self) -> Self {
+        self.size(ButtonSize::Md)
+    }
+    /// Set size [`ButtonSize::Lg`]
+    #[inline]
+    pub fn lg(self) -> Self {
+        self.size(ButtonSize::Lg)
+    }
 
     /// Sets whether the button is disabled.
     /// All Chroma values will be set to 0.0, and the Lightness of the border will be adjusted.
-    pub fn disabled(mut self, disabled: bool) -> Self {
+    #[inline]
+    pub fn with_disabled(mut self, disabled: bool) -> Self {
         self.disabled = disabled;
         self
     }
+    /// Set disabled `true`
+    #[inline]
+    pub fn disabled(self) -> Self {
+        self.with_disabled(true)
+    }
+    /// Set disabled `false`
+    #[inline]
+    pub fn enabled(self) -> Self {
+        self.with_disabled(false)
+    }
 
     /// Set whether to round the corners (`Modifier::r_full`)
-    pub fn rounded(mut self, enabled: bool) -> Self {
+    #[inline]
+    pub fn with_rounded(mut self, enabled: bool) -> Self {
         self.rounded = enabled;
         self
+    }
+    /// Set rounded `true`
+    #[inline]
+    pub fn r_full(self) -> Self {
+        self.with_rounded(true)
+    }
+    /// Set rounded `false`
+    #[inline]
+    pub fn r_default(self) -> Self {
+        self.with_rounded(false)
     }
 
     /// Add any `Entity`. If it has a label,
     /// it will be added to the left (or to the right, if the text runs from RTL).
+    #[inline]
     pub fn with_start(mut self, entity: Entity) -> Self {
         self.start_child = Some(entity);
         self
@@ -206,30 +302,55 @@ impl SimpleButton {
 
     /// Add any `Entity`. If it has a label,
     /// it will be added to the right (or to the left, if the text runs from RTL).
+    #[inline]
     pub fn with_end(mut self, entity: Entity) -> Self {
         self.end_child = Some(entity);
         self
     }
 
     /// Set whether to use right-to-left (RTL) layout direction.
-    pub fn rtl(mut self, enabled: bool) -> Self {
+    #[inline]
+    pub fn with_rtl(mut self, enabled: bool) -> Self {
         self.rtl = enabled;
         self
+    }
+    /// Set right-to-left (RTL) `true`
+    #[inline]
+    pub fn rtl(self) -> Self {
+        self.with_rtl(true)
+    }
+    /// Set right-to-left (RTL) `false`
+    #[inline]
+    pub fn ltr(self) -> Self {
+        self.with_rtl(false)
     }
 
     /// Set whether to match the **text color** of child elements to their own background color.
     /// (If `true`, the text color is matched to that of the label.)
+    #[inline]
     pub fn tint_child(mut self, enabled: bool) -> Self {
         self.tint_child = enabled;
         self
     }
+    /// Set tint_child `true`
+    #[inline]
+    pub fn tint_allow(self) -> Self {
+        self.tint_child(true)
+    }
+    /// Set tint_child `false`
+    #[inline]
+    pub fn tint_deny(self) -> Self {
+        self.tint_child(false)
+    }
 }
 
 impl MichiuWidget for SimpleButton {
+    #[inline]
     fn name(&self) -> &'static str {
         "Simple Button"
     }
 
+    #[inline]
     fn a11y_spec(&self) -> &'static str {
         "WAI-ARIA Button Pattern / WCAG 2.2 AA (Target Size >= 24px, Focus Ring >= 3:1)"
     }
@@ -242,8 +363,8 @@ impl MichiuWidget for SimpleButton {
         let (font_size, padding) = match self.size {
             ButtonSize::Xs => (14.0, 4.0),
             ButtonSize::Sm => (14.0, 6.0),
-            ButtonSize::Md => (15.0, 8.0),
-            ButtonSize::Lg => (15.0, 10.0),
+            ButtonSize::Md => (16.0, 8.0),
+            ButtonSize::Lg => (16.0, 10.0),
         };
 
         let (s3, s4, s5, s7, s8, s9, s10, s11, text) = match self.intent {

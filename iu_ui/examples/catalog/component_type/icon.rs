@@ -8,34 +8,34 @@ pub(crate) fn container(theme: &SimpleBlueTheme) -> Entity {
             "Size",
             [
                 include_simple_icon!("../../../src/assets/search.svg")
-                    .size(IconSize::Xs)
+                    .xs()
                     .build(theme),
                 include_simple_icon!("../../../src/assets/search.svg")
-                    .size(IconSize::Sm)
+                    .sm()
                     .build(theme),
                 include_simple_icon!("../../../src/assets/search.svg")
-                    .size(IconSize::Md)
+                    .md()
                     .build(theme),
                 include_simple_icon!("../../../src/assets/search.svg")
-                    .size(IconSize::Lg)
+                    .lg()
                     .build(theme),
                 include_simple_icon!("../../../src/assets/search.svg")
-                    .size(IconSize::Custom(60.0))
+                    .size_custom(60.0)
                     .build(theme),
             ],
         ),
         section(
             "Follow parent (true)",
             [SimpleButton::new("Notifications")
-                .variant(ButtonVariant::Outline)
-                .intent(ButtonIntent::Secondary)
-                .size(ButtonSize::Md)
-                .tint_child(false)
+                .outline()
+                .secondary()
+                .md()
+                .tint_deny()
                 .with_start(
                     include_simple_icon!("../../../src/assets/notifications.svg")
-                        .intent(IconIntent::Warning)
-                        .size(IconSize::Sm)
-                        .follow_parent(true)
+                        .warning()
+                        .sm()
+                        .follow_allow()
                         .build(theme),
                 )
                 .build(theme)],
@@ -43,50 +43,50 @@ pub(crate) fn container(theme: &SimpleBlueTheme) -> Entity {
         section(
             "Primary",
             [include_simple_icon!("../../../src/assets/info.svg")
-                .intent(IconIntent::Primary)
-                .size(IconSize::Md)
+                .primary()
+                .md()
                 .build(theme)],
         ),
         section(
             "Secondary",
             [include_simple_icon!("../../../src/assets/info.svg")
-                .intent(IconIntent::Secondary)
-                .size(IconSize::Md)
+                .secondary()
+                .md()
                 .build(theme)],
         ),
         section(
             "Destructive",
             [include_simple_icon!("../../../src/assets/info.svg")
-                .intent(IconIntent::Destructive)
-                .size(IconSize::Md)
+                .destructive()
+                .md()
                 .build(theme)],
         ),
         section(
             "Success",
             [include_simple_icon!("../../../src/assets/delete.svg")
-                .intent(IconIntent::Success)
-                .size(IconSize::Md)
+                .success()
+                .md()
                 .build(theme)],
         ),
         section(
             "Warning",
             [include_simple_icon!("../../../src/assets/sort.svg")
-                .intent(IconIntent::Warning)
-                .size(IconSize::Md)
+                .warning()
+                .md()
                 .build(theme)],
         ),
         section(
             "Decoration",
             [include_simple_icon!("../../../src/assets/download.svg")
-                .category(IconCategory::Decoration)
-                .size(IconSize::Md)
+                .decoration()
+                .md()
                 .build(theme)],
         ),
         section(
             "Image",
             [include_simple_icon!("../../../src/assets/folder.svg")
-                .category(IconCategory::image("Folder"))
-                .size(IconSize::Md)
+                .image("Folder")
+                .md()
                 .build(theme)],
         ),
     ])

@@ -139,6 +139,7 @@ impl SimpleButtonGroup {
     /// - Custom `Entity` (e.g. `button.on_click(...)`)
     /// - `&str` labels (e.g. `"1"`, `"2"`)
     /// - `"|"` for separators
+    #[inline]
     pub fn new<I>(items: I) -> Self
     where
         I: IntoIterator<Item = ButtonGroupItem>,
@@ -155,40 +156,126 @@ impl SimpleButtonGroup {
     }
 
     /// Sets the layout direction of the group.
+    #[inline]
     pub fn direction(mut self, direction: FlexDirection) -> Self {
         self.direction = direction;
         self
     }
+    /// Set direction [`FlexDirection::Row`]
+    #[inline]
+    pub fn row(self) -> Self {
+        self.direction(FlexDirection::Row)
+    }
+    /// Set direction [`FlexDirection::Column`]
+    #[inline]
+    pub fn column(self) -> Self {
+        self.direction(FlexDirection::Column)
+    }
 
     /// Sets the visual style variant (Solid, Outline, Ghost).
+    #[inline]
     pub fn variant(mut self, variant: ButtonGroupVariant) -> Self {
         self.variant = variant;
         self
     }
+    /// Set variant [`ButtonVariant::Solid`]
+    #[inline]
+    pub fn solid(self) -> Self {
+        self.variant(ButtonGroupVariant::Solid)
+    }
+    /// Set variant [`ButtonVariant::Soft`]
+    #[inline]
+    pub fn soft(self) -> Self {
+        self.variant(ButtonGroupVariant::Soft)
+    }
+    /// Set variant [`ButtonVariant::Outline`]
+    #[inline]
+    pub fn outline(self) -> Self {
+        self.variant(ButtonGroupVariant::Outline)
+    }
+    /// Set variant [`ButtonVariant::Ghost`]
+    #[inline]
+    pub fn ghost(self) -> Self {
+        self.variant(ButtonGroupVariant::Ghost)
+    }
 
     /// Set the color palette to be applied to the button group.
+    #[inline]
     pub fn intent(mut self, intent: ButtonGroupIntent) -> Self {
         self.intent = intent;
         self
     }
+    /// Set intent [`ButtonGroupIntent::Primary`]
+    #[inline]
+    pub fn primary(self) -> Self {
+        self.intent(ButtonGroupIntent::Primary)
+    }
+    /// Set intent [`ButtonGroupIntent::Secondary`]
+    #[inline]
+    pub fn secondary(self) -> Self {
+        self.intent(ButtonGroupIntent::Secondary)
+    }
 
     /// Sets the dimensions of the button.
+    #[inline]
     pub fn size(mut self, size: ButtonGroupSize) -> Self {
         self.size = size;
         self
     }
+    /// Set size [`ButtonGroupSize::Xs`]
+    #[inline]
+    pub fn xs(self) -> Self {
+        self.size(ButtonGroupSize::Xs)
+    }
+    /// Set size [`ButtonGroupSize::Sm`]
+    #[inline]
+    pub fn sm(self) -> Self {
+        self.size(ButtonGroupSize::Sm)
+    }
+    /// Set size [`ButtonGroupSize::Md`]
+    #[inline]
+    pub fn md(self) -> Self {
+        self.size(ButtonGroupSize::Md)
+    }
+    /// Set size [`ButtonGroupSize::Lg`]
+    #[inline]
+    pub fn lg(self) -> Self {
+        self.size(ButtonGroupSize::Lg)
+    }
 
     /// Sets whether the button group is disabled.
     /// All Chroma values will be set to 0.0, and the Lightness of the border will be adjusted.
-    pub fn disabled(mut self, disabled: bool) -> Self {
+    #[inline]
+    pub fn with_disabled(mut self, disabled: bool) -> Self {
         self.disabled = disabled;
         self
     }
+    /// Set disabled `true`
+    #[inline]
+    pub fn disabled(self) -> Self {
+        self.with_disabled(true)
+    }
+    /// Set disabled `false`
+    #[inline]
+    pub fn enabled(self) -> Self {
+        self.with_disabled(false)
+    }
 
     /// Set whether to round the corners (`Modifier::r_full`)
-    pub fn rounded(mut self, enabled: bool) -> Self {
+    #[inline]
+    pub fn with_rounded(mut self, enabled: bool) -> Self {
         self.rounded = enabled;
         self
+    }
+    /// Set rounded `true`
+    #[inline]
+    pub fn r_full(self) -> Self {
+        self.with_rounded(true)
+    }
+    /// Set rounded `false`
+    #[inline]
+    pub fn r_default(self) -> Self {
+        self.with_rounded(false)
     }
 }
 impl Default for SimpleButtonGroup {
@@ -207,20 +294,22 @@ impl Default for SimpleButtonGroup {
 }
 
 impl MichiuWidget for SimpleButtonGroup {
+    #[inline]
     fn name(&self) -> &'static str {
         "Simple Button Group"
     }
 
+    #[inline]
     fn a11y_spec(&self) -> &'static str {
         "WAI-ARIA Button Group / WCAG 2.2 AA (Target Size >= 24px, Focus Ring >= 3:1)"
     }
 
     fn build(&self, theme: &dyn MichiuTheme) -> Entity {
         let (font_size, padding) = match self.size {
-            ButtonGroupSize::Xs => (14.0, 4.0),
-            ButtonGroupSize::Sm => (14.0, 6.0),
-            ButtonGroupSize::Md => (15.0, 8.0),
-            ButtonGroupSize::Lg => (15.0, 10.0),
+            ButtonGroupSize::Xs => (14.0, 6.0),
+            ButtonGroupSize::Sm => (14.0, 8.0),
+            ButtonGroupSize::Md => (15.0, 10.0),
+            ButtonGroupSize::Lg => (15.0, 12.0),
         };
 
         let (s3, s4, s5, s7, s8, s9, s10, s11, text) = match self.intent {
@@ -273,6 +362,19 @@ impl MichiuWidget for SimpleButtonGroup {
             ),
         };
 
+        let (disabled_bg, disabled_border, text_color) = if self.disabled {
+            match self.variant {
+                ButtonGroupVariant::Solid => (theme.gray_3(), Color::TRANSPARENT, theme.gray_8()),
+                ButtonGroupVariant::Soft => (theme.gray_2(), Color::TRANSPARENT, theme.gray_8()),
+                ButtonGroupVariant::Outline => (Color::TRANSPARENT, theme.gray_6(), theme.gray_8()),
+                ButtonGroupVariant::Ghost => {
+                    (Color::TRANSPARENT, Color::TRANSPARENT, theme.gray_8())
+                }
+            }
+        } else {
+            (bg, border, text_color)
+        };
+
         let btn_modifier = ii()
             .justify_center()
             .items_center()
@@ -286,16 +388,48 @@ impl MichiuWidget for SimpleButtonGroup {
 
         let mut children = Vec::with_capacity(self.items.len());
 
-        for item in &self.items {
+        let first_btn_idx = self
+            .items
+            .iter()
+            .position(|item| matches!(item, ButtonGroupItem::Button(_)));
+        let last_btn_idx = self
+            .items
+            .iter()
+            .rposition(|item| matches!(item, ButtonGroupItem::Button(_)));
+
+        for (i, item) in self.items.iter().enumerate() {
             match item {
-                // ユーザーが渡したカスタム Entity
                 ButtonGroupItem::Button(user_entity) => {
+                    let is_first = Some(i) == first_btn_idx;
+                    let is_last = Some(i) == last_btn_idx;
+
+                    let c_p = user_entity.basic_layout().padding;
+                    let c_t: f32 = c_p.top.into();
+                    let c_r: f32 = c_p.left.into();
+                    let c_b: f32 = c_p.bottom.into();
+                    let c_l: f32 = c_p.left.into();
+
+                    let (r_child, p) = if is_first && self.rounded {
+                        ((9999.0, 3.0, 3.0, 9999.0), (c_t, c_r, c_b, c_l + padding))
+                    } else if is_last && self.rounded {
+                        ((3.0, 9999.0, 9999.0, 3.0), (c_t, c_r + padding, c_b, c_l))
+                    } else {
+                        ((3.0, 3.0, 3.0, 3.0), (c_t, c_r, c_b, c_l))
+                    };
+
                     children.push(
                         flex(btn_modifier.clone()).tag::<a11y::AButton>().child(
-                            (*user_entity).modify(
-                                ii().r(3.0)
+                            (*user_entity).disable(self.disabled).modify(
+                                ii().r(r_child)
+                                    .p(p)
                                     .size_full()
                                     .border_color(Color::TRANSPARENT)
+                                    .hovered(ii().r(r_child).p(p))
+                                    .pressed(ii().r(r_child).p(p))
+                                    .disabled(
+                                        ii().bg_color(Color::TRANSPARENT)
+                                            .border_color(Color::TRANSPARENT),
+                                    )
                                     .focusable_self_both()
                                     .focused_visible(
                                         ii().border_color(Color::TRANSPARENT)
@@ -307,7 +441,6 @@ impl MichiuWidget for SimpleButtonGroup {
                         ),
                     );
                 }
-                // 単純なテキストラベル
                 ButtonGroupItem::Label(text) => {
                     children.push(
                         flex(btn_modifier.clone().p(padding))
@@ -318,19 +451,22 @@ impl MichiuWidget for SimpleButtonGroup {
                             ),
                     );
                 }
-                // セパレーター
                 ButtonGroupItem::Separator => {
                     children.push(
                         div(separator_size
                             .clone()
                             .shrink_0()
                             .self_center()
-                            .bg_color(separator))
+                            .bg_color(separator)
+                            .disabled(ii().bg_color(theme.gray_6())))
+                        .disable(self.disabled)
                         .a11y(NO_A11Y_NODE),
                     );
                 }
             }
         }
+
+        let r = if self.rounded { 9999.0 } else { 5.0 };
 
         flex(
             ii().flex_direction(self.direction)
@@ -339,11 +475,13 @@ impl MichiuWidget for SimpleButtonGroup {
                 .size_fit()
                 .p(2.0)
                 .gap(2.0)
-                .r(5.0)
+                .r(r)
                 .bg_color(bg)
                 .border_solid(1.0)
-                .border_color(border),
+                .border_color(border)
+                .disabled(ii().bg_color(disabled_bg).border_color(disabled_border)),
         )
+        .disable(self.disabled)
         .children(children)
     }
 }
