@@ -120,8 +120,8 @@ pub struct SimpleIcon {
     pub intent: IconIntent,
     /// Icon dimensions.
     pub size: IconSize,
-    /// Whether the icon is disabled.
-    pub disabled: bool,
+    /// Whether the icon is disable.
+    pub disable: bool,
     /// Icon category (Image, Decoration)
     pub category: IconCategory,
     /// Whether to change the text color based on the parent's state (such as hover).
@@ -193,7 +193,7 @@ impl SimpleIcon {
             icon,
             intent: IconIntent::default(),
             size: IconSize::default(),
-            disabled: false,
+            disable: false,
             category: IconCategory::default(),
             follow_parent: false,
             description: None,
@@ -274,19 +274,19 @@ impl SimpleIcon {
     /// Sets whether the icon is disabled.
     /// All Chroma values will be set to 0.0, and the Lightness of the border will be adjusted.
     #[inline]
-    pub fn with_disabled(mut self, disabled: bool) -> Self {
-        self.disabled = disabled;
+    pub fn disable(mut self, disabled: bool) -> Self {
+        self.disable = disabled;
         self
     }
     /// Set disabled `true`
     #[inline]
     pub fn disabled(self) -> Self {
-        self.with_disabled(true)
+        self.disable(true)
     }
     /// Set disabled `false`
     #[inline]
-    pub fn enabled(self) -> Self {
-        self.with_disabled(false)
+    pub fn actived(self) -> Self {
+        self.disable(false)
     }
 
     /// Set the icon category.
@@ -322,6 +322,17 @@ impl SimpleIcon {
     pub fn follow_deny(self) -> Self {
         self.follow_parent(false)
     }
+
+    #[inline]
+    fn metrics(&self) -> f32 {
+        match self.size {
+            IconSize::Xs => 16.0,
+            IconSize::Sm => 24.0,
+            IconSize::Md => 36.0,
+            IconSize::Lg => 48.0,
+            IconSize::Custom(s) => s,
+        }
+    }
 }
 
 impl MichiuWidget for SimpleIcon {
@@ -340,13 +351,7 @@ impl MichiuWidget for SimpleIcon {
     /// Additional styling or event handlers (such as `.on_click(...)`) can be chained
     /// onto the returned `Entity` to overwrite defaults.
     fn build(&self, theme: &dyn MichiuTheme) -> Entity {
-        let size = match self.size {
-            IconSize::Xs => (16.0, 16.0),
-            IconSize::Sm => (24.0, 24.0),
-            IconSize::Md => (36.0, 36.0),
-            IconSize::Lg => (48.0, 48.0),
-            IconSize::Custom(s) => (s, s),
-        };
+        let size = self.metrics();
 
         let (text_color, hover, active) = match self.intent {
             IconIntent::Primary => (theme.accent_9(), theme.accent_10(), theme.accent_11()),
@@ -360,7 +365,7 @@ impl MichiuWidget for SimpleIcon {
             IconIntent::Warning => (theme.warning(9), theme.warning(10), theme.warning(11)),
         };
 
-        let disabled_text_color = if self.disabled {
+        let disabled_text_color = if self.disable {
             theme.gray_8()
         } else {
             text_color
@@ -400,7 +405,7 @@ impl MichiuWidget for SimpleIcon {
         external_mask(self.icon.clone())
             .modify(modifier)
             .a11y(node)
-            .disable(self.disabled)
+            .disable(self.disable)
     }
 }
 

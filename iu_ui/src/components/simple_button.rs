@@ -109,8 +109,8 @@ pub struct SimpleButton {
     pub intent: ButtonIntent,
     /// Button dimensions.
     pub size: ButtonSize,
-    /// Whether the button is disabled.
-    pub disabled: bool,
+    /// Whether the button is disable.
+    pub disable: bool,
     /// Whether to round the corners (`Modifier::r_full`).
     pub rounded: bool,
     /// Optional child entity placed at the start side (left in LTR, right in RTL, e.g., an icon).
@@ -149,7 +149,7 @@ impl SimpleButton {
             accessible_name: None,
             variant: ButtonVariant::default(),
             size: ButtonSize::default(),
-            disabled: false,
+            disable: false,
             rounded: false,
             start_child: None,
             end_child: None,
@@ -272,19 +272,19 @@ impl SimpleButton {
     /// Sets whether the button is disabled.
     /// All Chroma values will be set to 0.0, and the Lightness of the border will be adjusted.
     #[inline]
-    pub fn with_disabled(mut self, disabled: bool) -> Self {
-        self.disabled = disabled;
+    pub fn disable(mut self, disabled: bool) -> Self {
+        self.disable = disabled;
         self
     }
     /// Set disabled `true`
     #[inline]
     pub fn disabled(self) -> Self {
-        self.with_disabled(true)
+        self.disable(true)
     }
     /// Set disabled `false`
     #[inline]
-    pub fn enabled(self) -> Self {
-        self.with_disabled(false)
+    pub fn actived(self) -> Self {
+        self.disable(false)
     }
 
     /// Set whether to round the corners (`Modifier::r_full`)
@@ -354,6 +354,18 @@ impl SimpleButton {
     pub fn tint_deny(self) -> Self {
         self.tint_child(false)
     }
+
+    #[inline]
+    fn metrics(&self) -> (f32, f32, f32) {
+        let (font_size, padding) = match self.size {
+            ButtonSize::Xs => (14.0, 4.0),
+            ButtonSize::Sm => (14.0, 6.0),
+            ButtonSize::Md => (16.0, 8.0),
+            ButtonSize::Lg => (16.0, 10.0),
+        };
+        let r = if self.rounded { 9999.0 } else { 5.0 };
+        (font_size, padding, r)
+    }
 }
 
 impl MichiuWidget for SimpleButton {
@@ -372,14 +384,9 @@ impl MichiuWidget for SimpleButton {
     /// Additional styling or event handlers (such as `.on_click(...)`) can be chained
     /// onto the returned `Entity` to overwrite defaults.
     fn build(&self, theme: &dyn MichiuTheme) -> Entity {
-        let (font_size, padding) = match self.size {
-            ButtonSize::Xs => (14.0, 4.0),
-            ButtonSize::Sm => (14.0, 6.0),
-            ButtonSize::Md => (16.0, 8.0),
-            ButtonSize::Lg => (16.0, 10.0),
-        };
+        let (font_size, padding, r) = self.metrics();
 
-        let (s3, s4, s5, s7, _s8, s9, s10, s11, _text_color) = match self.intent {
+        let (s3, s4, s5, s7, _s8, s9, s10, s11) = match self.intent {
             ButtonIntent::Primary => (
                 theme.accent_3(),
                 theme.accent_4(),
@@ -389,7 +396,6 @@ impl MichiuWidget for SimpleButton {
                 theme.accent_9(),
                 theme.accent_10(),
                 theme.accent_11(),
-                theme.text_on_solid(),
             ),
             ButtonIntent::Secondary => (
                 theme.gray_3(),
@@ -400,7 +406,6 @@ impl MichiuWidget for SimpleButton {
                 theme.gray_9(),
                 theme.gray_10(),
                 theme.gray_11(),
-                theme.text_high(),
             ),
             ButtonIntent::Destructive => (
                 theme.destructive(3),
@@ -411,7 +416,6 @@ impl MichiuWidget for SimpleButton {
                 theme.destructive(9),
                 theme.destructive(10),
                 theme.destructive(11),
-                theme.text_high(),
             ),
             ButtonIntent::Success => (
                 theme.success(3),
@@ -422,7 +426,6 @@ impl MichiuWidget for SimpleButton {
                 theme.success(9),
                 theme.success(10),
                 theme.success(11),
-                theme.text_high(),
             ),
             ButtonIntent::Warning => (
                 theme.warning(3),
@@ -433,7 +436,6 @@ impl MichiuWidget for SimpleButton {
                 theme.warning(9),
                 theme.warning(10),
                 theme.warning(11),
-                theme.text_on_warning_solid(),
             ),
         };
 
@@ -444,7 +446,7 @@ impl MichiuWidget for SimpleButton {
             ButtonVariant::Ghost => (Color::TRANSPARENT, s3, s4, Color::TRANSPARENT, s11),
         };
 
-        let (disabled_bg, disabled_border, text_color) = if self.disabled {
+        let (disabled_bg, disabled_border, text_color) = if self.disable {
             match self.variant {
                 ButtonVariant::Solid => (theme.gray_4(), Color::TRANSPARENT, theme.gray_8()),
                 ButtonVariant::Soft => (theme.gray_3(), Color::TRANSPARENT, theme.gray_8()),
@@ -456,8 +458,6 @@ impl MichiuWidget for SimpleButton {
         };
 
         let offset = theme.focus_ring_offset(self.variant == ButtonVariant::Solid);
-
-        let r = if self.rounded { 9999.0 } else { 5.0 };
 
         let modifier = ii()
             .justify_center()
@@ -487,7 +487,7 @@ impl MichiuWidget for SimpleButton {
                     .outline_color(theme.focus_ring()),
             );
 
-        let mut entity = flex(modifier).tag::<a11y::AButton>().disable(self.disabled);
+        let mut entity = flex(modifier).tag::<a11y::AButton>().disable(self.disable);
         let mut label_style = ii().font_size(font_size).text_color(text_color);
         let child_style = ii()
             .hovered_parent(ii().text_color(text_color))

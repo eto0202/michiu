@@ -5,6 +5,7 @@ use michiu::{prelude::*, ui::a11y};
 mod button;
 mod button_group;
 mod icon;
+mod text;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, strum::Display, strum::EnumIter)]
 #[allow(clippy::enum_variant_names)]
@@ -18,6 +19,7 @@ pub enum ComponentType {
     Tab,
     Toggle,
     Icon,
+    Text,
 }
 
 pub(crate) fn create_component_entity(comp_type: ComponentType, is_dark: bool) -> Entity {
@@ -30,6 +32,7 @@ pub(crate) fn create_component_entity(comp_type: ComponentType, is_dark: bool) -
         ComponentType::Button => button::container(&theme),
         ComponentType::ButtonGroup => button_group::container(&theme),
         ComponentType::Icon => icon::container(&theme),
+        ComponentType::Text => text::container(&theme),
         ComponentType::Input => wrapper([section("SimpleInput", [text("SimpleInput")])]),
         ComponentType::List => wrapper([section("SimpleList", [text("SimpleList")])]),
         ComponentType::Modal => wrapper([section("SimpleModal", [text("SimpleModal")])]),

@@ -40,10 +40,7 @@ fn header_label() -> Entity {
                 .text_color(t.text_muted)
                 .font_family(t.font_family.clone())
         })
-        .a11y_with(Node::new(Role::Heading), |n| {
-            n.set_label("List of Components");
-            n.set_level(3);
-        })
+        .tag::<a11y::AHeading4>()
 }
 
 fn sort_toggle() -> Entity {

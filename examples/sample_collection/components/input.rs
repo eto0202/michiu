@@ -502,6 +502,7 @@ fn multiline_container() -> Entity {
             ii().size_full()
                 .font_size(16.0)
                 .auto_wrap(true)
+                .text_center()
                 .text_color(dynamic(|t: &Theme| t.text))
                 .select_text()
                 .cursor_text()

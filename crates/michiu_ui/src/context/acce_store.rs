@@ -259,14 +259,6 @@ impl AccessibilityStore {
                     node.set_placeholder(holder.to_string());
                 }
 
-                if let Some(is_on) = node_data.disabled {
-                    if is_on {
-                        node.set_disabled();
-                    } else {
-                        node.clear_disabled();
-                    }
-                }
-
                 if node_data.is_hidden {
                     node.set_hidden();
                 }
@@ -299,6 +291,15 @@ impl AccessibilityStore {
                         node.set_selected(false);
                     }
                 }
+
+                if let Some(is_on) = node_data.disabled {
+                    if is_on {
+                        node.set_disabled();
+                    } else {
+                        node.clear_disabled();
+                    }
+                }
+
                 if node_data.is_scrollable {
                     node.set_role(Role::ScrollView);
                     node.add_action(Action::ScrollIntoView);
@@ -382,7 +383,7 @@ impl AccessibilityStore {
     #[inline]
     pub(crate) fn build_accessibility_snapshot(
         buffer: &mut Vec<NodeSnapshot>,
-        e: Entity,
+        id: Entity,
         user_node: Option<Node>,
         topo_children: &ChildrenSecondary,
         topo_active_masks: &ActiveMasksSecondary,
@@ -395,65 +396,64 @@ impl AccessibilityStore {
         debug: &mut DebugStore,
         acce_accessibility: &AccessibilitySparse,
     ) {
-        let rect = out_rects.find_or_default(e, debug);
-        let basic = lay_resolved_basic.find_or(e, &DEFAULT_BASIC, debug);
+        let rect = out_rects.find_or_default(id, debug);
+        let basic = lay_resolved_basic.find_or(id, &DEFAULT_BASIC, debug);
 
-        let children = topo_children.find(e).map_or_else(Vec::new, |c| {
-            c.iter()
-                .copied()
-                .filter(|&child_id| {
-                    if let Some(child_basic) = lay_basic.find(child_id) {
-                        // Display::None または Hidden の子は A11y ツリーから除外
-                        child_basic.display != Display::None
-                            && child_basic.content_visibility != ContentVisibility::Hidden
-                    } else {
-                        true
-                    }
-                })
-                .map(Into::into)
-                .collect()
-        });
+        let children = topo_children
+            .find(id)
+            .map_or_else(Vec::new, |children_small| {
+                children_small
+                    .iter()
+                    .copied()
+                    .filter(|&c_id| {
+                        if let Some(c_basic) = lay_basic.find(c_id) {
+                            // Display::None または Hidden の子は A11y ツリーから除外
+                            c_basic.display != Display::None
+                                && c_basic.content_visibility != ContentVisibility::Hidden
+                        } else {
+                            true
+                        }
+                    })
+                    .map(Into::into)
+                    .collect()
+            });
 
-        let el_node = acce_accessibility
-            .find(e)
-            .map(|f| f.clone().unwrap_or(Node::new(Role::Unknown)));
+        let mask = topo_active_masks.find_or_default(id, debug);
+        let listeners = evt_listeners.find(id);
 
-        let mask = topo_active_masks.find_or_default(e, debug);
-
-        let listeners = evt_listeners.find(e);
-
-        let pressed = if listeners.is_some_and(|l| l.on_click.is_some()) {
-            Some(mask.has(ComponentMask::STATE_PRESSED))
+        let is_pressed = mask.has(ComponentMask::STATE_PRESSED);
+        let pressed = if is_pressed || listeners.is_some_and(|l| l.on_click.is_some()) {
+            Some(is_pressed)
         } else {
             None
         };
 
-        let is_focusable_cap = listeners.is_some_and(|l| l.on_focus.is_some())
+        let is_focused = mask.has(ComponentMask::STATE_FOCUSED)
+            || mask.has(ComponentMask::STATE_FOCUSED_VISIBLE);
+
+        let is_focusable = is_focused
+            || listeners.is_some_and(|l| l.on_focus.is_some())
             || mask.has(ComponentMask::STYLE_FOCUSABLE);
 
-        let mut focused = if is_focusable_cap {
-            Some(
-                mask.has(ComponentMask::STATE_FOCUSED)
-                    || mask.has(ComponentMask::STATE_FOCUSED_VISIBLE),
-            )
+        let mut focused = if is_focusable { Some(is_focused) } else { None };
+
+        let is_actived = mask.has(ComponentMask::STATE_ACTIVED);
+        let actived = if is_actived || listeners.is_some_and(|l| l.on_active.is_some()) {
+            Some(is_actived)
         } else {
             None
         };
 
-        let actived = if listeners.is_some_and(|l| l.on_active.is_some()) {
-            Some(mask.has(ComponentMask::STATE_ACTIVED))
+        let is_selected = mask.has(ComponentMask::STATE_SELECTED);
+        let selected = if is_selected || listeners.is_some_and(|l| l.on_select.is_some()) {
+            Some(is_selected)
         } else {
             None
         };
 
-        let selected = if listeners.is_some_and(|l| l.on_select.is_some()) {
-            Some(mask.has(ComponentMask::STATE_SELECTED))
-        } else {
-            None
-        };
-
-        let disabled = if listeners.is_some_and(|l| l.on_disable.is_some()) {
-            Some(mask.has(ComponentMask::STATE_DISABLED))
+        let is_disabled = mask.has(ComponentMask::STATE_DISABLED);
+        let disabled = if is_disabled || listeners.is_some_and(|l| l.on_disable.is_some()) {
+            Some(is_disabled)
         } else {
             None
         };
@@ -477,15 +477,18 @@ impl AccessibilityStore {
 
         let is_content_hidden = basic.content_visibility == ContentVisibility::Hidden;
         let is_hidden = display || is_content_hidden || rect.width == 0.0 || rect.height == 0.0;
-
         let scrollbar = mask.has(ComponentMask::STYLE_SCROLLBAR);
 
+        let base_node = acce_accessibility
+            .find(id)
+            .map(|f| f.clone().unwrap_or(Node::new(Role::Unknown)));
+
         // 指定がある場合はそれを、無い場合は自身のテキストコンテンツ、それもない場合は子要素のラベル
-        let label = if let Some(node) = &el_node {
+        let label = if let Some(node) = &base_node {
             node.label().map(|f| Arc::new(f.to_owned().into()))
         } else if mask.has_text_content() {
-            cont_text_contents.find(e).map(|t| Arc::new(t.0.clone()))
-        } else if let Some(children) = topo_children.find(e) {
+            cont_text_contents.find(id).map(|t| Arc::new(t.0.clone()))
+        } else if let Some(children) = topo_children.find(id) {
             children.iter().find_map(|c| {
                 cont_text_contents
                     .find(*c)
@@ -495,16 +498,15 @@ impl AccessibilityStore {
             None
         };
 
-        let has_input = mask.has_input_content();
         let mut is_text = false;
         let mut is_numeric = false;
         let mut is_password = false;
         let mut placeholder = None;
 
-        let value = if has_input {
+        let value = if mask.has_input_content() {
             // 入力要素はデフォルトでフォーカス可能
             focused = Some(true);
-            if let Some(contents) = cont_input_contents.find(e) {
+            if let Some(contents) = cont_input_contents.find(id) {
                 if contents.numeric_only {
                     is_numeric = true;
                 } else if contents.mask_text.is_some() {
@@ -517,9 +519,9 @@ impl AccessibilityStore {
             } else {
                 None
             }
-        } else if let Some(children) = topo_children.find(e) {
-            children.iter().find_map(|c| {
-                if let Some(contents) = cont_input_contents.find(*c) {
+        } else if let Some(children) = topo_children.find(id) {
+            children.iter().find_map(|child| {
+                if let Some(contents) = cont_input_contents.find(*child) {
                     if contents.numeric_only {
                         is_numeric = true;
                     } else if contents.mask_text.is_some() {
@@ -537,15 +539,21 @@ impl AccessibilityStore {
             None
         };
 
+        // disabled が Some(true) なら入力要素も含め全てフォーカス不可
+        if disabled == Some(true) {
+            focused = None; // Some(false) は Action::Focus が付く
+        }
+
+        // 推論タグ経由の Node をベースにして推論用 Node を構築
         let mut user_node = user_node;
         let mut role = None;
-        if let Some(node) = el_node {
+        if let Some(node) = base_node {
             role = Some(node.role());
             user_node = Some(node);
         }
 
         buffer.push(NodeSnapshot {
-            id: e.into(),
+            id: id.into(),
             children,
             user_node,
             bounds: rect.into(),

@@ -129,8 +129,8 @@ pub struct SimpleButtonGroup {
     pub intent: ButtonGroupIntent,
     /// Button dimensions.
     pub size: ButtonGroupSize,
-    /// Whether the button group is disabled.
-    pub disabled: bool,
+    /// Whether the button group is disable.
+    pub disable: bool,
     /// Whether to round the corners (`Modifier::r_full`).
     pub rounded: bool,
     /// Accessible names provided to assistive technologies such as screen readers
@@ -161,7 +161,7 @@ impl SimpleButtonGroup {
             variant: ButtonGroupVariant::default(),
             intent: ButtonGroupIntent::default(),
             size: ButtonGroupSize::default(),
-            disabled: false,
+            disable: false,
             rounded: false,
             accessible_name: None,
             group_role: None,
@@ -283,19 +283,19 @@ impl SimpleButtonGroup {
     /// Sets whether the button group is disabled.
     /// All Chroma values will be set to 0.0, and the Lightness of the border will be adjusted.
     #[inline]
-    pub fn with_disabled(mut self, disabled: bool) -> Self {
-        self.disabled = disabled;
+    pub fn disable(mut self, disabled: bool) -> Self {
+        self.disable = disabled;
         self
     }
     /// Set disabled `true`
     #[inline]
     pub fn disabled(self) -> Self {
-        self.with_disabled(true)
+        self.disable(true)
     }
     /// Set disabled `false`
     #[inline]
-    pub fn enabled(self) -> Self {
-        self.with_disabled(false)
+    pub fn actived(self) -> Self {
+        self.disable(false)
     }
 
     /// Set whether to round the corners (`Modifier::r_full`)
@@ -313,6 +313,18 @@ impl SimpleButtonGroup {
     #[inline]
     pub fn r_default(self) -> Self {
         self.with_rounded(false)
+    }
+
+    #[inline]
+    fn metrics(&self) -> (f32, f32, f32) {
+        let (font_size, padding) = match self.size {
+            ButtonGroupSize::Xs => (14.0, 6.0),
+            ButtonGroupSize::Sm => (14.0, 8.0),
+            ButtonGroupSize::Md => (15.0, 10.0),
+            ButtonGroupSize::Lg => (15.0, 12.0),
+        };
+        let r = if self.rounded { 9999.0 } else { 5.0 };
+        (font_size, padding, r)
     }
 }
 impl Default for SimpleButtonGroup {
@@ -342,12 +354,7 @@ impl MichiuWidget for SimpleButtonGroup {
     }
 
     fn build(&self, theme: &dyn MichiuTheme) -> Entity {
-        let (font_size, padding) = match self.size {
-            ButtonGroupSize::Xs => (14.0, 6.0),
-            ButtonGroupSize::Sm => (14.0, 8.0),
-            ButtonGroupSize::Md => (15.0, 10.0),
-            ButtonGroupSize::Lg => (15.0, 12.0),
-        };
+        let (font_size, padding, r) = self.metrics();
 
         let (s3, s4, s5, s7, _s8, s9, s10, s11, text) = match self.intent {
             ButtonGroupIntent::Primary => (
@@ -399,7 +406,7 @@ impl MichiuWidget for SimpleButtonGroup {
             ),
         };
 
-        let (disabled_bg, disabled_border, text_color) = if self.disabled {
+        let (disabled_bg, disabled_border, text_color) = if self.disable {
             match self.variant {
                 ButtonGroupVariant::Solid => (theme.gray_3(), Color::TRANSPARENT, theme.gray_8()),
                 ButtonGroupVariant::Soft => (theme.gray_2(), Color::TRANSPARENT, theme.gray_8()),
@@ -482,7 +489,7 @@ impl MichiuWidget for SimpleButtonGroup {
 
                     children.push(
                         flex(btn_modifier.clone()).a11y(NO_A11Y_NODE).child(
-                            (*user_entity).disable(self.disabled).modify(
+                            (*user_entity).disable(self.disable).modify(
                                 ii().r(r_child)
                                     .p(p)
                                     .size_full()
@@ -518,14 +525,12 @@ impl MichiuWidget for SimpleButtonGroup {
                             .self_center()
                             .bg_color(separator)
                             .disabled(ii().bg_color(theme.gray_6())))
-                        .disable(self.disabled)
+                        .disable(self.disable)
                         .a11y(NO_A11Y_NODE),
                     );
                 }
             }
         }
-
-        let r = if self.rounded { 9999.0 } else { 5.0 };
 
         let mut node = Node::new(Role::GenericContainer);
         if let Some(name) = self.accessible_name.clone() {
@@ -550,7 +555,7 @@ impl MichiuWidget for SimpleButtonGroup {
                 .disabled(ii().bg_color(disabled_bg).border_color(disabled_border)),
         )
         .a11y(node)
-        .disable(self.disabled)
+        .disable(self.disable)
         .children(children)
     }
 }
