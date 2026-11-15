@@ -35,7 +35,6 @@ impl WindowStore {
         self.win_is_resized = false;
         self.win_last_size = None;
         self.win_default_himc = None;
-        self.win_visibility_margin = Some(LayoutSize::all(200.0));
     }
 
     #[expect(clippy::unused_self)]

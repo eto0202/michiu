@@ -243,6 +243,16 @@ define_inference_tags! {
         node.set_level(3);
         node.set_role(Role::Heading);
     },
+    /// Represents a Heading Level 4.
+    AHeading4 => |_cx, _id, node| {
+        node.set_level(4);
+        node.set_role(Role::Heading);
+    },
+    /// Represents a Heading Level 5.
+    AHeading5 => |_cx, _id, node| {
+        node.set_level(5);
+        node.set_role(Role::Heading);
+    },
 
     // その他
     /// Represents some kind of Label.

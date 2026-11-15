@@ -456,8 +456,8 @@ pub mod prelude {
         types::{
             AnimationCurve, Backdrop, BorderAlignment, BorderStyle, Color, CursorIcon, Display,
             ElementState, FlexDirection, InteractionState, KeyframeAnimation, LayoutPoint,
-            LayoutRect, LayoutSize, LineHeight, Modifiers, MouseButton, PlaybackCount,
-            PointerEvents, Transform, Transition,
+            LayoutRect, LayoutSize, LineHeight, Modifiers, MouseButton, Overflow, PlaybackCount,
+            PointerEvents, TextAlign, Transform, Transition,
         },
         utils::{
             auto, blur, content_, create_r_signal, create_signal, create_w_signal, div, div_d,

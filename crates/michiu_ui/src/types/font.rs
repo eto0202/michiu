@@ -115,8 +115,18 @@ impl LetterSpacing {
 
 impl Default for FontDate {
     fn default() -> Self {
+        Self::new(Some(Self::FONT_SIZE))
+    }
+}
+
+impl FontDate {
+    pub const FONT_SIZE: f32 = 16.0;
+
+    #[inline]
+    #[must_use]
+    pub fn new(font_size: Option<f32>) -> Self {
         Self {
-            size: Some(FontDate::FONT_SIZE),
+            size: font_size,
             line_height: Some(LineHeight::default()),
             family: None,
             weight: None,
@@ -124,10 +134,6 @@ impl Default for FontDate {
             spacing: None,
         }
     }
-}
-
-impl FontDate {
-    pub(crate) const FONT_SIZE: f32 = 16.0;
 
     #[inline]
     pub(crate) fn line_height(&self) -> f32 {

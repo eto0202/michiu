@@ -5649,7 +5649,7 @@ impl Modifier {
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
                     cx.get_visual_property_mut(id, target).font.size = Some(val);
-                    cx.mark_render_dirty(id);
+                    cx.mark_layout_dirty(id);
                 }));
             }
         }
@@ -5674,7 +5674,7 @@ impl Modifier {
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
                     cx.get_visual_property_mut(id, target).font.line_height = Some(val);
-                    cx.mark_render_dirty(id);
+                    cx.mark_layout_dirty(id);
                 }));
             }
         }
@@ -5727,7 +5727,7 @@ impl Modifier {
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
                     cx.get_visual_property_mut(id, target).font.spacing = Some(val);
-                    cx.mark_render_dirty(id);
+                    cx.mark_layout_dirty(id);
                 }));
             }
         }
@@ -5750,7 +5750,7 @@ impl Modifier {
                 inner.dynamic_setters.push(Arc::new(move |cx, id, target| {
                     let val = getter();
                     cx.get_visual_property_mut(id, target).auto_wrap = Some(val);
-                    cx.mark_render_dirty(id);
+                    cx.mark_layout_dirty(id);
                 }));
             }
         }
