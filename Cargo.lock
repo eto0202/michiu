@@ -2575,6 +2575,8 @@ checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
 name = "iu_ui"
 version = "0.2.3"
 dependencies = [
+ "derive_more",
+ "lightningcss",
  "michiu",
  "pollster",
  "resvg",
@@ -3013,7 +3015,6 @@ dependencies = [
  "derive_more",
  "dhat",
  "image",
- "lightningcss",
  "notify",
  "parking_lot 0.13.0",
  "pollster",
@@ -4808,8 +4809,10 @@ dependencies = [
 name = "sample_collection"
 version = "0.2.3"
 dependencies = [
+ "derive_more",
  "dhat",
  "image",
+ "lightningcss",
  "michiu",
  "pollster",
  "resvg",

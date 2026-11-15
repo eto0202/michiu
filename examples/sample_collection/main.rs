@@ -3,12 +3,13 @@
 use crate::logger::logger;
 use michiu::{
     prelude::*,
-    ui::{CapacityConfig, CssLoader, ExternalDataSetBuilder, WebView2Contents, WebView2Visual},
+    ui::{CapacityConfig, ExternalDataSetBuilder, WebView2Contents, WebView2Visual},
 };
 use std::cell::{Cell, RefCell};
 
 mod app;
 mod components;
+mod experimental_css;
 mod logger;
 
 #[derive(Clone)]
@@ -123,7 +124,7 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     // Although we're loading a CSS file here, `ExternalData` isn't limited to CSS.
     let css_path = concat!(env!("CARGO_MANIFEST_DIR"), "/sample_collection/global.css");
     let (styles_sig, _guard) = ExternalDataSetBuilder::new()
-        .add("global", css_path, CssLoader) // CSS -> Modifier
+        .add("global", css_path, experimental_css::CssLoader) // CSS -> Modifier
         .watch(&mut app.context)?;
 
     // `build_ui` 以降、`MichiuApp` にルート要素が登録される。

@@ -1,6 +1,8 @@
-use crate::app::theme::Theme;
+use crate::{
+    app::theme::Theme,
+    experimental_css::{CssMapSet, CssSetSignalExt, CssSignalExt},
+};
 use michiu::prelude::*;
-use michiu::ui::{CssMapSet, CssSetSignalExt};
 
 pub fn container() -> Entity {
     v_flex(ii().gap(16.0).p(16.0).r(3.0)).children([css_flex(), merge_border()])

@@ -39,7 +39,6 @@ trace-lifecycle = ["michiu_ui?/trace-lifecycle"]
 trace-entity = ["michiu_ui?/trace-entity"]
 snapshot = ["trace-error"]
 webview2 = ["michiu_ui?/webview2", "trace-error"]
-css = ["michiu_ui?/css", "trace-error"]
 
 guard = ["dep:michiu_guard"]
 window = ["dep:michiu_window"]

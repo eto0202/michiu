@@ -21,6 +21,8 @@ strum = {version = "0.28.0", features = ["derive"] }
 [dependencies]
 michiu = { workspace = true }
 resvg = "0.49.0"
+lightningcss = { version = "1.0.0-alpha.72", default-features = false, features = ["bundler"] }
+derive_more = { version = "2.1.1", features = ["std", "debug", "deref", "deref_mut", "into_iterator"] }
 
 [dependencies.windows]
 version = "0.62.2"
