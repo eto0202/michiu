@@ -1,5 +1,3 @@
-#![allow(unused)]
-
 use lightningcss::{
     printer::PrinterOptions,
     properties::{Property, position::ZIndex, size::Size},

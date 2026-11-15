@@ -9,7 +9,7 @@ use crate::{
     logger::logger,
     window::{create_renderer, create_window, message_loop, register_class, show_window},
 };
-use michiu_ui::{CapacityConfig, WebView2Contents, WebView2Visual, prelude::*};
+use michiu_ui::{CapacityConfig, prelude::*};
 use windows::Win32::{
     Foundation::{HWND, LPARAM, WPARAM},
     System::WinRT::{RO_INIT_SINGLETHREADED, RoInitialize},
@@ -33,11 +33,6 @@ struct AppState {
     context: Context,
     root: Entity,
 }
-
-#[derive(Clone)]
-pub struct GitHubVisual(WebView2Visual);
-#[derive(Clone)]
-pub struct YouTubeVisual(WebView2Visual);
 
 // HWND を Send/Sync 化するラッパー
 struct SendHwnd(HWND);
@@ -87,37 +82,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(feature = "trace-error")]
     logger(_sub);
 
-    let device = renderer.composition_device()?;
-    let task_sender = context.task_sender();
-
-    let github = WebView2Contents::from_url("https://github.com/eto0202/michiu/tree/main")
-        .enable_context_menu(true)
-        .enable_dev_tools(true)
-        .allow_interaction(true)
-        .always_active(false);
-
-    let youtube = WebView2Contents::from_url("https://www.youtube.com/")
-        .allow_interaction(true)
-        .always_active(true);
-
-    let github_visual = WebView2Visual::new(&device, hwnd, github, scale_factor, &task_sender)
-        .expect("Failed to create WebView2Visual");
-
-    let youtube_visual = WebView2Visual::new(&device, hwnd, youtube, scale_factor, &task_sender)
-        .expect("Failed to create WebView2Visual");
-
-    WebView2Visual::prewarm_webview2();
-
     let send_hwnd = SendHwnd(hwnd);
     context.set_waker(move || send_hwnd.wake());
 
-    let root = build_ui(&mut context, move || {
-        let (read_github, _) = create_signal(GitHubVisual(github_visual));
-        let (read_youtube, _) = create_signal(YouTubeVisual(youtube_visual));
-        app::create_root()
-            .provide(read_github)
-            .provide(read_youtube)
-    });
+    let root = build_ui(&mut context, app::create_root);
 
     let app_state = Box::new(AppState {
         renderer,

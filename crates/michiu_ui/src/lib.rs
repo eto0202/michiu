@@ -396,7 +396,6 @@ pub mod context;
 pub mod entity;
 pub mod external;
 mod modifier;
-mod option;
 pub mod renderer;
 pub mod signal;
 pub mod tag;
@@ -413,9 +412,6 @@ pub use entity::*;
 pub use external::*;
 #[doc(inline)]
 pub use modifier::*;
-#[doc(inline)]
-#[allow(unused)] // なぜか必要
-pub use option::*;
 #[doc(inline)]
 pub use renderer::*;
 #[doc(inline)]

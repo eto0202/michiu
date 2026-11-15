@@ -90,7 +90,7 @@ impl ExternalData for CssLoader {
 }
 
 /// Scan the abstract syntax tree of lightningcss to generate a map of class names and `Modifier` values.
-#[expect(clippy::print_stderr, clippy::expect_used, clippy::missing_panics_doc)]
+#[expect(clippy::print_stderr, clippy::expect_used)]
 #[must_use]
 pub fn parse_css_to_classes(css_content: &str) -> CssMap {
     let mut classes: HashMap<String, Modifier> = HashMap::new();

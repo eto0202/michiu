@@ -19,6 +19,7 @@ pollster = "1.0.1"
 tiff-reader = "0.9.0"
 strum = { version = "0.28.0", features = ["derive"] }
 image = "0.25.10"
+windows-result = "0.4.1"
 
 [dependencies]
 accesskit = "=0.25.2"
@@ -29,8 +30,6 @@ slotmap = "1.1.1"
 smallvec = "1.15.2"
 taffy = {version = "0.15.1", features = ["block_layout", "flexbox"] }
 wgpu = {version= "30.0.1", default-features = false, features = ["dx12", "wgsl"]}
-webview2-com = "0.39.1"
-windows-result = "0.4.1"
 windows-numerics = "0.3.1"
 notify = "8.2.0"
 windows-core = "0.62.2"
@@ -89,11 +88,8 @@ trace-entity = ["trace-lifecycle"]
 # Context などのフレーム最後のスナップショット。まあまあ危険。
 snapshot = ["trace-error"]
 
-webview2 = ["trace-error"]
-
 [[example]]
 name = "sample_collection"
-required-features = ["webview2"]
 
 [package.metadata.docs.rs]
 all-features = true

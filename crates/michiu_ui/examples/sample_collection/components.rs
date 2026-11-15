@@ -1,6 +1,5 @@
 pub mod button;
 pub mod external_texture;
-pub mod external_visual;
 pub mod stress_test;
 
 use crate::{ALLOW_STRESS_TEST, app::theme::Theme};
@@ -10,7 +9,6 @@ use michiu_ui::prelude::*;
 pub enum ComponentType {
     Button,
     StressTest,
-    ExternalVisual,
     ExternalTexture,
 }
 
@@ -18,7 +16,6 @@ pub(crate) fn create_component_entity(comp_type: ComponentType) -> Entity {
     match comp_type {
         ComponentType::Button => wrapper(button::container()),
         ComponentType::ExternalTexture => wrapper(external_texture::container()),
-        ComponentType::ExternalVisual => wrapper(external_visual::container()),
         ComponentType::StressTest => {
             if ALLOW_STRESS_TEST {
                 wrapper(stress_test::container())
