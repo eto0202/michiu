@@ -192,6 +192,7 @@ fn build_check_report(setting: &Setting, registry: &Registry) -> CheckReport {
 mod tests {
     use super::*;
     use crate::{
+        commands,
         config::{AssetInstalled, InstalledConfig, ProjectConfig, RegistryConfig},
         registry::{AssetEntry, ComponentEntry, SimpleEntry},
     };
@@ -240,7 +241,7 @@ mod tests {
     #[test]
     fn test_build_check_report_empty() {
         let report = build_check_report(&base_setting(), &base_registry());
-        assert!(report.entries.is_empty());
+        assert_eq!(report.entries, [] as [commands::check::CheckEntry; 0]);
         assert_eq!(report.update_count, 0);
     }
 

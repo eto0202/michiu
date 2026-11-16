@@ -253,7 +253,7 @@ mod tests {
         assert_eq!(button.target_name.as_deref(), Some("button.rs"));
         assert_eq!(button.target_dir, None);
         assert_eq!(button.root_dir, None);
-        assert!(button.assets.is_empty());
+        assert_eq!(button.assets, [] as [std::string::String; 0]);
 
         let tabs = reg.components.get("tabs").unwrap();
         assert_eq!(tabs.comp_type, "dir");
@@ -327,7 +327,7 @@ mod tests {
             spawn_mock_server("200 OK", "application/json", b"{invalid json".to_vec());
 
         let err = Registry::fetch_with_base(&base_url, "eto0202/michiu", "main").unwrap_err();
-        assert!(!err.to_string().is_empty());
+        assert_ne!(err.to_string(), "");
 
         handle.join().unwrap();
     }

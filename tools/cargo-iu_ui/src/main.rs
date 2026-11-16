@@ -140,7 +140,7 @@ mod tests {
             CargoCli::try_parse_from(["cargo", "iu_ui", "add", "--all"]).unwrap();
         match args_all.command {
             Commands::Add { components, all } => {
-                assert!(components.is_empty());
+                assert_eq!(components, [] as [std::string::String; 0]);
                 assert!(all);
             }
             other => panic!("unexpected command: {other:?}"),
@@ -165,7 +165,7 @@ mod tests {
             CargoCli::try_parse_from(["cargo", "iu_ui", "tag", "--all"]).unwrap();
         match tag_args.command {
             Commands::Tag { tags, all } => {
-                assert!(tags.is_empty());
+                assert_eq!(tags, [] as [std::string::String; 0]);
                 assert!(all);
             }
             other => panic!("unexpected command: {other:?}"),

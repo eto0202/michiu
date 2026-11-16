@@ -155,6 +155,7 @@ fn build_catalog_listing(setting: &Setting, registry: &Registry) -> CatalogListi
 mod tests {
     use super::*;
     use crate::{
+        commands,
         config::{InstalledConfig, ProjectConfig, RegistryConfig},
         registry::ComponentEntry,
     };
@@ -202,9 +203,12 @@ mod tests {
     #[test]
     fn test_build_catalog_listing_empty() {
         let listing = build_catalog_listing(&base_setting(), &base_registry());
-        assert!(listing.components.is_empty());
-        assert!(listing.themes.is_empty());
-        assert!(listing.tags.is_empty());
+        assert_eq!(
+            listing.components,
+            [] as [commands::list::ComponentListItem; 0]
+        );
+        assert_eq!(listing.themes, [] as [commands::list::SimpleListItem; 0]);
+        assert_eq!(listing.tags, [] as [commands::list::SimpleListItem; 0]);
     }
 
     #[test]
