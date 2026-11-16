@@ -9,6 +9,10 @@
 - Add `accessible_name` to `SimpleButton`
 - _(iu_ui)_ Update `SimpleButtonGroup`
 - _(iu_ui)_ Update components
+- _(michiu_window)_ Add `Raw` to `MichiuAnyEvent`
+- _(iu_ui)_ Update components
+- _(michiu_ui)_ Add `create_r_signal` and `create_w_signal`
+- _(iu_ui)_ Update `SimpleText`
 
 ### 🐛 Bug Fixes
 
@@ -24,6 +28,14 @@
 - [**breaking**] Remove the `Other` variant from `MichiuAnyEvent`
 - _(iu_ui)_ Remove the `Button` variant from `IconCategory`
 - _(iu_ui)_ Change the file structure of `examples/catalog`
+- [**breaking**] Remove `css.rs` from michiu_ui
+- [**breaking**] Remove `webview2.rs` from michiu_ui
+- Organize the dependencies across the entire workspace.
+
+### 🧪 Testing
+
+- _(cargo-iu_ui)_ Add unit test
+- _(cargo-iu_ui)_ Add test
 
 ### ⚙️ Miscellaneous Tasks
 
@@ -33,6 +45,11 @@
 - _(iu_ui)_ Update `registry.json` and `CHANGELOG.md`
 - Update `registry.json`
 - _(iu_ui)_ Update `registry.json`
+- Update `registry.json` and `CHANGELOG.md`
+- Update `registry.json`
+- Add `rust-toolchain.toml`
+- Update `registry.json`
+- [**breaking**] Rustup update and update dependency crate
 
 ## [0.2.3] - 2026-11-09
 

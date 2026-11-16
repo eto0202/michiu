@@ -326,12 +326,12 @@ impl SimpleButton {
         self.rtl = enabled;
         self
     }
-    /// Set right-to-left (RTL) `true`
+    /// Set right-to-left (RTL).
     #[inline]
     pub fn rtl(self) -> Self {
         self.with_rtl(true)
     }
-    /// Set right-to-left (RTL) `false`
+    /// Set right-to-left (RTL).
     #[inline]
     pub fn ltr(self) -> Self {
         self.with_rtl(false)

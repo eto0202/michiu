@@ -25,7 +25,7 @@ pub(crate) fn container(theme: &SimpleBlueTheme) -> Entity {
                 .outline()
                 .tint_deny()
                 .with_start(
-                    include_simple_icon!("../../../src/assets/info.svg")
+                    include_simple_icon!("../../../../src/assets/info.svg")
                         .warning()
                         .build(theme),
                 )
@@ -37,7 +37,9 @@ pub(crate) fn container(theme: &SimpleBlueTheme) -> Entity {
                 SimpleButton::new("Primary").primary().build(theme),
                 SimpleButton::empty()
                     .a11y_name("Information")
-                    .with_start(include_simple_icon!("../../../src/assets/info.svg").build(theme))
+                    .with_start(
+                        include_simple_icon!("../../../../src/assets/info.svg").build(theme),
+                    )
                     .build(theme),
                 SimpleButton::new("Secondary").secondary().build(theme),
                 SimpleButton::new("Destructive").destructive().build(theme),
@@ -52,7 +54,9 @@ pub(crate) fn container(theme: &SimpleBlueTheme) -> Entity {
                 SimpleButton::empty()
                     .soft()
                     .a11y_name("Information")
-                    .with_start(include_simple_icon!("../../../src/assets/info.svg").build(theme))
+                    .with_start(
+                        include_simple_icon!("../../../../src/assets/info.svg").build(theme),
+                    )
                     .build(theme),
                 SimpleButton::new("Secondary")
                     .soft()
@@ -76,7 +80,9 @@ pub(crate) fn container(theme: &SimpleBlueTheme) -> Entity {
                 SimpleButton::empty()
                     .outline()
                     .a11y_name("Information")
-                    .with_start(include_simple_icon!("../../../src/assets/info.svg").build(theme))
+                    .with_start(
+                        include_simple_icon!("../../../../src/assets/info.svg").build(theme),
+                    )
                     .build(theme),
                 SimpleButton::new("Secondary")
                     .outline()
@@ -103,7 +109,9 @@ pub(crate) fn container(theme: &SimpleBlueTheme) -> Entity {
                 SimpleButton::empty()
                     .ghost()
                     .a11y_name("Information")
-                    .with_start(include_simple_icon!("../../../src/assets/info.svg").build(theme))
+                    .with_start(
+                        include_simple_icon!("../../../../src/assets/info.svg").build(theme),
+                    )
                     .build(theme),
                 SimpleButton::new("Secondary")
                     .ghost()
@@ -122,12 +130,14 @@ pub(crate) fn container(theme: &SimpleBlueTheme) -> Entity {
             [
                 SimpleButton::new("Rounded").r_full().build(theme),
                 SimpleButton::new("Rounded")
-                    .with_start(include_simple_icon!("../../../src/assets/info.svg").build(theme))
+                    .with_start(
+                        include_simple_icon!("../../../../src/assets/info.svg").build(theme),
+                    )
                     .r_full()
                     .build(theme),
                 SimpleButton::empty()
                     .a11y_name("Information")
-                    .with_end(include_simple_icon!("../../../src/assets/info.svg").build(theme))
+                    .with_end(include_simple_icon!("../../../../src/assets/info.svg").build(theme))
                     .r_full()
                     .build(theme),
             ],
@@ -139,7 +149,9 @@ pub(crate) fn container(theme: &SimpleBlueTheme) -> Entity {
                 SimpleButton::empty()
                     .disabled()
                     .a11y_name("Information")
-                    .with_start(include_simple_icon!("../../../src/assets/info.svg").build(theme))
+                    .with_start(
+                        include_simple_icon!("../../../../src/assets/info.svg").build(theme),
+                    )
                     .build(theme),
                 SimpleButton::new("Soft").disabled().soft().build(theme),
                 SimpleButton::new("Outline")
@@ -162,16 +174,22 @@ pub(crate) fn container(theme: &SimpleBlueTheme) -> Entity {
             "Rtl with child",
             [
                 SimpleButton::new("קנעפּל")
-                    .with_start(include_simple_icon!("../../../src/assets/info.svg").build(theme))
+                    .with_start(
+                        include_simple_icon!("../../../../src/assets/info.svg").build(theme),
+                    )
                     .rtl()
                     .build(theme),
                 SimpleButton::new("קנעפּל")
-                    .with_end(include_simple_icon!("../../../src/assets/info.svg").build(theme))
+                    .with_end(include_simple_icon!("../../../../src/assets/info.svg").build(theme))
                     .rtl()
                     .build(theme),
                 SimpleButton::new("קנעפּל")
-                    .with_start(include_simple_icon!("../../../src/assets/info.svg").build(theme))
-                    .with_end(include_simple_icon!("../../../src/assets/download.svg").build(theme))
+                    .with_start(
+                        include_simple_icon!("../../../../src/assets/info.svg").build(theme),
+                    )
+                    .with_end(
+                        include_simple_icon!("../../../../src/assets/download.svg").build(theme),
+                    )
                     .rtl()
                     .build(theme),
             ],

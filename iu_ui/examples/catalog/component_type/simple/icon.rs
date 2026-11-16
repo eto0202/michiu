@@ -7,20 +7,20 @@ pub(crate) fn container(theme: &SimpleBlueTheme) -> Entity {
         section(
             "Size",
             [
-                include_simple_icon!("../../../src/assets/search.svg")
+                include_simple_icon!("../../../../src/assets/search.svg")
                     .desc("This is Search icon Smaple")
                     .xs()
                     .build(theme),
-                include_simple_icon!("../../../src/assets/search.svg")
+                include_simple_icon!("../../../../src/assets/search.svg")
                     .sm()
                     .build(theme),
-                include_simple_icon!("../../../src/assets/search.svg")
+                include_simple_icon!("../../../../src/assets/search.svg")
                     .md()
                     .build(theme),
-                include_simple_icon!("../../../src/assets/search.svg")
+                include_simple_icon!("../../../../src/assets/search.svg")
                     .lg()
                     .build(theme),
-                include_simple_icon!("../../../src/assets/search.svg")
+                include_simple_icon!("../../../../src/assets/search.svg")
                     .size_custom(60.0)
                     .build(theme),
             ],
@@ -33,7 +33,7 @@ pub(crate) fn container(theme: &SimpleBlueTheme) -> Entity {
                 .md()
                 .tint_deny()
                 .with_start(
-                    include_simple_icon!("../../../src/assets/notifications.svg")
+                    include_simple_icon!("../../../../src/assets/notifications.svg")
                         .warning()
                         .sm()
                         .follow_allow()
@@ -43,49 +43,49 @@ pub(crate) fn container(theme: &SimpleBlueTheme) -> Entity {
         ),
         section(
             "Primary",
-            [include_simple_icon!("../../../src/assets/info.svg")
+            [include_simple_icon!("../../../../src/assets/info.svg")
                 .primary()
                 .md()
                 .build(theme)],
         ),
         section(
             "Secondary",
-            [include_simple_icon!("../../../src/assets/info.svg")
+            [include_simple_icon!("../../../../src/assets/info.svg")
                 .secondary()
                 .md()
                 .build(theme)],
         ),
         section(
             "Destructive",
-            [include_simple_icon!("../../../src/assets/info.svg")
+            [include_simple_icon!("../../../../src/assets/info.svg")
                 .destructive()
                 .md()
                 .build(theme)],
         ),
         section(
             "Success",
-            [include_simple_icon!("../../../src/assets/delete.svg")
+            [include_simple_icon!("../../../../src/assets/delete.svg")
                 .success()
                 .md()
                 .build(theme)],
         ),
         section(
             "Warning",
-            [include_simple_icon!("../../../src/assets/sort.svg")
+            [include_simple_icon!("../../../../src/assets/sort.svg")
                 .warning()
                 .md()
                 .build(theme)],
         ),
         section(
             "Decoration",
-            [include_simple_icon!("../../../src/assets/download.svg")
+            [include_simple_icon!("../../../../src/assets/download.svg")
                 .decoration()
                 .md()
                 .build(theme)],
         ),
         section(
             "Image",
-            [include_simple_icon!("../../../src/assets/folder.svg")
+            [include_simple_icon!("../../../../src/assets/folder.svg")
                 .image("Folder")
                 .md()
                 .build(theme)],

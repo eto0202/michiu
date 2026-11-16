@@ -326,6 +326,60 @@ impl SimpleButtonGroup {
         let r = if self.rounded { 9999.0 } else { 5.0 };
         (font_size, padding, r)
     }
+
+    #[inline]
+    fn child_round_and_padding(
+        &self,
+        padding: f32,
+        user_entity: Entity,
+        is_first: bool,
+        is_last: bool,
+    ) -> Modifier {
+        if !self.rounded {
+            return ii();
+        }
+
+        let c_p = user_entity.basic_layout().padding;
+        let c_t: f32 = c_p.top.into();
+        let c_r: f32 = c_p.left.into();
+        let c_b: f32 = c_p.bottom.into();
+        let c_l: f32 = c_p.left.into();
+
+        let (r_child, p) = if is_first && self.rounded {
+            match self.direction {
+                FlexDirection::Row => ((9999.0, 3.0, 3.0, 9999.0), (c_t, c_r, c_b, c_l + padding)),
+                FlexDirection::Column => {
+                    ((9999.0, 9999.0, 3.0, 3.0), (c_t + padding, c_r, c_b, c_l))
+                }
+                FlexDirection::RowReverse => {
+                    ((3.0, 9999.0, 9999.0, 3.0), (c_t, c_r + padding, c_b, c_l))
+                }
+                FlexDirection::ColumnReverse => {
+                    ((3.0, 3.0, 9999.0, 9999.0), (c_t, c_r, c_b + padding, c_l))
+                }
+            }
+        } else if is_last && self.rounded {
+            match self.direction {
+                FlexDirection::Row => ((3.0, 9999.0, 9999.0, 3.0), (c_t, c_r + padding, c_b, c_l)),
+                FlexDirection::Column => {
+                    ((3.0, 3.0, 9999.0, 9999.0), (c_t, c_r, c_b + padding, c_l))
+                }
+                FlexDirection::RowReverse => {
+                    ((9999.0, 3.0, 3.0, 9999.0), (c_t, c_r, c_b, c_l + padding))
+                }
+                FlexDirection::ColumnReverse => {
+                    ((9999.0, 9999.0, 3.0, 3.0), (c_t + padding, c_r, c_b, c_l))
+                }
+            }
+        } else {
+            ((3.0, 3.0, 3.0, 3.0), (c_t, c_r, c_b, c_l))
+        };
+
+        ii().r(r_child)
+            .p(p)
+            .hovered(ii().r(r_child).p(p))
+            .pressed(ii().r(r_child).p(p))
+    }
 }
 impl Default for SimpleButtonGroup {
     /// Creates a default pagination-style button group (`["1", "|", "2", "3", "4", "|", "5"]`).
@@ -447,55 +501,15 @@ impl MichiuWidget for SimpleButtonGroup {
                     let is_first = Some(i) == first_btn_idx;
                     let is_last = Some(i) == last_btn_idx;
 
-                    let c_p = user_entity.basic_layout().padding;
-                    let c_t: f32 = c_p.top.into();
-                    let c_r: f32 = c_p.left.into();
-                    let c_b: f32 = c_p.bottom.into();
-                    let c_l: f32 = c_p.left.into();
-
-                    let (r_child, p) = if is_first && self.rounded {
-                        match self.direction {
-                            FlexDirection::Row => {
-                                ((9999.0, 3.0, 3.0, 9999.0), (c_t, c_r, c_b, c_l + padding))
-                            }
-                            FlexDirection::Column => {
-                                ((9999.0, 9999.0, 3.0, 3.0), (c_t + padding, c_r, c_b, c_l))
-                            }
-                            FlexDirection::RowReverse => {
-                                ((3.0, 9999.0, 9999.0, 3.0), (c_t, c_r + padding, c_b, c_l))
-                            }
-                            FlexDirection::ColumnReverse => {
-                                ((3.0, 3.0, 9999.0, 9999.0), (c_t, c_r, c_b + padding, c_l))
-                            }
-                        }
-                    } else if is_last && self.rounded {
-                        match self.direction {
-                            FlexDirection::Row => {
-                                ((3.0, 9999.0, 9999.0, 3.0), (c_t, c_r + padding, c_b, c_l))
-                            }
-                            FlexDirection::Column => {
-                                ((3.0, 3.0, 9999.0, 9999.0), (c_t, c_r, c_b + padding, c_l))
-                            }
-                            FlexDirection::RowReverse => {
-                                ((9999.0, 3.0, 3.0, 9999.0), (c_t, c_r, c_b, c_l + padding))
-                            }
-                            FlexDirection::ColumnReverse => {
-                                ((9999.0, 9999.0, 3.0, 3.0), (c_t + padding, c_r, c_b, c_l))
-                            }
-                        }
-                    } else {
-                        ((3.0, 3.0, 3.0, 3.0), (c_t, c_r, c_b, c_l))
-                    };
+                    let child_base_mod =
+                        self.child_round_and_padding(padding, *user_entity, is_first, is_last);
 
                     children.push(
                         flex(btn_modifier.clone()).a11y(NO_A11Y_NODE).child(
                             (*user_entity).disable(self.disable).modify(
-                                ii().r(r_child)
-                                    .p(p)
+                                child_base_mod
                                     .size_full()
                                     .border_color(Color::TRANSPARENT)
-                                    .hovered(ii().r(r_child).p(p))
-                                    .pressed(ii().r(r_child).p(p))
                                     .disabled(
                                         ii().bg_color(Color::TRANSPARENT)
                                             .border_color(Color::TRANSPARENT),
@@ -512,7 +526,10 @@ impl MichiuWidget for SimpleButtonGroup {
                     );
                 }
                 ButtonGroupItem::Label(text) => {
-                    children.push(flex(btn_modifier.clone().p(padding)).label(
+                    let mut node = Node::new(Role::Label);
+                    node.set_value(text);
+
+                    children.push(flex(btn_modifier.clone().p(padding)).a11y(node).label(
                         text.clone(),
                         ii().font_size(font_size).text_color(text_color),
                     ));

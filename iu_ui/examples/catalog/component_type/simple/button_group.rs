@@ -100,7 +100,7 @@ pub(crate) fn container(theme: &SimpleBlueTheme) -> Entity {
                     SimpleButton::empty()
                         .a11y_name("Information")
                         .with_start(
-                            include_simple_icon!("../../../src/assets/info.svg").build(theme)
+                            include_simple_icon!("../../../../src/assets/info.svg").build(theme)
                         )
                         .build(theme),
                 ]
@@ -115,7 +115,7 @@ pub(crate) fn container(theme: &SimpleBlueTheme) -> Entity {
                         .secondary()
                         .a11y_name("Information")
                         .with_start(
-                            include_simple_icon!("../../../src/assets/info.svg").build(theme)
+                            include_simple_icon!("../../../../src/assets/info.svg").build(theme)
                         )
                         .build(theme),
                 ]
@@ -136,7 +136,7 @@ pub(crate) fn container(theme: &SimpleBlueTheme) -> Entity {
                         .soft()
                         .a11y_name("Information")
                         .with_start(
-                            include_simple_icon!("../../../src/assets/info.svg").build(theme)
+                            include_simple_icon!("../../../../src/assets/info.svg").build(theme)
                         )
                         .build(theme),
                 ]
@@ -152,7 +152,7 @@ pub(crate) fn container(theme: &SimpleBlueTheme) -> Entity {
                         .soft()
                         .a11y_name("Information")
                         .with_start(
-                            include_simple_icon!("../../../src/assets/info.svg").build(theme)
+                            include_simple_icon!("../../../../src/assets/info.svg").build(theme)
                         )
                         .build(theme),
                 ]
@@ -173,7 +173,7 @@ pub(crate) fn container(theme: &SimpleBlueTheme) -> Entity {
                         .outline()
                         .a11y_name("Information")
                         .with_start(
-                            include_simple_icon!("../../../src/assets/info.svg").build(theme)
+                            include_simple_icon!("../../../../src/assets/info.svg").build(theme)
                         )
                         .build(theme),
                 ]
@@ -189,7 +189,7 @@ pub(crate) fn container(theme: &SimpleBlueTheme) -> Entity {
                         .outline()
                         .a11y_name("Information")
                         .with_start(
-                            include_simple_icon!("../../../src/assets/info.svg").build(theme)
+                            include_simple_icon!("../../../../src/assets/info.svg").build(theme)
                         )
                         .build(theme),
                 ]
@@ -210,7 +210,7 @@ pub(crate) fn container(theme: &SimpleBlueTheme) -> Entity {
                         .ghost()
                         .a11y_name("Information")
                         .with_start(
-                            include_simple_icon!("../../../src/assets/info.svg").build(theme)
+                            include_simple_icon!("../../../../src/assets/info.svg").build(theme)
                         )
                         .build(theme),
                 ]
@@ -226,7 +226,7 @@ pub(crate) fn container(theme: &SimpleBlueTheme) -> Entity {
                         .ghost()
                         .a11y_name("Information")
                         .with_start(
-                            include_simple_icon!("../../../src/assets/info.svg").build(theme)
+                            include_simple_icon!("../../../../src/assets/info.svg").build(theme)
                         )
                         .build(theme),
                 ]
@@ -280,7 +280,7 @@ pub(crate) fn container(theme: &SimpleBlueTheme) -> Entity {
                         .outline()
                         .a11y_name("Information")
                         .with_start(
-                            include_simple_icon!("../../../src/assets/info.svg").build(theme)
+                            include_simple_icon!("../../../../src/assets/info.svg").build(theme)
                         )
                         .build(theme),
                     "|",
@@ -297,7 +297,7 @@ pub(crate) fn container(theme: &SimpleBlueTheme) -> Entity {
                         .secondary()
                         .a11y_name("Information")
                         .with_start(
-                            include_simple_icon!("../../../src/assets/info.svg").build(theme)
+                            include_simple_icon!("../../../../src/assets/info.svg").build(theme)
                         )
                         .build(theme),
                     "|",
@@ -319,7 +319,7 @@ pub(crate) fn container(theme: &SimpleBlueTheme) -> Entity {
                         .outline()
                         .a11y_name("Information")
                         .with_start(
-                            include_simple_icon!("../../../src/assets/info.svg").build(theme)
+                            include_simple_icon!("../../../../src/assets/info.svg").build(theme)
                         )
                         .build(theme),
                     "|",
@@ -337,7 +337,7 @@ pub(crate) fn container(theme: &SimpleBlueTheme) -> Entity {
                         .secondary()
                         .a11y_name("Information")
                         .with_start(
-                            include_simple_icon!("../../../src/assets/info.svg").build(theme)
+                            include_simple_icon!("../../../../src/assets/info.svg").build(theme)
                         )
                         .build(theme),
                     "|",

@@ -2,10 +2,7 @@ use crate::app::theme::Theme;
 use iu_ui::simple_theme::SimpleBlueTheme;
 use michiu::{prelude::*, ui::a11y};
 
-mod button;
-mod button_group;
-mod icon;
-mod text;
+mod simple;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, strum::Display, strum::EnumIter)]
 #[allow(clippy::enum_variant_names)]
@@ -29,10 +26,10 @@ pub(crate) fn create_component_entity(comp_type: ComponentType, is_dark: bool) -
         SimpleBlueTheme::light()
     };
     match comp_type {
-        ComponentType::Button => button::container(&theme),
-        ComponentType::ButtonGroup => button_group::container(&theme),
-        ComponentType::Icon => icon::container(&theme),
-        ComponentType::Text => text::container(&theme),
+        ComponentType::Button => simple::button::container(&theme),
+        ComponentType::ButtonGroup => simple::button_group::container(&theme),
+        ComponentType::Icon => simple::icon::container(&theme),
+        ComponentType::Text => simple::text::container(&theme),
         ComponentType::Input => wrapper([section("SimpleInput", [text("SimpleInput")])]),
         ComponentType::List => wrapper([section("SimpleList", [text("SimpleList")])]),
         ComponentType::Modal => wrapper([section("SimpleModal", [text("SimpleModal")])]),
