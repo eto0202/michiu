@@ -301,17 +301,15 @@
 
 mod atlas;
 mod composed_renderer;
-mod dcomp_workspace;
-mod platform;
-mod synchronizer;
+mod dcomp;
 mod text;
-mod wgpu_renderer;
+mod gpu;
 
 pub use atlas::*;
 pub use composed_renderer::*;
-pub use dcomp_workspace::*;
+pub(crate) use dcomp::*;
 pub use text::*;
-pub use wgpu_renderer::*;
+pub use gpu::*;
 
 use crate::{Color, CornerRadius, EdgeInsets, Entity, LayoutRect, LinearGradientInner};
 use bytemuck::{Pod, Zeroable};
