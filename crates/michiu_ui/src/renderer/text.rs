@@ -1,10 +1,9 @@
 use crate::{
-    ByteIndex, DebugStore, FontDate, FontStyle, LayoutPoint, LayoutRect, MichiuError, MichiuString,
-    OptionTraceExt, RendererView, TextAlign, TextSpan,
+    AtlasTypes, ByteIndex, DebugStore, FontDate, FontStyle, LayoutPoint, LayoutRect, MichiuError,
+    MichiuString, OptionTraceExt, RendererView, TextAlign, TextSpan,
 };
 use cosmic_text::{
-    Attrs, Buffer, CacheKey, Family, FontSystem, Metrics, Shaping, Style, SwashCache, SwashContent,
-    Weight, Wrap,
+    Attrs, Buffer, CacheKey, Family, FontSystem, Metrics, Shaping, Style, SwashCache, Weight, Wrap,
 };
 use smallvec::SmallVec;
 use std::ops::{Deref, DerefMut, Range};
@@ -69,7 +68,7 @@ pub struct TextCacheValue {
     pub offset_y: i32,
     pub width: f32,
     pub height: f32,
-    pub is_color: bool,
+    pub atlas_types: AtlasTypes,
 }
 
 impl TextCacheValue {
@@ -80,7 +79,7 @@ impl TextCacheValue {
         offset_y: 0,
         width: 0.0,
         height: 0.0,
-        is_color: false,
+        atlas_types: AtlasTypes::Mask,
     };
 }
 
@@ -393,7 +392,7 @@ impl TextEngine {
         debug: &mut DebugStore,
     ) -> (TextCacheValue, bool) {
         let key = TextCacheKey { cache_key };
-        if let Some(cached) = view.text_cache.get(&key) {
+        if let Some(cached) = view.atlases.text_cache.get(&key) {
             return (*cached, false);
         }
 
@@ -408,76 +407,48 @@ impl TextEngine {
 
         // スペース文字など、描画ピクセルを持たないグリフの早期リターン
         if width == 0 || height == 0 {
-            view.text_cache.insert(key, TextCacheValue::ZERO);
+            view.atlases.text_cache.insert(key, TextCacheValue::ZERO);
             return (TextCacheValue::ZERO, false);
         }
 
-        // カラー絵文字か通常文字かを判定
-        let is_color = matches!(image.content, SwashContent::Color);
-
         // アトラスの選択とアロケート
-        let (alloc_res, target_atlas_size) = if is_color {
-            (
-                view.color_atlas.allocate(width, height),
-                view.color_atlas.size,
-            )
-        } else {
-            (
-                view.mask_atlas.allocate(width, height),
-                view.mask_atlas.size,
-            )
-        };
+        let alloc_res = view.atlases.allocate(image.content, width, height);
+        let target_atlas_size = view.atlases.size(image.content);
 
         let mut cleared = false;
         let (x, y) = if let Some(pos) = alloc_res {
             pos
         } else {
             // どちらかが溢れたら整合性を保つため両方クリア
-            view.mask_atlas.clear();
-            view.color_atlas.clear();
-            view.text_cache.clear();
+            view.atlases.atlas_clear();
             cleared = true;
 
             // 再度アロケート
-            if is_color {
-                view.color_atlas.allocate(width, height)
-            } else {
-                view.mask_atlas.allocate(width, height)
-            }
-            .unwrap_or_trace(None, debug, || MichiuError::GlyphAllocationFailed {
-                width,
-                height,
-                atlas_w: target_atlas_size,
-                atlas_h: target_atlas_size,
-            })
+            view.atlases
+                .allocate(image.content, width, height)
+                .unwrap_or_trace(None, debug, || MichiuError::GlyphAllocationFailed {
+                    width,
+                    height,
+                    atlas_w: target_atlas_size,
+                    atlas_h: target_atlas_size,
+                })
         };
 
-        let (uv_min, uv_max) = if is_color {
-            view.color_atlas
-                .write_region(view.queue, x, y, width, height, &image.data);
-            view.color_atlas.texel_to_uv(x, y, width, height)
-        } else {
-            view.mask_atlas
-                .write_region(view.queue, x, y, width, height, &image.data);
-            view.mask_atlas.texel_to_uv(x, y, width, height)
-        };
-
-        let offset_x = image.placement.left;
-        let offset_y = image.placement.top;
-        let log_width = width as f32 / scale_factor;
-        let log_height = height as f32 / scale_factor;
+        view.atlases
+            .write_region(image.content, view.queue, x, y, width, height, &image.data);
+        let (uv_min, uv_max) = view.atlases.texel_to_uv(image.content, x, y, width, height);
 
         let value = TextCacheValue {
             uv_min,
             uv_max,
-            offset_x,
-            offset_y,
-            width: log_width,
-            height: log_height,
-            is_color,
+            offset_x: image.placement.left,
+            offset_y: image.placement.top,
+            width: width as f32 / scale_factor,
+            height: height as f32 / scale_factor,
+            atlas_types: image.content.into(),
         };
 
-        view.text_cache.insert(key.clone(), value);
+        view.atlases.text_cache.insert(key.clone(), value);
 
         (value, cleared)
     }

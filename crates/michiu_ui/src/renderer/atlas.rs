@@ -1,6 +1,157 @@
 #![expect(clippy::unreachable, unused)]
 
-use crate::RenderQueue;
+use crate::{Entity, RenderQueue, TextCacheKey, TextCacheValue};
+use cosmic_text::SwashContent;
+use rustc_hash::FxHashMap;
+use slotmap::SecondaryMap;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AtlasTypes {
+    Mask,
+    Color,
+    User,
+}
+impl AtlasTypes {
+    pub(crate) const fn to_format(self) -> AtlasFormat {
+        match self {
+            AtlasTypes::Mask | AtlasTypes::User => AtlasFormat::R8,
+            AtlasTypes::Color => AtlasFormat::Rgba8,
+        }
+    }
+    pub(crate) const fn to_wgpu(self) -> wgpu::TextureFormat {
+        match self {
+            AtlasTypes::Mask | AtlasTypes::User => wgpu::TextureFormat::R8Unorm,
+            AtlasTypes::Color => wgpu::TextureFormat::Rgba8UnormSrgb,
+        }
+    }
+}
+impl From<SwashContent> for AtlasTypes {
+    fn from(value: SwashContent) -> Self {
+        match value {
+            // サブピクセルレンダリングは実装してないため Mask と同じ扱い
+            SwashContent::Mask | SwashContent::SubpixelMask => Self::Mask,
+            SwashContent::Color => Self::Color,
+        }
+    }
+}
+impl From<AtlasTypes> for SwashContent {
+    fn from(value: AtlasTypes) -> Self {
+        match value {
+            AtlasTypes::Mask | AtlasTypes::User => SwashContent::Mask,
+            AtlasTypes::Color => SwashContent::Color,
+        }
+    }
+}
+impl From<AtlasTypes> for AtlasFormat {
+    fn from(value: AtlasTypes) -> Self {
+        match value {
+            AtlasTypes::Mask | AtlasTypes::User => AtlasFormat::R8,
+            AtlasTypes::Color => AtlasFormat::Rgba8,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Atlases {
+    pub(crate) mask_atlas: TextureAtlas,
+    pub(crate) color_atlas: TextureAtlas,
+    pub(crate) user_atlas: TextureAtlas,
+    pub(crate) temp_uv_map: SecondaryMap<Entity, [f32; 4]>,
+    pub(crate) text_cache: FxHashMap<TextCacheKey, TextCacheValue>,
+    pub(crate) user_mask_cache: FxHashMap<(u64, u32, u32), [f32; 4]>,
+}
+impl Atlases {
+    #[inline]
+    pub(crate) fn new_gpu(device: &wgpu::Device) -> Self {
+        Self {
+            mask_atlas: TextureAtlas::new_gpu(2048, AtlasTypes::Mask, device),
+            color_atlas: TextureAtlas::new_gpu(2048, AtlasTypes::Color, device),
+            user_atlas: TextureAtlas::new_gpu(2048, AtlasTypes::User, device),
+            temp_uv_map: SecondaryMap::new(),
+            text_cache: FxHashMap::default(),
+            user_mask_cache: FxHashMap::default(),
+        }
+    }
+
+    #[inline]
+    pub(crate) fn new_cpu() -> Self {
+        Self {
+            mask_atlas: TextureAtlas::new_cpu(2048, AtlasTypes::Mask),
+            color_atlas: TextureAtlas::new_cpu(2048, AtlasTypes::Color),
+            user_atlas: TextureAtlas::new_cpu(2048, AtlasTypes::User),
+            temp_uv_map: SecondaryMap::new(),
+            text_cache: FxHashMap::default(),
+            user_mask_cache: FxHashMap::default(),
+        }
+    }
+
+    #[inline]
+    pub(crate) fn atlas(&self, types: impl Into<AtlasTypes>) -> &TextureAtlas {
+        match types.into() {
+            AtlasTypes::Mask => &self.mask_atlas,
+            AtlasTypes::Color => &self.color_atlas,
+            AtlasTypes::User => &self.user_atlas,
+        }
+    }
+
+    #[inline]
+    pub(crate) fn atlas_mut(&mut self, types: impl Into<AtlasTypes>) -> &mut TextureAtlas {
+        match types.into() {
+            AtlasTypes::Mask => &mut self.mask_atlas,
+            AtlasTypes::Color => &mut self.color_atlas,
+            AtlasTypes::User => &mut self.user_atlas,
+        }
+    }
+
+    #[inline]
+    pub(crate) fn allocate(
+        &mut self,
+        types: impl Into<AtlasTypes>,
+        width: u32,
+        height: u32,
+    ) -> Option<(u32, u32)> {
+        self.atlas_mut(types).allocate(width, height)
+    }
+
+    #[inline]
+    pub(crate) fn size(&self, types: impl Into<AtlasTypes>) -> u32 {
+        self.atlas(types).size
+    }
+
+    #[inline]
+    pub(crate) fn write_region(
+        &mut self,
+        types: impl Into<AtlasTypes>,
+        queue: &RenderQueue<'_>,
+        x: u32,
+        y: u32,
+        width: u32,
+        height: u32,
+        src: &[u8],
+    ) {
+        self.atlas_mut(types)
+            .write_region(queue, x, y, width, height, src);
+    }
+
+    #[inline]
+    pub(crate) fn texel_to_uv(
+        &self,
+        types: impl Into<AtlasTypes>,
+        x: u32,
+        y: u32,
+        width: u32,
+        height: u32,
+    ) -> ([f32; 2], [f32; 2]) {
+        self.atlas(types).texel_to_uv(x, y, width, height)
+    }
+
+    #[inline]
+    pub(crate) fn atlas_clear(&mut self) {
+        self.mask_atlas.clear();
+        self.color_atlas.clear();
+        self.text_cache.clear();
+    }
+}
 
 #[derive(Debug, Clone, Copy)]
 pub enum AtlasFormat {
@@ -9,12 +160,6 @@ pub enum AtlasFormat {
 }
 
 impl AtlasFormat {
-    pub(crate) const fn to_wgpu(self) -> wgpu::TextureFormat {
-        match self {
-            AtlasFormat::R8 => wgpu::TextureFormat::R8Unorm,
-            AtlasFormat::Rgba8 => wgpu::TextureFormat::Rgba8UnormSrgb,
-        }
-    }
     pub(crate) const fn bytes_per_pixel(self) -> usize {
         match self {
             Self::R8 => 1,
@@ -54,8 +199,8 @@ impl AtlasStorage {
     }
 
     #[inline]
-    pub(crate) fn new_cpu(size: u32, atlas_format: AtlasFormat) -> Self {
-        let total_bytes = size as usize * size as usize * atlas_format.bytes_per_pixel();
+    pub(crate) fn new_cpu(size: u32, atlas_types: AtlasTypes) -> Self {
+        let total_bytes = size as usize * size as usize * atlas_types.to_format().bytes_per_pixel();
         Self::Cpu {
             data: vec![0; total_bytes],
         }
@@ -99,7 +244,7 @@ impl AtlasStorage {
 #[derive(Debug, Clone)]
 pub struct TextureAtlas {
     pub storage: AtlasStorage,
-    pub atlas_format: AtlasFormat,
+    pub atlas_types: AtlasTypes,
     pub size: u32,
     pub current_x: u32,
     pub current_y: u32,
@@ -109,11 +254,11 @@ pub struct TextureAtlas {
 
 impl TextureAtlas {
     #[inline]
-    pub(crate) fn new_cpu(size: u32, atlas_format: AtlasFormat) -> Self {
-        let storage = AtlasStorage::new_cpu(size, atlas_format);
+    pub(crate) fn new_cpu(size: u32, atlas_types: AtlasTypes) -> Self {
+        let storage = AtlasStorage::new_cpu(size, atlas_types);
         Self {
             storage,
-            atlas_format,
+            atlas_types,
             size,
             current_x: 0,
             current_y: 0,
@@ -122,11 +267,11 @@ impl TextureAtlas {
         }
     }
     #[inline]
-    pub(crate) fn new_gpu(size: u32, atlas_format: AtlasFormat, device: &wgpu::Device) -> Self {
-        let storage = AtlasStorage::new_gpu(size, device, atlas_format.to_wgpu());
+    pub(crate) fn new_gpu(size: u32, atlas_types: AtlasTypes, device: &wgpu::Device) -> Self {
+        let storage = AtlasStorage::new_gpu(size, device, atlas_types.to_wgpu());
         Self {
             storage,
-            atlas_format,
+            atlas_types,
             size,
             current_x: 0,
             current_y: 0,
@@ -158,7 +303,9 @@ impl TextureAtlas {
                     src,
                     wgpu::TexelCopyBufferLayout {
                         offset: 0,
-                        bytes_per_row: Some(width * self.atlas_format.bytes_per_pixel() as u32),
+                        bytes_per_row: Some(
+                            width * self.atlas_types.to_format().bytes_per_pixel() as u32,
+                        ),
                         rows_per_image: Some(height),
                     },
                     wgpu::Extent3d {
@@ -169,7 +316,7 @@ impl TextureAtlas {
                 );
             }
             (AtlasStorage::Cpu { data }, RenderQueue::Cpu) => {
-                let bytes_per_pixel = self.atlas_format.bytes_per_pixel();
+                let bytes_per_pixel = self.atlas_types.to_format().bytes_per_pixel();
 
                 let row_bytes = width as usize * bytes_per_pixel;
                 let atlas_stride = self.size as usize * bytes_per_pixel;

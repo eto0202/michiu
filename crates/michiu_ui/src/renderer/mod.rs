@@ -302,18 +302,17 @@
 mod atlas;
 mod composed_renderer;
 mod dcomp;
-mod text;
 mod gpu;
+mod text;
 
 pub use atlas::*;
 pub use composed_renderer::*;
 pub(crate) use dcomp::*;
-pub use text::*;
 pub use gpu::*;
+pub use text::*;
 
 use crate::{Color, CornerRadius, EdgeInsets, Entity, LayoutRect, LinearGradientInner};
 use bytemuck::{Pod, Zeroable};
-use rustc_hash::FxHashMap;
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, PartialEq, Pod, Zeroable)]
@@ -398,11 +397,7 @@ pub enum RenderQueue<'a> {
 #[derive(Debug)]
 pub(crate) struct RendererView<'a> {
     pub(crate) render_data: &'a mut RenderData,
-    pub(crate) mask_atlas: &'a mut TextureAtlas,
-    pub(crate) color_atlas: &'a mut TextureAtlas,
-    pub(crate) user_atlas: &'a mut TextureAtlas,
-    pub(crate) text_cache: &'a mut FxHashMap<TextCacheKey, TextCacheValue>,
-    pub(crate) user_mask_cache: &'a mut FxHashMap<(u64, u32, u32), [f32; 4]>,
+    pub(crate) atlases: &'a mut Atlases,
     pub(crate) queue: &'a RenderQueue<'a>,
 }
 
@@ -482,7 +477,7 @@ pub struct RendererUserConfig {
 pub enum RendererBackend {
     #[default]
     Auto,
-    Gpu,
+    Dx12,
     Cpu,
 }
 

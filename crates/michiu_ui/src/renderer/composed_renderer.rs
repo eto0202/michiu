@@ -129,7 +129,10 @@
 //! For consumer applications, safe read access is provided through immutable getters such as [`d3d11_device(&self)`](MichiuRenderer::d3d11_device) and [`surface(&self)`](WgpuRenderer::surface).
 
 use crate::{
-    ActiveEntitiesVec, Backdrop, Context, DCompWorkspace, Entity, ExternalVisual, InteractionState, LayoutPoint, LayoutSize, MichiuSoA, PendingDcompRelease, PlatformContext, PromotedVisual, PropertyList, RawWgpuRenderer, RendererUserConfig, ResultTraceExt, VisualPropertiesSecondary, VisualUpdateContext, WgpuRenderer, WindowSynchronizer, flush_trace,
+    ActiveEntitiesVec, Backdrop, Context, DCompWorkspace, Entity, ExternalVisual, InteractionState,
+    LayoutPoint, LayoutSize, MichiuSoA, PendingDcompRelease, PlatformContext, PromotedVisual,
+    PropertyList, RawWgpuRenderer, RendererUserConfig, ResultTraceExt, VisualPropertiesSecondary,
+    VisualUpdateContext, WgpuRenderer, WindowSynchronizer, flush_trace,
 };
 use std::sync::Arc;
 use windows::{

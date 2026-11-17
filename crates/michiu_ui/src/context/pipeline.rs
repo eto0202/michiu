@@ -188,11 +188,11 @@
 
 use crate::{
     AccessibilitySnapshot, AccessibilityStore, ActiveEntitiesVec, ActiveFocusTrigger,
-    ActiveMasksSecondary, BaseVisualPropertiesSecondary, BasicLayout, BasicLayoutsSecondary,
-    BatchType, BorderAlignment, BorderStyle, BoxSizing, ClipRectsSecondary, Color, ComponentMask,
-    ContentVisibility, Context, CornerRadius, DEFAULT_BASIC, DEFAULT_FLEX, DebugStore,
-    DirtyLayoutEntitiesVec, Display, DrawBatch, EdgeInsets, ElementState, Entity, EventStore,
-    ExternalMaskSparse, ExternalTextureAlphaMode, ExternalTextureCompositingMode,
+    ActiveMasksSecondary, AtlasTypes, BaseVisualPropertiesSecondary, BasicLayout,
+    BasicLayoutsSecondary, BatchType, BorderAlignment, BorderStyle, BoxSizing, ClipRectsSecondary,
+    Color, ComponentMask, ContentVisibility, Context, CornerRadius, DEFAULT_BASIC, DEFAULT_FLEX,
+    DebugStore, DirtyLayoutEntitiesVec, Display, DrawBatch, EdgeInsets, ElementState, Entity,
+    EventStore, ExternalMaskSparse, ExternalTextureAlphaMode, ExternalTextureCompositingMode,
     ExternalTextureSparse, FlatDfsSequence, FlexLayout, FocusStore, GradientType, IDENTITY_MATRIX,
     ImeState, InputContentsSparse, InteractionState, LayoutPoint, LayoutRect, LayoutSize,
     LayoutStore, LinearGradientInner, MichiuError, MichiuSoA, Modifiers, MouseButton,
@@ -2618,27 +2618,37 @@ impl Pipeline {
         let metadata = mask_entry.metadata();
         let key = (metadata.cache_key, physical_w, physical_h);
 
-        let uv = if let Some(&cached_uv) = view.user_mask_cache.get(&key) {
+        let uv = if let Some(&cached_uv) = view.atlases.user_mask_cache.get(&key) {
             cached_uv
         } else {
             let image = mask_entry.resolve_mask(physical_w, physical_h);
 
             let (x, y) = view
+                .atlases
                 .user_atlas
                 .allocate(image.width, image.height)
                 .unwrap_or_trace(Some(id), debug, || MichiuError::GlyphAllocationFailed {
                     width: image.width,
                     height: image.height,
-                    atlas_w: view.user_atlas.size,
-                    atlas_h: view.user_atlas.size,
+                    atlas_w: view.atlases.user_atlas.size,
+                    atlas_h: view.atlases.user_atlas.size,
                 });
 
-            view.user_atlas
-                .write_region(view.queue, x, y, image.width, image.height, &image.bytes);
+            view.atlases.user_atlas.write_region(
+                view.queue,
+                x,
+                y,
+                image.width,
+                image.height,
+                &image.bytes,
+            );
 
-            let (min, max) = view.user_atlas.texel_to_uv(x, y, image.width, image.height);
+            let (min, max) = view
+                .atlases
+                .user_atlas
+                .texel_to_uv(x, y, image.width, image.height);
             let uv = [min[0], min[1], max[0], max[1]];
-            view.user_mask_cache.insert(key, uv);
+            view.atlases.user_mask_cache.insert(key, uv);
             uv
         };
 
@@ -2766,7 +2776,11 @@ impl Pipeline {
                     a: f32::from(c.a()) / 255.0,
                 });
 
-                let atlas_mode = if value.is_color { 0.0 } else { 1.0 };
+                let atlas_mode = if value.atlas_types == AtlasTypes::Color {
+                    0.0
+                } else {
+                    1.0
+                };
 
                 let glyph_instance = QuadInstance {
                     rect: char_rect,

@@ -105,7 +105,7 @@
 //! For consumer applications, safe read access is provided through immutable getters such as [`d3d11_device(&self)`](MichiuRenderer::d3d11_device) and [`surface(&self)`](WgpuRenderer::surface).
 
 use crate::{
-    AtlasFormat, BatchType, Context, DrawBatch, Entity, LayoutSize, MichiuError, Pipeline,
+    Atlases, BatchType, Context, DrawBatch, Entity, LayoutSize, MichiuError, Pipeline,
     QuadInstance, RenderData, RenderQueue, RendererUserConfig, RendererView, TextCacheKey,
     TextCacheValue, TextureAtlas, Vertex,
 };
@@ -137,12 +137,7 @@ pub struct WgpuRenderer {
     // ebView2 の静止画を描画する際にバインドグループを動的生成するため保持
     pub(crate) config_bind_group_layout: wgpu::BindGroupLayout,
 
-    pub(crate) mask_atlas: TextureAtlas,
-    pub(crate) color_atlas: TextureAtlas,
-    pub(crate) user_atlas: TextureAtlas,
-    pub(crate) temp_uv_map: SecondaryMap<Entity, [f32; 4]>,
-    pub(crate) text_cache: FxHashMap<TextCacheKey, TextCacheValue>,
-    pub(crate) user_mask_cache: FxHashMap<(u64, u32, u32), [f32; 4]>,
+    pub(crate) atlases: Atlases,
 
     pub(crate) render_data: RenderData,
 
@@ -254,12 +249,7 @@ impl WgpuRenderer {
         // ユニフォームバッファ
         let config_buffer = WgpuRenderer::create_buffer(size, scale_factor, &device);
 
-        // 通常文字用（R8）
-        let mask_atlas = TextureAtlas::new_gpu(2048, AtlasFormat::R8, &device);
-        // カラー絵文字用（RGBA8）
-        let color_atlas = TextureAtlas::new_gpu(2048, AtlasFormat::Rgba8, &device);
-        // ユーザーアイコン用
-        let user_atlas = TextureAtlas::new_gpu(2048, AtlasFormat::R8, &device);
+        let atlases = Atlases::new_gpu(&device);
 
         let config_bind_group_layout = WgpuRenderer::create_bind_group_layout(&device);
 
@@ -287,9 +277,7 @@ impl WgpuRenderer {
             &config_bind_group_layout,
             &config_buffer,
             &instance_buffer,
-            &mask_atlas,
-            &color_atlas,
-            &user_atlas,
+            &atlases,
         );
 
         Ok(Self {
@@ -307,12 +295,7 @@ impl WgpuRenderer {
             config_buffer,
             config_bind_group,
             config_bind_group_layout,
-            mask_atlas,
-            color_atlas,
-            user_atlas,
-            temp_uv_map: SecondaryMap::new(),
-            text_cache: FxHashMap::default(),
-            user_mask_cache: FxHashMap::default(),
+            atlases,
             render_data: RenderData::new(),
             external_bind_groups: FxHashMap::default(),
         })
@@ -595,9 +578,7 @@ impl WgpuRenderer {
         bind_group_layout: &wgpu::BindGroupLayout,
         config: &wgpu::Buffer,
         instance: &wgpu::Buffer,
-        mask_atlas: &TextureAtlas,
-        color_atlas: &TextureAtlas,
-        user_atlas: &TextureAtlas,
+        atlases: &Atlases,
     ) -> wgpu::BindGroup {
         device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: bind_group_layout,
@@ -608,19 +589,21 @@ impl WgpuRenderer {
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
-                    resource: wgpu::BindingResource::TextureView(mask_atlas.storage.view()),
+                    resource: wgpu::BindingResource::TextureView(atlases.mask_atlas.storage.view()),
                 },
                 wgpu::BindGroupEntry {
                     binding: 2,
-                    resource: wgpu::BindingResource::TextureView(color_atlas.storage.view()),
+                    resource: wgpu::BindingResource::TextureView(
+                        atlases.color_atlas.storage.view(),
+                    ),
                 },
                 wgpu::BindGroupEntry {
                     binding: 3,
-                    resource: wgpu::BindingResource::TextureView(user_atlas.storage.view()),
+                    resource: wgpu::BindingResource::TextureView(atlases.user_atlas.storage.view()),
                 },
                 wgpu::BindGroupEntry {
                     binding: 4,
-                    resource: wgpu::BindingResource::Sampler(mask_atlas.storage.sampler()),
+                    resource: wgpu::BindingResource::Sampler(atlases.mask_atlas.storage.sampler()),
                 },
                 wgpu::BindGroupEntry {
                     binding: 5,
@@ -667,11 +650,7 @@ impl WgpuRenderer {
             cx,
             &mut RendererView {
                 render_data: &mut self.render_data,
-                mask_atlas: &mut self.mask_atlas,
-                color_atlas: &mut self.color_atlas,
-                user_atlas: &mut self.user_atlas,
-                text_cache: &mut self.text_cache,
-                user_mask_cache: &mut self.user_mask_cache,
+                atlases: &mut self.atlases,
                 queue: &RenderQueue::Gpu(&self.queue),
             },
         );
@@ -847,20 +826,20 @@ impl WgpuRenderer {
                         wgpu::BindGroupEntry {
                             binding: 2,
                             resource: wgpu::BindingResource::TextureView(
-                                self.mask_atlas.storage.view(),
+                                self.atlases.mask_atlas.storage.view(),
                             ),
                         },
                         // ダミー
                         wgpu::BindGroupEntry {
                             binding: 3,
                             resource: wgpu::BindingResource::TextureView(
-                                self.mask_atlas.storage.view(),
+                                self.atlases.mask_atlas.storage.view(),
                             ),
                         },
                         wgpu::BindGroupEntry {
                             binding: 4,
                             resource: wgpu::BindingResource::Sampler(
-                                self.mask_atlas.storage.sampler(),
+                                self.atlases.mask_atlas.storage.sampler(),
                             ),
                         },
                         wgpu::BindGroupEntry {
@@ -926,24 +905,26 @@ impl WgpuRenderer {
                     wgpu::BindGroupEntry {
                         binding: 1,
                         resource: wgpu::BindingResource::TextureView(
-                            self.mask_atlas.storage.view(),
+                            self.atlases.mask_atlas.storage.view(),
                         ),
                     },
                     wgpu::BindGroupEntry {
                         binding: 2,
                         resource: wgpu::BindingResource::TextureView(
-                            self.color_atlas.storage.view(),
+                            self.atlases.color_atlas.storage.view(),
                         ),
                     },
                     wgpu::BindGroupEntry {
                         binding: 3,
                         resource: wgpu::BindingResource::TextureView(
-                            self.user_atlas.storage.view(),
+                            self.atlases.user_atlas.storage.view(),
                         ),
                     },
                     wgpu::BindGroupEntry {
                         binding: 4,
-                        resource: wgpu::BindingResource::Sampler(self.mask_atlas.storage.sampler()),
+                        resource: wgpu::BindingResource::Sampler(
+                            self.atlases.mask_atlas.storage.sampler(),
+                        ),
                     },
                     wgpu::BindGroupEntry {
                         binding: 5,
@@ -1036,25 +1017,25 @@ impl WgpuRenderer {
     #[inline]
     #[must_use]
     pub fn mask_atlas(&self) -> &TextureAtlas {
-        &self.mask_atlas
+        &self.atlases.mask_atlas
     }
 
     #[inline]
     #[must_use]
     pub fn color_atlas(&self) -> &TextureAtlas {
-        &self.color_atlas
+        &self.atlases.color_atlas
     }
 
     #[inline]
     #[must_use]
     pub fn temp_uv_map(&self) -> &SecondaryMap<Entity, [f32; 4]> {
-        &self.temp_uv_map
+        &self.atlases.temp_uv_map
     }
 
     #[inline]
     #[must_use]
     pub fn text_cache(&self) -> &FxHashMap<TextCacheKey, TextCacheValue> {
-        &self.text_cache
+        &self.atlases.text_cache
     }
 
     #[inline]
@@ -1086,10 +1067,10 @@ impl WgpuRenderer {
             config_buffer: &mut self.config_buffer,
             config_bind_group: &mut self.config_bind_group,
             config_bind_group_layout: &mut self.config_bind_group_layout,
-            mask_atlas: &mut self.mask_atlas,
-            color_atlas: &mut self.color_atlas,
-            temp_uv_map: &mut self.temp_uv_map,
-            text_cache: &mut self.text_cache,
+            mask_atlas: &mut self.atlases.mask_atlas,
+            color_atlas: &mut self.atlases.color_atlas,
+            temp_uv_map: &mut self.atlases.temp_uv_map,
+            text_cache: &mut self.atlases.text_cache,
             render_data: &mut self.render_data,
             external_bind_groups: &mut self.external_bind_groups,
         }
