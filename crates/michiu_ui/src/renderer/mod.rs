@@ -299,6 +299,7 @@
 //!
 //! For consumer applications, safe read access is provided through immutable getters such as [`d3d11_device(&self)`](MichiuRenderer::d3d11_device) and [`surface(&self)`](WgpuRenderer::surface).
 
+mod atlas;
 mod composed_renderer;
 mod dcomp_workspace;
 mod platform;
@@ -306,6 +307,7 @@ mod synchronizer;
 mod text;
 mod wgpu_renderer;
 
+pub use atlas::*;
 pub use composed_renderer::*;
 pub use dcomp_workspace::*;
 pub use text::*;
@@ -390,6 +392,12 @@ pub struct DrawBatch {
 }
 
 #[derive(Debug)]
+pub enum RenderQueue<'a> {
+    Gpu(&'a wgpu::Queue),
+    Cpu,
+}
+
+#[derive(Debug)]
 pub(crate) struct RendererView<'a> {
     pub(crate) render_data: &'a mut RenderData,
     pub(crate) mask_atlas: &'a mut TextureAtlas,
@@ -397,7 +405,7 @@ pub(crate) struct RendererView<'a> {
     pub(crate) user_atlas: &'a mut TextureAtlas,
     pub(crate) text_cache: &'a mut FxHashMap<TextCacheKey, TextCacheValue>,
     pub(crate) user_mask_cache: &'a mut FxHashMap<(u64, u32, u32), [f32; 4]>,
-    pub(crate) queue: &'a wgpu::Queue,
+    pub(crate) queue: &'a RenderQueue<'a>,
 }
 
 #[derive(Default, Debug, Clone, PartialEq)]
@@ -469,6 +477,15 @@ pub struct RendererUserConfig {
     pub memory_hints: wgpu::MemoryHints,
     pub present_mode: wgpu::PresentMode,
     pub target_layer: CompositionTargetLayer,
+    pub backend: RendererBackend,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum RendererBackend {
+    #[default]
+    Auto,
+    Gpu,
+    Cpu,
 }
 
 /// Changes the topmost `target: IDCompositionTarget` held by `MichiuRenderer` (Default: Topmost).
@@ -477,8 +494,9 @@ pub struct RendererUserConfig {
 ///
 /// # Notes
 /// Do not allow this setting to be changed at runtime.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum CompositionTargetLayer {
+    #[default]
     Topmost,
     NonTopmost,
 }
@@ -488,7 +506,8 @@ impl Default for RendererUserConfig {
         Self {
             memory_hints: wgpu::MemoryHints::MemoryUsage,
             present_mode: wgpu::PresentMode::Fifo,
-            target_layer: CompositionTargetLayer::Topmost,
+            target_layer: CompositionTargetLayer::default(),
+            backend: RendererBackend::default(),
         }
     }
 }

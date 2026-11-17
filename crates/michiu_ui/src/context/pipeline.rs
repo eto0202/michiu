@@ -189,21 +189,21 @@
 use crate::{
     AccessibilitySnapshot, AccessibilityStore, ActiveEntitiesVec, ActiveFocusTrigger,
     ActiveMasksSecondary, BaseVisualPropertiesSecondary, BasicLayout, BasicLayoutsSecondary,
-    BatchType, BoxSizing, ClipRectsSecondary, Color, ComponentMask, ContentVisibility, Context,
-    CornerRadius, DEFAULT_BASIC, DEFAULT_FLEX, DebugStore, DirtyLayoutEntitiesVec, Display,
-    DrawBatch, EdgeInsets, ElementState, Entity, EventStore, ExternalMaskSparse,
-    ExternalTextureAlphaMode, ExternalTextureCompositingMode, ExternalTextureSparse,
-    FlatDfsSequence, FlexLayout, FocusStore, GradientType, IDENTITY_MATRIX, ImeState,
-    InputContentsSparse, InteractionState, LayoutPoint, LayoutRect, LayoutSize, LayoutStore,
-    LinearGradientInner, MichiuError, MichiuSoA, Modifiers, MouseButton, OptionTraceExt,
-    OutputStore, ParentsSecondary, PrevClipRectsSecondary, PrevRectsSecondary, QuadInstance,
-    ReactiveStore, RectsSecondary, RenderData, RenderStore, RendererView, ResolvedBasicSecondary,
-    ResolvedFlexSecondary, ResolvedGeometry, ScrollBarState, ScrollOffsetsSecondary, ScrollStore,
-    ScrollbarStore, ScrollbarStylesSparse, StrikethroughStyle, SystemStore, TaffyNodesSecondary,
-    TaffyResultTraceExt, TaffyTreeEntity, TextEditStore, TextEngine, TextLayoutSize, TextSpan,
-    TopologyStore, TraceEventList, UnderlineStyle, VirtualKey, VisualProperty, bind_context,
-    handle_on_active, handle_on_char_input, handle_on_disable, handle_on_file_dropped,
-    handle_on_ime, handle_on_select,
+    BatchType, BorderAlignment, BorderStyle, BoxSizing, ClipRectsSecondary, Color, ComponentMask,
+    ContentVisibility, Context, CornerRadius, DEFAULT_BASIC, DEFAULT_FLEX, DebugStore,
+    DirtyLayoutEntitiesVec, Display, DrawBatch, EdgeInsets, ElementState, Entity, EventStore,
+    ExternalMaskSparse, ExternalTextureAlphaMode, ExternalTextureCompositingMode,
+    ExternalTextureSparse, FlatDfsSequence, FlexLayout, FocusStore, GradientType, IDENTITY_MATRIX,
+    ImeState, InputContentsSparse, InteractionState, LayoutPoint, LayoutRect, LayoutSize,
+    LayoutStore, LinearGradientInner, MichiuError, MichiuSoA, Modifiers, MouseButton,
+    OptionTraceExt, OutputStore, ParentsSecondary, PrevClipRectsSecondary, PrevRectsSecondary,
+    QuadInstance, ReactiveStore, RectsSecondary, RenderData, RenderStore, RendererView,
+    ResolvedBasicSecondary, ResolvedFlexSecondary, ResolvedGeometry, ScrollBarState,
+    ScrollOffsetsSecondary, ScrollStore, ScrollbarStore, ScrollbarStylesSparse, StrikethroughStyle,
+    SystemStore, TaffyNodesSecondary, TaffyResultTraceExt, TaffyTreeEntity, TextEditStore,
+    TextEngine, TextLayoutSize, TextSpan, TopologyStore, TraceEventList, UnderlineStyle,
+    VirtualKey, VisualProperty, bind_context, handle_on_active, handle_on_char_input,
+    handle_on_disable, handle_on_file_dropped, handle_on_ime, handle_on_select,
 };
 #[cfg(feature = "trace-lifecycle")]
 use crate::{
@@ -1797,6 +1797,140 @@ impl Pipeline {
 
     #[track_caller]
     #[inline]
+    pub(crate) fn build_quad_instance_for_entity(
+        cx: &mut Context,
+        entity_id: Entity,
+        instance: &QuadInstance,
+    ) -> QuadInstance {
+        let basic =
+            &cx.layouts
+                .lay_resolved_basic
+                .find_or(entity_id, &DEFAULT_BASIC, &mut cx.debug);
+        let _flex = &cx
+            .layouts
+            .lay_resolved_flex
+            .find_or(entity_id, &DEFAULT_FLEX, &mut cx.debug);
+        let default_visual = VisualProperty::default();
+        let visual = cx
+            .renders
+            .rnd_visual
+            .find(entity_id)
+            .unwrap_or(&default_visual);
+
+        let origin = visual.transform_origin.map_or([0.5, 0.5], |p| [p.x, p.y]);
+        let opacity = visual.opacity.unwrap_or(1.0);
+
+        let box_sizing_val = match basic.box_sizing {
+            BoxSizing::BorderBox => 0.0f32,
+            BoxSizing::ContentBox => 1.0f32,
+        };
+
+        // 四辺個別枠線フラグの抽出
+        let border_lengths = visual.border_lengths.unwrap_or(EdgeInsets::px_all(1.0));
+        let styles = visual.border_styles.unwrap_or([BorderStyle::Solid; 4]);
+        let aligns = visual
+            .border_alignments
+            .unwrap_or([BorderAlignment::Start; 4]);
+
+        let mut border_flags = 0u32;
+        for i in 0..4 {
+            let s_val = styles[i] as u32;
+            let a_val = aligns[i] as u32;
+            border_flags |= s_val << (i * 4);
+            border_flags |= a_val << (i * 4 + 2);
+        }
+
+        let o_width = visual.outline_width.unwrap_or_default();
+        let o_color = visual.outline_color.unwrap_or_default();
+        let o_lengths = visual.outline_lengths.unwrap_or(EdgeInsets::px_all(1.0));
+        let o_offset = visual.outline_offset.unwrap_or(0.0);
+        let o_styles = visual.outline_styles.unwrap_or([BorderStyle::Solid; 4]);
+        let o_aligns = visual
+            .outline_alignments
+            .unwrap_or([BorderAlignment::Start; 4]);
+
+        let mut outline_flags = 0u32;
+        for i in 0..4 {
+            let s_val = o_styles[i] as u32;
+            let a_val = o_aligns[i] as u32;
+            outline_flags |= s_val << (i * 4);
+            outline_flags |= a_val << (i * 4 + 2);
+        }
+
+        // 影のカラーと形状の解決
+        // 元インスタンスで意図的に影が無効化されている (TRANSPARENT) 場合は上書きしない
+        let shadow_color =
+            if instance.shadow_color != Color::TRANSPARENT && visual.shadow_params.is_some() {
+                let mut color = visual.shadow_color.unwrap_or_default();
+                // DCompブレンド時の濃さの補正
+                let mut has_active_visual_parent = false;
+                let mut curr_id = entity_id;
+                while let Some(parent_id) = *cx.topology.topo_parents.at(curr_id) {
+                    if cx
+                        .topology
+                        .topo_active_masks
+                        .at(parent_id)
+                        .has_external_visual_content()
+                        && cx.renders.rnd_active_external_visual.contains(&parent_id)
+                    {
+                        has_active_visual_parent = true;
+                        break;
+                    }
+                    curr_id = parent_id;
+                }
+                if has_active_visual_parent {
+                    color.a *= 0.45;
+                }
+                color
+            } else {
+                Color::TRANSPARENT
+            };
+
+        let shadow_params = if shadow_color == Color::TRANSPARENT {
+            [0.0; 4]
+        } else {
+            match visual.shadow_params {
+                Some(shadow) => [shadow.offset.x, shadow.offset.y, shadow.blur, shadow.spread],
+                None => [0.0; 4],
+            }
+        };
+
+        let packed_transform = instance.transform;
+
+        // モード、座標、UV は呼び出し元で既に決定されているためそのまま転送
+
+        #[expect(clippy::cast_precision_loss)]
+        QuadInstance {
+            rect: instance.rect,
+            transform: packed_transform,
+            transform_origin: origin,
+            color: instance.color,
+            corner_radius: visual.corner_radius.unwrap_or_default(),
+            border_width: instance.border_width,
+            border_color: visual.border_color.unwrap_or_default(),
+            border_lengths,
+            opacity_mode_sizing: [
+                opacity,
+                instance.opacity_mode_sizing[1], // mode (背景=0.0/1.0, テキスト=2.0, 静止WebView=3.0 等)
+                box_sizing_val,
+                border_flags as f32,
+            ],
+            uv_min: instance.uv_min,
+            uv_max: instance.uv_max,
+            gradient: instance.gradient,
+            is_color_atlas_pad: instance.is_color_atlas_pad,
+            shadow_color,
+            shadow_params,
+            outline_width: o_width,
+            outline_color: o_color,
+            outline_lengths: o_lengths,
+            outline_offset_and_flags: [o_offset, outline_flags as f32, 0.0, 0.0],
+            alpha_mode_y_flip_srgb_gamma: instance.alpha_mode_y_flip_srgb_gamma,
+        }
+    }
+
+    #[track_caller]
+    #[inline]
     pub(crate) fn handle_accessibility(cx: &mut Context) {
         let _context_guard = bind_context(cx);
 
@@ -2499,25 +2633,8 @@ impl Pipeline {
                     atlas_h: view.user_atlas.size,
                 });
 
-            view.queue.write_texture(
-                wgpu::TexelCopyTextureInfo {
-                    texture: &view.user_atlas.texture,
-                    mip_level: 0,
-                    origin: wgpu::Origin3d { x, y, z: 0 },
-                    aspect: wgpu::TextureAspect::All,
-                },
-                &image.bytes,
-                wgpu::TexelCopyBufferLayout {
-                    offset: 0,
-                    bytes_per_row: Some(image.width),
-                    rows_per_image: Some(image.height),
-                },
-                wgpu::Extent3d {
-                    width: image.width,
-                    height: image.height,
-                    depth_or_array_layers: 1,
-                },
-            );
+            view.user_atlas
+                .write_region(view.queue, x, y, image.width, image.height, &image.bytes);
 
             let (min, max) = view.user_atlas.texel_to_uv(x, y, image.width, image.height);
             let uv = [min[0], min[1], max[0], max[1]];

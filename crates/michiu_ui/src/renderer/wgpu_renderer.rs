@@ -105,10 +105,9 @@
 //! For consumer applications, safe read access is provided through immutable getters such as [`d3d11_device(&self)`](MichiuRenderer::d3d11_device) and [`surface(&self)`](WgpuRenderer::surface).
 
 use crate::{
-    BatchType, BorderAlignment, BorderStyle, BoxSizing, Color, Context, DEFAULT_BASIC,
-    DEFAULT_FLEX, DrawBatch, EdgeInsets, Entity, LayoutSize, MichiuError, MichiuSoA, Pipeline,
-    QuadInstance, RenderData, RendererUserConfig, RendererView, TextCacheKey, TextCacheValue,
-    TextureAtlas, Vertex, VisualProperty,
+    AtlasFormat, BatchType, Context, DrawBatch, Entity, LayoutSize, MichiuError, Pipeline,
+    QuadInstance, RenderData, RenderQueue, RendererUserConfig, RendererView, TextCacheKey,
+    TextCacheValue, TextureAtlas, Vertex,
 };
 use rustc_hash::FxHashMap;
 use slotmap::SecondaryMap;
@@ -255,13 +254,12 @@ impl WgpuRenderer {
         // ユニフォームバッファ
         let config_buffer = WgpuRenderer::create_buffer(size, scale_factor, &device);
 
-        // アトラス初期化
         // 通常文字用（R8）
-        let mask_atlas = TextureAtlas::new(&device, wgpu::TextureFormat::R8Unorm, 2048);
+        let mask_atlas = TextureAtlas::new_gpu(2048, AtlasFormat::R8, &device);
         // カラー絵文字用（RGBA8）
-        let color_atlas = TextureAtlas::new(&device, wgpu::TextureFormat::Rgba8UnormSrgb, 2048);
+        let color_atlas = TextureAtlas::new_gpu(2048, AtlasFormat::Rgba8, &device);
         // ユーザーアイコン用
-        let user_atlas = TextureAtlas::new(&device, wgpu::TextureFormat::R8Unorm, 2048);
+        let user_atlas = TextureAtlas::new_gpu(2048, AtlasFormat::R8, &device);
 
         let config_bind_group_layout = WgpuRenderer::create_bind_group_layout(&device);
 
@@ -610,19 +608,19 @@ impl WgpuRenderer {
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
-                    resource: wgpu::BindingResource::TextureView(&mask_atlas.view),
+                    resource: wgpu::BindingResource::TextureView(mask_atlas.storage.view()),
                 },
                 wgpu::BindGroupEntry {
                     binding: 2,
-                    resource: wgpu::BindingResource::TextureView(&color_atlas.view),
+                    resource: wgpu::BindingResource::TextureView(color_atlas.storage.view()),
                 },
                 wgpu::BindGroupEntry {
                     binding: 3,
-                    resource: wgpu::BindingResource::TextureView(&user_atlas.view),
+                    resource: wgpu::BindingResource::TextureView(user_atlas.storage.view()),
                 },
                 wgpu::BindGroupEntry {
                     binding: 4,
-                    resource: wgpu::BindingResource::Sampler(&mask_atlas.sampler),
+                    resource: wgpu::BindingResource::Sampler(mask_atlas.storage.sampler()),
                 },
                 wgpu::BindGroupEntry {
                     binding: 5,
@@ -674,7 +672,7 @@ impl WgpuRenderer {
                 user_atlas: &mut self.user_atlas,
                 text_cache: &mut self.text_cache,
                 user_mask_cache: &mut self.user_mask_cache,
-                queue: &self.queue,
+                queue: &RenderQueue::Gpu(&self.queue),
             },
         );
 
@@ -699,7 +697,7 @@ impl WgpuRenderer {
         self.instance_staging.clear();
         for (i, instance) in render_data.instances.iter().enumerate() {
             let entity_id = render_data.entity_ids[i];
-            let (inst, _) = WgpuRenderer::build_quad_instance_for_entity(cx, entity_id, instance);
+            let inst = Pipeline::build_quad_instance_for_entity(cx, entity_id, instance);
             self.instance_staging.push(inst);
         }
 
@@ -848,16 +846,22 @@ impl WgpuRenderer {
                         // ダミー
                         wgpu::BindGroupEntry {
                             binding: 2,
-                            resource: wgpu::BindingResource::TextureView(&self.mask_atlas.view),
+                            resource: wgpu::BindingResource::TextureView(
+                                self.mask_atlas.storage.view(),
+                            ),
                         },
                         // ダミー
                         wgpu::BindGroupEntry {
                             binding: 3,
-                            resource: wgpu::BindingResource::TextureView(&self.mask_atlas.view),
+                            resource: wgpu::BindingResource::TextureView(
+                                self.mask_atlas.storage.view(),
+                            ),
                         },
                         wgpu::BindGroupEntry {
                             binding: 4,
-                            resource: wgpu::BindingResource::Sampler(&self.mask_atlas.sampler),
+                            resource: wgpu::BindingResource::Sampler(
+                                self.mask_atlas.storage.sampler(),
+                            ),
                         },
                         wgpu::BindGroupEntry {
                             binding: 5,
@@ -891,142 +895,6 @@ impl WgpuRenderer {
         rpass.set_bind_group(0, &self.config_bind_group, &[]);
     }
 
-    /// `QuadInstance` に静的バインドする
-    #[track_caller]
-    fn build_quad_instance_for_entity(
-        cx: &mut Context,
-        entity_id: Entity,
-        instance: &QuadInstance,
-    ) -> (QuadInstance, bool) {
-        let basic =
-            &cx.layouts
-                .lay_resolved_basic
-                .find_or(entity_id, &DEFAULT_BASIC, &mut cx.debug);
-        let _flex = &cx
-            .layouts
-            .lay_resolved_flex
-            .find_or(entity_id, &DEFAULT_FLEX, &mut cx.debug);
-        let default_visual = VisualProperty::default();
-        let visual = cx
-            .renders
-            .rnd_visual
-            .find(entity_id)
-            .unwrap_or(&default_visual);
-
-        let origin = visual.transform_origin.map_or([0.5, 0.5], |p| [p.x, p.y]);
-        let opacity = visual.opacity.unwrap_or(1.0);
-
-        let box_sizing_val = match basic.box_sizing {
-            BoxSizing::BorderBox => 0.0f32,
-            BoxSizing::ContentBox => 1.0f32,
-        };
-
-        // 四辺個別枠線フラグの抽出
-        let border_lengths = visual.border_lengths.unwrap_or(EdgeInsets::px_all(1.0));
-        let styles = visual.border_styles.unwrap_or([BorderStyle::Solid; 4]);
-        let aligns = visual
-            .border_alignments
-            .unwrap_or([BorderAlignment::Start; 4]);
-
-        let mut border_flags = 0u32;
-        for i in 0..4 {
-            let s_val = styles[i] as u32;
-            let a_val = aligns[i] as u32;
-            border_flags |= s_val << (i * 4);
-            border_flags |= a_val << (i * 4 + 2);
-        }
-
-        let o_width = visual.outline_width.unwrap_or_default();
-        let o_color = visual.outline_color.unwrap_or_default();
-        let o_lengths = visual.outline_lengths.unwrap_or(EdgeInsets::px_all(1.0));
-        let o_offset = visual.outline_offset.unwrap_or(0.0);
-        let o_styles = visual.outline_styles.unwrap_or([BorderStyle::Solid; 4]);
-        let o_aligns = visual
-            .outline_alignments
-            .unwrap_or([BorderAlignment::Start; 4]);
-
-        let mut outline_flags = 0u32;
-        for i in 0..4 {
-            let s_val = o_styles[i] as u32;
-            let a_val = o_aligns[i] as u32;
-            outline_flags |= s_val << (i * 4);
-            outline_flags |= a_val << (i * 4 + 2);
-        }
-
-        // 影のカラーと形状の解決
-        // 元インスタンスで意図的に影が無効化されている (TRANSPARENT) 場合は上書きしない
-        let shadow_color =
-            if instance.shadow_color != Color::TRANSPARENT && visual.shadow_params.is_some() {
-                let mut color = visual.shadow_color.unwrap_or_default();
-                // DCompブレンド時の濃さの補正
-                let mut has_active_visual_parent = false;
-                let mut curr_id = entity_id;
-                while let Some(parent_id) = *cx.topology.topo_parents.at(curr_id) {
-                    if cx
-                        .topology
-                        .topo_active_masks
-                        .at(parent_id)
-                        .has_external_visual_content()
-                        && cx.renders.rnd_active_external_visual.contains(&parent_id)
-                    {
-                        has_active_visual_parent = true;
-                        break;
-                    }
-                    curr_id = parent_id;
-                }
-                if has_active_visual_parent {
-                    color.a *= 0.45;
-                }
-                color
-            } else {
-                Color::TRANSPARENT
-            };
-
-        let shadow_params = if shadow_color == Color::TRANSPARENT {
-            [0.0; 4]
-        } else {
-            match visual.shadow_params {
-                Some(shadow) => [shadow.offset.x, shadow.offset.y, shadow.blur, shadow.spread],
-                None => [0.0; 4],
-            }
-        };
-
-        let packed_transform = instance.transform;
-
-        // モード、座標、UV は呼び出し元で既に決定されているためそのまま転送
-        (
-            #[expect(clippy::cast_precision_loss)]
-            QuadInstance {
-                rect: instance.rect,
-                transform: packed_transform,
-                transform_origin: origin,
-                color: instance.color,
-                corner_radius: visual.corner_radius.unwrap_or_default(),
-                border_width: instance.border_width,
-                border_color: visual.border_color.unwrap_or_default(),
-                border_lengths,
-                opacity_mode_sizing: [
-                    opacity,
-                    instance.opacity_mode_sizing[1], // mode (背景=0.0/1.0, テキスト=2.0, 静止WebView=3.0 等)
-                    box_sizing_val,
-                    border_flags as f32,
-                ],
-                uv_min: instance.uv_min,
-                uv_max: instance.uv_max,
-                gradient: instance.gradient,
-                is_color_atlas_pad: instance.is_color_atlas_pad,
-                shadow_color,
-                shadow_params,
-                outline_width: o_width,
-                outline_color: o_color,
-                outline_lengths: o_lengths,
-                outline_offset_and_flags: [o_offset, outline_flags as f32, 0.0, 0.0],
-                alpha_mode_y_flip_srgb_gamma: instance.alpha_mode_y_flip_srgb_gamma,
-            },
-            false, // アトラスを直接操作しないため常に false
-        )
-    }
-
     fn ensure_instance_buffer_capacity(&mut self, total_instances: usize) {
         if total_instances > self.instance_buffer_capacity {
             // 現在の 1.5 倍、または最低限必要なサイズに拡張
@@ -1057,19 +925,25 @@ impl WgpuRenderer {
                     },
                     wgpu::BindGroupEntry {
                         binding: 1,
-                        resource: wgpu::BindingResource::TextureView(&self.mask_atlas.view),
+                        resource: wgpu::BindingResource::TextureView(
+                            self.mask_atlas.storage.view(),
+                        ),
                     },
                     wgpu::BindGroupEntry {
                         binding: 2,
-                        resource: wgpu::BindingResource::TextureView(&self.color_atlas.view),
+                        resource: wgpu::BindingResource::TextureView(
+                            self.color_atlas.storage.view(),
+                        ),
                     },
                     wgpu::BindGroupEntry {
                         binding: 3,
-                        resource: wgpu::BindingResource::TextureView(&self.user_atlas.view),
+                        resource: wgpu::BindingResource::TextureView(
+                            self.user_atlas.storage.view(),
+                        ),
                     },
                     wgpu::BindGroupEntry {
                         binding: 4,
-                        resource: wgpu::BindingResource::Sampler(&self.mask_atlas.sampler),
+                        resource: wgpu::BindingResource::Sampler(self.mask_atlas.storage.sampler()),
                     },
                     wgpu::BindGroupEntry {
                         binding: 5,
