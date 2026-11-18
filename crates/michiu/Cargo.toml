@@ -21,6 +21,7 @@ pollster = "1.0.1"
 michiu_ui = { workspace = true, optional = true }
 michiu_guard = { workspace = true, optional = true }
 michiu_window = { workspace = true, optional = true }
+michiu_renderer = { workspace = true, optional = true }
 thiserror = "2.0.20"
 
 [dependencies.windows]
@@ -32,7 +33,7 @@ features = [
 ]
 
 [features]
-default = ["ui", "guard", "window", "trace-error"]
+default = ["ui", "guard", "window", "renderer", "trace-error"]
 
 ui = ["dep:michiu_ui"]
 trace-error = ["michiu_ui?/trace-error"]
@@ -42,6 +43,7 @@ snapshot = ["trace-error"]
 
 guard = ["dep:michiu_guard"]
 window = ["dep:michiu_window"]
+renderer = ["dep:michiu_renderer"]
 
 serde = [
     "michiu_ui?/serde",

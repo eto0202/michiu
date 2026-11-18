@@ -1252,12 +1252,11 @@ impl Pipeline {
             stage: RenderStage::Start,
             data: Some(Arc::new(RendererViewTrace {
                 render_data: view.render_data.clone(),
-                mask_atlas: view.mask_atlas.clone(),
-                color_atlas: view.color_atlas.clone(),
-                user_atlas: view.user_atlas.clone(),
-                text_cache: view.text_cache.clone(),
-                user_mask_cache: view.user_mask_cache.clone(),
-                queue: view.queue.clone()
+                mask_atlas: view.atlases.mask_atlas.clone(),
+                color_atlas: view.atlases.color_atlas.clone(),
+                user_atlas: view.atlases.user_atlas.clone(),
+                text_cache: view.atlases.text_cache.clone(),
+                user_mask_cache: view.atlases.user_mask_cache.clone(),
             })),
             add: None,
         });
@@ -1318,12 +1317,11 @@ impl Pipeline {
             stage: RenderStage::FirstGlyphsCache,
             data: Some(Arc::new(RendererViewTrace {
                 render_data: view.render_data.clone(),
-                mask_atlas: view.mask_atlas.clone(),
-                color_atlas: view.color_atlas.clone(),
-                user_atlas: view.user_atlas.clone(),
-                text_cache: view.text_cache.clone(),
-                user_mask_cache: view.user_mask_cache.clone(),
-                queue: view.queue.clone()
+                mask_atlas: view.atlases.mask_atlas.clone(),
+                color_atlas: view.atlases.color_atlas.clone(),
+                user_atlas: view.atlases.user_atlas.clone(),
+                text_cache: view.atlases.text_cache.clone(),
+                user_mask_cache: view.atlases.user_mask_cache.clone(),
             })),
             add: None,
         });
@@ -1353,12 +1351,11 @@ impl Pipeline {
                 stage: RenderStage::FullGlyphsCache,
                 data: Some(Arc::new(RendererViewTrace {
                     render_data: view.render_data.clone(),
-                    mask_atlas: view.mask_atlas.clone(),
-                    color_atlas: view.color_atlas.clone(),
-                    user_atlas: view.user_atlas.clone(),
-                    text_cache: view.text_cache.clone(),
-                    user_mask_cache: view.user_mask_cache.clone(),
-                    queue: view.queue.clone()
+                    mask_atlas: view.atlases.mask_atlas.clone(),
+                    color_atlas: view.atlases.color_atlas.clone(),
+                    user_atlas: view.atlases.user_atlas.clone(),
+                    text_cache: view.atlases.text_cache.clone(),
+                    user_mask_cache: view.atlases.user_mask_cache.clone(),
                 })),
                 add: Some("The fact that this is recorded means that Atlas has been cleared."),
             });
@@ -1761,12 +1758,11 @@ impl Pipeline {
             }),
             data: Some(Arc::new(RendererViewTrace {
                 render_data: view.render_data.clone(),
-                mask_atlas: view.mask_atlas.clone(),
-                color_atlas: view.color_atlas.clone(),
-                user_atlas: view.user_atlas.clone(),
-                text_cache: view.text_cache.clone(),
-                user_mask_cache: view.user_mask_cache.clone(),
-                queue: view.queue.clone()
+                mask_atlas: view.atlases.mask_atlas.clone(),
+                color_atlas: view.atlases.color_atlas.clone(),
+                user_atlas: view.atlases.user_atlas.clone(),
+                text_cache: view.atlases.text_cache.clone(),
+                user_mask_cache: view.atlases.user_mask_cache.clone(),
             })),
             add: Some("The fact that this is recorded means that Atlas has been cleared."),
         });
@@ -1799,23 +1795,19 @@ impl Pipeline {
     #[inline]
     pub(crate) fn build_quad_instance_for_entity(
         cx: &mut Context,
-        entity_id: Entity,
+        e: Entity,
         instance: &QuadInstance,
     ) -> QuadInstance {
-        let basic =
-            &cx.layouts
-                .lay_resolved_basic
-                .find_or(entity_id, &DEFAULT_BASIC, &mut cx.debug);
+        let basic = &cx
+            .layouts
+            .lay_resolved_basic
+            .find_or(e, &DEFAULT_BASIC, &mut cx.debug);
         let _flex = &cx
             .layouts
             .lay_resolved_flex
-            .find_or(entity_id, &DEFAULT_FLEX, &mut cx.debug);
+            .find_or(e, &DEFAULT_FLEX, &mut cx.debug);
         let default_visual = VisualProperty::default();
-        let visual = cx
-            .renders
-            .rnd_visual
-            .find(entity_id)
-            .unwrap_or(&default_visual);
+        let visual = cx.renders.rnd_visual.find(e).unwrap_or(&default_visual);
 
         let origin = visual.transform_origin.map_or([0.5, 0.5], |p| [p.x, p.y]);
         let opacity = visual.opacity.unwrap_or(1.0);
@@ -1864,7 +1856,7 @@ impl Pipeline {
                 let mut color = visual.shadow_color.unwrap_or_default();
                 // DCompブレンド時の濃さの補正
                 let mut has_active_visual_parent = false;
-                let mut curr_id = entity_id;
+                let mut curr_id = e;
                 while let Some(parent_id) = *cx.topology.topo_parents.at(curr_id) {
                     if cx
                         .topology

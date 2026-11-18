@@ -300,15 +300,9 @@
 //! For consumer applications, safe read access is provided through immutable getters such as [`d3d11_device(&self)`](MichiuRenderer::d3d11_device) and [`surface(&self)`](WgpuRenderer::surface).
 
 mod atlas;
-mod composed_renderer;
-mod dcomp;
-mod gpu;
 mod text;
 
 pub use atlas::*;
-pub use composed_renderer::*;
-pub(crate) use dcomp::*;
-pub use gpu::*;
 pub use text::*;
 
 use crate::{Color, CornerRadius, EdgeInsets, Entity, LayoutRect, LinearGradientInner};
@@ -395,10 +389,10 @@ pub enum RenderQueue<'a> {
 }
 
 #[derive(Debug)]
-pub(crate) struct RendererView<'a> {
-    pub(crate) render_data: &'a mut RenderData,
-    pub(crate) atlases: &'a mut Atlases,
-    pub(crate) queue: &'a RenderQueue<'a>,
+pub struct RendererView<'a> {
+    pub render_data: &'a mut RenderData,
+    pub atlases: &'a mut Atlases,
+    pub queue: &'a RenderQueue<'a>,
 }
 
 #[derive(Default, Debug, Clone, PartialEq)]

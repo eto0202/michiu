@@ -1,4 +1,4 @@
-#![expect(clippy::unreachable, unused)]
+#![expect(clippy::unreachable)]
 
 use crate::{Entity, RenderQueue, TextCacheKey, TextCacheValue};
 use cosmic_text::SwashContent;
@@ -53,16 +53,17 @@ impl From<AtlasTypes> for AtlasFormat {
 
 #[derive(Debug, Clone)]
 pub struct Atlases {
-    pub(crate) mask_atlas: TextureAtlas,
-    pub(crate) color_atlas: TextureAtlas,
-    pub(crate) user_atlas: TextureAtlas,
-    pub(crate) temp_uv_map: SecondaryMap<Entity, [f32; 4]>,
-    pub(crate) text_cache: FxHashMap<TextCacheKey, TextCacheValue>,
-    pub(crate) user_mask_cache: FxHashMap<(u64, u32, u32), [f32; 4]>,
+    pub mask_atlas: TextureAtlas,
+    pub color_atlas: TextureAtlas,
+    pub user_atlas: TextureAtlas,
+    pub temp_uv_map: SecondaryMap<Entity, [f32; 4]>,
+    pub text_cache: FxHashMap<TextCacheKey, TextCacheValue>,
+    pub user_mask_cache: FxHashMap<(u64, u32, u32), [f32; 4]>,
 }
 impl Atlases {
     #[inline]
-    pub(crate) fn new_gpu(device: &wgpu::Device) -> Self {
+    #[must_use]
+    pub fn new_gpu(device: &wgpu::Device) -> Self {
         Self {
             mask_atlas: TextureAtlas::new_gpu(2048, AtlasTypes::Mask, device),
             color_atlas: TextureAtlas::new_gpu(2048, AtlasTypes::Color, device),
@@ -74,7 +75,8 @@ impl Atlases {
     }
 
     #[inline]
-    pub(crate) fn new_cpu() -> Self {
+    #[must_use]
+    pub fn new_cpu() -> Self {
         Self {
             mask_atlas: TextureAtlas::new_cpu(2048, AtlasTypes::Mask),
             color_atlas: TextureAtlas::new_cpu(2048, AtlasTypes::Color),
@@ -86,7 +88,7 @@ impl Atlases {
     }
 
     #[inline]
-    pub(crate) fn atlas(&self, types: impl Into<AtlasTypes>) -> &TextureAtlas {
+    pub fn atlas(&self, types: impl Into<AtlasTypes>) -> &TextureAtlas {
         match types.into() {
             AtlasTypes::Mask => &self.mask_atlas,
             AtlasTypes::Color => &self.color_atlas,
@@ -95,7 +97,7 @@ impl Atlases {
     }
 
     #[inline]
-    pub(crate) fn atlas_mut(&mut self, types: impl Into<AtlasTypes>) -> &mut TextureAtlas {
+    pub fn atlas_mut(&mut self, types: impl Into<AtlasTypes>) -> &mut TextureAtlas {
         match types.into() {
             AtlasTypes::Mask => &mut self.mask_atlas,
             AtlasTypes::Color => &mut self.color_atlas,
@@ -104,7 +106,7 @@ impl Atlases {
     }
 
     #[inline]
-    pub(crate) fn allocate(
+    pub fn allocate(
         &mut self,
         types: impl Into<AtlasTypes>,
         width: u32,
@@ -114,12 +116,12 @@ impl Atlases {
     }
 
     #[inline]
-    pub(crate) fn size(&self, types: impl Into<AtlasTypes>) -> u32 {
+    pub fn size(&self, types: impl Into<AtlasTypes>) -> u32 {
         self.atlas(types).size
     }
 
     #[inline]
-    pub(crate) fn write_region(
+    pub fn write_region(
         &mut self,
         types: impl Into<AtlasTypes>,
         queue: &RenderQueue<'_>,
@@ -134,7 +136,7 @@ impl Atlases {
     }
 
     #[inline]
-    pub(crate) fn texel_to_uv(
+    pub fn texel_to_uv(
         &self,
         types: impl Into<AtlasTypes>,
         x: u32,
@@ -146,7 +148,7 @@ impl Atlases {
     }
 
     #[inline]
-    pub(crate) fn atlas_clear(&mut self) {
+    pub fn atlas_clear(&mut self) {
         self.mask_atlas.clear();
         self.color_atlas.clear();
         self.text_cache.clear();
@@ -160,7 +162,8 @@ pub enum AtlasFormat {
 }
 
 impl AtlasFormat {
-    pub(crate) const fn bytes_per_pixel(self) -> usize {
+    #[must_use]
+    pub const fn bytes_per_pixel(self) -> usize {
         match self {
             Self::R8 => 1,
             Self::Rgba8 => 4,
@@ -183,7 +186,8 @@ pub enum AtlasStorage {
 }
 impl AtlasStorage {
     #[inline]
-    pub(crate) fn view(&self) -> &wgpu::TextureView {
+    #[must_use]
+    pub fn view(&self) -> &wgpu::TextureView {
         match self {
             AtlasStorage::Gpu { view, .. } => view,
             AtlasStorage::Cpu { .. } => unreachable!(),
@@ -191,7 +195,8 @@ impl AtlasStorage {
     }
 
     #[inline]
-    pub(crate) fn sampler(&self) -> &wgpu::Sampler {
+    #[must_use]
+    pub fn sampler(&self) -> &wgpu::Sampler {
         match self {
             AtlasStorage::Gpu { sampler, .. } => sampler,
             AtlasStorage::Cpu { .. } => unreachable!(),
@@ -199,7 +204,8 @@ impl AtlasStorage {
     }
 
     #[inline]
-    pub(crate) fn new_cpu(size: u32, atlas_types: AtlasTypes) -> Self {
+    #[must_use]
+    pub fn new_cpu(size: u32, atlas_types: AtlasTypes) -> Self {
         let total_bytes = size as usize * size as usize * atlas_types.to_format().bytes_per_pixel();
         Self::Cpu {
             data: vec![0; total_bytes],
@@ -207,7 +213,8 @@ impl AtlasStorage {
     }
 
     #[inline]
-    pub(crate) fn new_gpu(size: u32, device: &wgpu::Device, format: wgpu::TextureFormat) -> Self {
+    #[must_use]
+    pub fn new_gpu(size: u32, device: &wgpu::Device, format: wgpu::TextureFormat) -> Self {
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Texture Atlas"),
             size: wgpu::Extent3d {
@@ -254,7 +261,8 @@ pub struct TextureAtlas {
 
 impl TextureAtlas {
     #[inline]
-    pub(crate) fn new_cpu(size: u32, atlas_types: AtlasTypes) -> Self {
+    #[must_use]
+    pub fn new_cpu(size: u32, atlas_types: AtlasTypes) -> Self {
         let storage = AtlasStorage::new_cpu(size, atlas_types);
         Self {
             storage,
@@ -267,7 +275,8 @@ impl TextureAtlas {
         }
     }
     #[inline]
-    pub(crate) fn new_gpu(size: u32, atlas_types: AtlasTypes, device: &wgpu::Device) -> Self {
+    #[must_use]
+    pub fn new_gpu(size: u32, atlas_types: AtlasTypes, device: &wgpu::Device) -> Self {
         let storage = AtlasStorage::new_gpu(size, device, atlas_types.to_wgpu());
         Self {
             storage,
@@ -282,7 +291,7 @@ impl TextureAtlas {
 
     #[inline]
     #[expect(clippy::cast_possible_truncation)]
-    pub(crate) fn write_region(
+    pub fn write_region(
         &mut self,
         queue: &RenderQueue<'_>,
         x: u32,
@@ -334,7 +343,7 @@ impl TextureAtlas {
     }
 
     /// 新しい要素のための領域をアトラス上に確保し、座標を返す
-    pub(crate) fn allocate(&mut self, width: u32, height: u32) -> Option<(u32, u32)> {
+    pub fn allocate(&mut self, width: u32, height: u32) -> Option<(u32, u32)> {
         let padded_w = width + self.padding;
         let padded_h = height + self.padding;
 
@@ -361,7 +370,7 @@ impl TextureAtlas {
     }
 
     #[inline]
-    pub(crate) fn clear(&mut self) {
+    pub fn clear(&mut self) {
         self.current_x = 0;
         self.current_y = 0;
         self.row_max_height = 0;
@@ -373,13 +382,8 @@ impl TextureAtlas {
     /// ピクセル座標を NDC (0.0 ~ 1.0) の UV 座標に変換する
     #[expect(clippy::cast_precision_loss)]
     #[inline]
-    pub(crate) fn texel_to_uv(
-        &self,
-        x: u32,
-        y: u32,
-        width: u32,
-        height: u32,
-    ) -> ([f32; 2], [f32; 2]) {
+    #[must_use]
+    pub fn texel_to_uv(&self, x: u32, y: u32, width: u32, height: u32) -> ([f32; 2], [f32; 2]) {
         let s = self.size as f32;
         (
             [x as f32 / s, y as f32 / s],

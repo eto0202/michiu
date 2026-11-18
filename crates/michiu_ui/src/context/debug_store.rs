@@ -11,7 +11,7 @@ use crate::{
     DndDropPropertiesSparse, EffectId, EffectToEntitySecondary, EffectiveZindicesSecondary,
     ElementState, EntitiesSlot, Entity, EntityEffectsSecondary, ExternalTextureSparse,
     ExternalVisualSparse, FlexLayoutsSecondary, InputContentsSparse,
-    InteractionPropertiesSecondary, LayoutPoint, LayoutRect, LayoutSize, MichiuRenderer,
+    InteractionPropertiesSecondary, LayoutPoint, LayoutRect, LayoutSize, 
     MichiuString, MichiuTagRegistry, Modifiers, MouseButton, ParentsSecondary, PendingActions,
     PendingEntityEffectsVec, PrevClipRectsSecondary, PrevRectsSecondary, ProvidersSparseSecondary,
     QuadInstance, RectsSecondary, RenderData, ResizingState, ResolvedBasicSecondary,
@@ -21,7 +21,7 @@ use crate::{
     TextCacheValue, TextContentsSparse, TextSelectionsSparse, TextSpansSparse, TextureAtlas,
     VirtualKey, VisualPropertiesSecondary,
 };
-use crate::{ExternalMaskSparse, FlatDfsSequence, PendingDcompRelease};
+use crate::{ExternalMaskSparse, FlatDfsSequence};
 use cosmic_text::Buffer;
 use rustc_hash::FxHashMap;
 use slotmap::{SecondaryMap, SparseSecondaryMap};
@@ -37,8 +37,6 @@ use std::{
     time::{Duration, Instant},
 };
 use thiserror::Error;
-#[cfg(feature = "snapshot")]
-use windows_core::Interface;
 
 // ================================================================
 // ================================================================
@@ -717,7 +715,6 @@ pub struct RendererViewTrace {
     pub user_atlas: TextureAtlas,
     pub text_cache: FxHashMap<TextCacheKey, TextCacheValue>,
     pub user_mask_cache: FxHashMap<(u64, u32, u32), [f32; 4]>,
-    pub queue: wgpu::Queue,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -856,8 +853,6 @@ pub struct MichiuTraceRecord {
     pub trace: MichiuTrace,
     #[cfg(feature = "snapshot")]
     pub cx: Option<Arc<ContextSnapshot>>,
-    #[cfg(feature = "snapshot")]
-    pub renderer: Option<Arc<RendererSnapshot>>,
 }
 
 // ================================================================
@@ -908,8 +903,6 @@ macro_rules! _make_record {
             trace: $trace,
             #[cfg(feature = "snapshot")]
             cx: None,
-            #[cfg(feature = "snapshot")]
-            renderer: None,
         }
     };
 }
@@ -1014,9 +1007,8 @@ macro_rules! trace_entity {
 #[cfg(feature = "snapshot")]
 #[macro_export]
 macro_rules! flush_trace {
-    ($cx:expr, $r:expr) => {
+    ($cx:expr) => {
         let _: &Context = $cx;
-        let _: &MichiuRenderer = $r;
 
         if let Some(ref tx) = $cx.debug.dbg_tx.clone() {
             $cx.debug.frame += 1;
@@ -1028,9 +1020,6 @@ macro_rules! flush_trace {
                 loc: $crate::caller_location(),
                 trace: $crate::MichiuTrace::Snapshot,
                 cx: Some(std::sync::Arc::new($crate::ContextSnapshot::flush($cx))),
-                renderer: Some(std::sync::Arc::new($crate::RendererSnapshot::flush(
-                    $cx, $r,
-                ))),
             };
             $cx.debug.dbg_trace_queue.push(record);
             if let Some(batch) = $cx.debug.take_trace_queue() {
@@ -1229,78 +1218,6 @@ pub struct OutputStoreSnapshot {
     pub out_prev_clip_rects: PrevClipRectsSecondary,
 }
 
-#[derive(Clone)]
-pub struct RendererSnapshot {
-    pub frame: u64,
-    pub wgpu: WgpuRendererSnapshot,
-    pub dcomp: ComposedRendererSnapshot,
-}
-
-#[derive(Clone)]
-pub struct WgpuRendererSnapshot {
-    pub device: wgpu::Device,
-    pub queue: wgpu::Queue,
-    pub config: wgpu::SurfaceConfiguration,
-    pub pipeline: wgpu::RenderPipeline,
-    pub punchout_pipeline: wgpu::RenderPipeline,
-    pub vertex_buffer: wgpu::Buffer,
-    pub index_buffer: wgpu::Buffer,
-    pub instance_buffer: wgpu::Buffer,
-    pub instance_buffer_capacity: usize,
-    pub instance_staging: Vec<QuadInstance>,
-    pub config_buffer: wgpu::Buffer,
-    pub config_bind_group: wgpu::BindGroup,
-    pub config_bind_group_layout: wgpu::BindGroupLayout,
-    pub mask_atlas: TextureAtlas,
-    pub color_atlas: TextureAtlas,
-    pub temp_uv_map: SecondaryMap<Entity, [f32; 4]>,
-    pub text_cache: FxHashMap<TextCacheKey, TextCacheValue>,
-    pub render_data: RenderData,
-    pub external_bind_groups: FxHashMap<Entity, (wgpu::TextureView, wgpu::BindGroup)>,
-}
-
-#[derive(Clone)]
-pub struct ComposedRendererSnapshot {
-    pub hwnd: usize,
-    pub sync: WindowSynchronizerSnapshot,
-    pub platform: PlatformContextSnapshot,
-    pub workspace: DCompWorkspaceSnapshot,
-    pub current_backdrop: Backdrop,
-}
-
-#[derive(Clone)]
-pub struct WindowSynchronizerSnapshot {
-    pub window_size: LayoutSize,
-    pub scale_factor: f32,
-    pub resize_cooldown_frames: u32,
-}
-
-#[derive(Clone)]
-pub struct PlatformContextSnapshot {
-    pub d3d11: usize,
-    pub dcomp: usize,
-    pub compositor: usize,
-    pub wic: usize,
-    pub controller: usize,
-}
-
-#[derive(Clone)]
-pub struct DCompWorkspaceSnapshot {
-    pub target: usize,
-    pub root_visual: usize,
-    pub wgpu_visual: usize,
-    pub promoted_visuals: Vec<PromotedVisualSnapshot>,
-    pub pending_releases: Vec<PendingDcompRelease>,
-}
-
-#[derive(Debug, Clone)]
-pub struct PromotedVisualSnapshot {
-    pub entity_id: Entity,
-    pub visual: usize,
-    pub transform: Option<usize>,
-    pub is_visible: bool,
-}
-
 // ================================================================
 // ================================================================
 
@@ -1412,73 +1329,6 @@ impl ContextSnapshot {
                 out_clip_rects: cx.outputs.out_clip_rects.clone(),
                 out_prev_rects: cx.outputs.out_prev_rects.clone(),
                 out_prev_clip_rects: cx.outputs.out_prev_clip_rects.clone(),
-            },
-        }
-    }
-}
-
-// ================================================================
-// ================================================================
-
-#[cfg(feature = "snapshot")]
-impl RendererSnapshot {
-    #[inline]
-    pub(crate) fn flush(cx: &Context, r: &MichiuRenderer) -> Self {
-        Self {
-            frame: cx.debug.frame,
-            wgpu: WgpuRendererSnapshot {
-                device: r.wgpu_renderer.device.clone(),
-                queue: r.wgpu_renderer.queue.clone(),
-                config: r.wgpu_renderer.config.clone(),
-                pipeline: r.wgpu_renderer.pipeline.clone(),
-                punchout_pipeline: r.wgpu_renderer.punchout_pipeline.clone(),
-                vertex_buffer: r.wgpu_renderer.vertex_buffer.clone(),
-                index_buffer: r.wgpu_renderer.index_buffer.clone(),
-                instance_buffer: r.wgpu_renderer.instance_buffer.clone(),
-                instance_buffer_capacity: r.wgpu_renderer.instance_buffer_capacity,
-                instance_staging: r.wgpu_renderer.instance_staging.clone(),
-                config_buffer: r.wgpu_renderer.config_buffer.clone(),
-                config_bind_group: r.wgpu_renderer.config_bind_group.clone(),
-                config_bind_group_layout: r.wgpu_renderer.config_bind_group_layout.clone(),
-                mask_atlas: r.wgpu_renderer.mask_atlas.clone(),
-                color_atlas: r.wgpu_renderer.color_atlas.clone(),
-                temp_uv_map: r.wgpu_renderer.temp_uv_map.clone(),
-                text_cache: r.wgpu_renderer.text_cache.clone(),
-                render_data: r.wgpu_renderer.render_data.clone(),
-                external_bind_groups: r.wgpu_renderer.external_bind_groups.clone(),
-            },
-            dcomp: ComposedRendererSnapshot {
-                hwnd: r.hwnd.0 as usize,
-                sync: WindowSynchronizerSnapshot {
-                    window_size: r.sync.window_size,
-                    scale_factor: r.sync.scale_factor,
-                    resize_cooldown_frames: r.sync.resize_cooldown_frames,
-                },
-                platform: PlatformContextSnapshot {
-                    d3d11: r.platform.d3d11.as_raw() as usize,
-                    dcomp: r.platform.dcomp.as_raw() as usize,
-                    compositor: r.platform.compositor.as_raw() as usize,
-                    wic: r.platform.wic.as_raw() as usize,
-                    controller: r.platform.controller.as_raw() as usize,
-                },
-                workspace: DCompWorkspaceSnapshot {
-                    target: r.workspace.target.as_raw() as usize,
-                    root_visual: r.workspace.root_visual.as_raw() as usize,
-                    wgpu_visual: r.workspace.wgpu_visual.as_raw() as usize,
-                    promoted_visuals: r
-                        .workspace
-                        .promoted_visuals
-                        .iter()
-                        .map(|p| PromotedVisualSnapshot {
-                            entity_id: p.entity_id,
-                            visual: p.visual.as_raw() as usize,
-                            transform: p.transform.clone().map(|t| t.as_raw() as usize),
-                            is_visible: p.is_visible,
-                        })
-                        .collect(),
-                    pending_releases: r.workspace.pending_releases.clone(),
-                },
-                current_backdrop: r.current_backdrop,
             },
         }
     }
@@ -1618,6 +1468,9 @@ pub enum MichiuError {
         #[from]
         source: wgpu::RequestDeviceError,
     },
+
+    #[error("Failded request device type")]
+    RequestDeviceTypeError,
 
     #[error("Failed to create D3D11 hardware device.")]
     D3d11DeviceCreationFailed,
@@ -1965,8 +1818,6 @@ mod tests {
             trace: MichiuTrace::None,
             #[cfg(feature = "snapshot")]
             cx: None,
-            #[cfg(feature = "snapshot")]
-            renderer: None,
         }
     }
 

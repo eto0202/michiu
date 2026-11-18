@@ -303,7 +303,7 @@ pub(crate) fn with_context<R>(f: impl FnOnce(&mut Context) -> R) -> R {
 
 // コンテキストを復元するための一時的なガード構造体
 #[allow(unused)]
-pub(crate) struct ContextGuard {
+pub struct ContextGuard {
     // drop 時にログを出すために自身がバインドしたポインタを保持
     current: *mut Context,
     // drop 時に復元するために過去のポインタを保持

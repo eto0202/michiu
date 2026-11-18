@@ -129,12 +129,16 @@
 //! For consumer applications, safe read access is provided through immutable getters such as [`d3d11_device(&self)`](MichiuRenderer::d3d11_device) and [`surface(&self)`](WgpuRenderer::surface).
 
 use crate::{
-    ActiveEntitiesVec, Backdrop, Context, DCompWorkspace, Entity, ExternalVisual, InteractionState,
-    LayoutPoint, LayoutSize, MichiuSoA, PendingDcompRelease, PlatformContext, PromotedVisual,
-    PropertyList, RawWgpuRenderer, RendererUserConfig, ResultTraceExt, VisualPropertiesSecondary,
-    VisualUpdateContext, WgpuRenderer, WindowSynchronizer, flush_trace,
+    ActiveBackend, CpuRenderer, CurrentBackend, RawWgpuRenderer, RendererBackend,
+    RendererUserConfig, WgpuRenderer,
+    dcomp::{
+        DCompWorkspace, PendingDcompRelease, PlatformContext, PromotedVisual, WindowSynchronizer,
+    },
 };
-use std::sync::Arc;
+use michiu_ui::{
+    Backdrop, Context, ExternalVisual, LayoutPoint, LayoutSize, ResultTraceExt,
+    VisualUpdateContext, flush_trace,
+};
 use windows::{
     System::DispatcherQueueController,
     UI::Composition::Compositor,
@@ -157,8 +161,8 @@ pub struct MichiuRenderer {
     pub(crate) sync: WindowSynchronizer,
     pub(crate) platform: PlatformContext,
     pub(crate) workspace: DCompWorkspace,
-    // wgpu レンダラー
-    pub(crate) wgpu_renderer: WgpuRenderer,
+    pub(crate) active_backend: ActiveBackend,
+    pub(crate) current_backend: CurrentBackend,
     // 現在ウィンドウに適用中のバックドロップ状態
     pub(crate) current_backdrop: Backdrop,
 }
@@ -177,12 +181,12 @@ impl MichiuRenderer {
         hwnd: HWND,
         window_size: LayoutSize,
         scale_factor: f32,
-    ) -> crate::Result<Self> {
+    ) -> michiu_ui::Result<Self> {
         Self::with_config(
             hwnd,
             window_size,
             scale_factor,
-            RendererUserConfig::default(),
+            &RendererUserConfig::default(),
         )
         .await
     }
@@ -195,22 +199,71 @@ impl MichiuRenderer {
     /// - **DirectComposition / D3D11 failure**: Failed to create the D3D11 device, or compositor resources (targets, visuals) could not be configured (e.g., unsupported GPU or invalid HWND).
     /// - **WIC initialization failure**: Failed to instantiate the WIC imaging factory (e.g., COM is not initialized on this thread).
     /// - **wgpu initialization failure**: Failed to request a suitable GPU adapter or create the logical device.
+    #[expect(clippy::print_stderr)]
     pub async fn with_config(
         hwnd: HWND,
         window_size: LayoutSize,
         scale_factor: f32,
-        user_config: RendererUserConfig,
-    ) -> crate::Result<Self> {
+        user_config: &RendererUserConfig,
+    ) -> michiu_ui::Result<Self> {
         let sync = WindowSynchronizer::new(window_size, scale_factor);
         let platform = PlatformContext::new()?;
         let workspace = DCompWorkspace::new(hwnd, &platform.dcomp, user_config.target_layer)?;
 
-        // wgpu レンダラーの初期化
-        let raw_visual_ptr = workspace.wgpu_visual.as_raw();
-        let wgpu_renderer = unsafe {
-            WgpuRenderer::with_config(raw_visual_ptr, window_size, scale_factor, user_config)
-        }
-        .await?;
+        let active_backend = match user_config.backend {
+            RendererBackend::Dx12 => {
+                let gpu = unsafe {
+                    WgpuRenderer::with_config(
+                        workspace.wgpu_visual.as_raw(),
+                        window_size,
+                        scale_factor,
+                        user_config,
+                    )
+                }
+                .await?;
+                ActiveBackend::Gpu(Box::new(gpu))
+            }
+            RendererBackend::Cpu => {
+                let cpu = CpuRenderer::with_config(
+                    &workspace.wgpu_visual,
+                    window_size,
+                    scale_factor,
+                    user_config,
+                );
+                ActiveBackend::Cpu(Box::new(cpu))
+            }
+            RendererBackend::Auto => {
+                let result = unsafe {
+                    WgpuRenderer::with_config(
+                        workspace.wgpu_visual.as_raw(),
+                        window_size,
+                        scale_factor,
+                        user_config,
+                    )
+                }
+                .await;
+
+                match result {
+                    Ok(gpu) => ActiveBackend::Gpu(Box::new(gpu)),
+                    Err(e) => {
+                        #[cfg(debug_assertions)]
+                        eprintln!(
+                            "GPU initialization failed ({e:?}), falling back to CPU renderer."
+                        );
+
+                        let cpu = CpuRenderer::with_config(
+                            &workspace.wgpu_visual,
+                            window_size,
+                            scale_factor,
+                            user_config,
+                        );
+                        ActiveBackend::Cpu(Box::new(cpu))
+                    }
+                }
+            }
+        };
+
+        let current_backend = active_backend.kind();
 
         platform.commit()?;
 
@@ -220,7 +273,8 @@ impl MichiuRenderer {
             current_backdrop: Backdrop::None,
             platform: platform.clone(),
             workspace,
-            wgpu_renderer,
+            active_backend,
+            current_backend,
         })
     }
 
@@ -230,7 +284,7 @@ impl MichiuRenderer {
     #[inline]
     pub fn resize(&mut self, p_width: u32, p_height: u32, scale_factor: f32) {
         self.sync.resize(p_width, p_height, scale_factor);
-        self.wgpu_renderer.resize(p_width, p_height, scale_factor);
+        self.active_backend.resize(p_width, p_height, scale_factor);
         let _ = self.platform.commit();
     }
 
@@ -238,63 +292,14 @@ impl MichiuRenderer {
     #[track_caller]
     #[inline]
     pub fn draw(&mut self, cx: &mut Context) {
-        self.wgpu_renderer.render(cx, self.sync.scale_factor);
+        self.active_backend.render(cx, self.sync.scale_factor);
 
-        self.platform.commit().unwrap_or_trace(None, &mut cx.debug);
-
-        #[cfg(feature = "trace-lifecycle")]
-        crate::trace_lifecycle!(None, &mut cx.debug, || crate::MichiuTrace::Commit {
-            add: None
-        });
-
-        #[cfg(feature = "trace-lifecycle")]
-        {
-            let total_entities = cx.topology.topo_entities.len();
-            let active_entities = cx.topology.topo_active_entities.len();
-            let dirty_layouts = cx.layouts.lay_dirty_entities.len();
-            let dirty_renders = cx.renders.rnd_dirty_entities.len();
-
-            #[cfg(feature = "trace-lifecycle")]
-            crate::trace_lifecycle!(None, &mut cx.debug, || {
-                crate::MichiuTrace::ClearDirtyEntities {
-                    total_entities,
-                    active_entities,
-                    dirty_layouts,
-                    dirty_renders,
-                    add: Some(
-                        "Immediately after this recording, the dirty flag is cleared and the log is sent.",
-                    ),
-                }
-            });
-        }
+        self.platform.commit().unwrap_or_trace(None, cx.debug());
 
         // ダーティフラグをクリア
         cx.clear_dirty();
         // ログを送信
-        flush_trace!(cx, self);
-    }
-
-    #[inline]
-    fn update_backdrop(
-        &mut self,
-        topo_active_entities: &ActiveEntitiesVec,
-        rnd_visual: &VisualPropertiesSecondary,
-    ) {
-        // ルート要素（root_node）のスタイルから DWM アクリル効果を自動検出して同期
-        let Some(&root_id) = topo_active_entities.first() else {
-            return;
-        };
-        let Some(visual_prop) = rnd_visual.find(root_id) else {
-            return;
-        };
-
-        let target_backdrop = visual_prop.backdrop;
-
-        // スタイル変更があった場合のみ、拡張した apply_system_backdrop を即時更新
-        if self.current_backdrop != target_backdrop {
-            apply_system_backdrop(self.hwnd, target_backdrop);
-            self.current_backdrop = target_backdrop;
-        }
+        // flush_trace!(cx, self);
     }
 
     #[track_caller]
@@ -303,7 +308,12 @@ impl MichiuRenderer {
             self.sync.resize_cooldown_frames -= 1;
         }
 
-        self.update_backdrop(&cx.topology.topo_active_entities, &cx.renders.rnd_visual);
+        // スタイル変更があった場合のみ、拡張した apply_system_backdrop を即時更新
+        let target_backdrop = cx.target_backdrop();
+        if self.current_backdrop != target_backdrop {
+            apply_system_backdrop(self.hwnd, target_backdrop);
+            self.current_backdrop = target_backdrop;
+        }
 
         // 遅延キューの消化処理（1〜3フレーム目）
         self.workspace.processing_delay_queue();
@@ -311,25 +321,20 @@ impl MichiuRenderer {
         // 外部 Visual の一括更新 ＆ アクティブ判定
         let mut current_promoted_ids = Vec::new();
         // ループの前にスナップショットを取得
-        let visual_entries: Vec<(Entity, Arc<dyn ExternalVisual>)> = cx
-            .contents
-            .cont_external_visual
-            .iter()
-            .map(|(id, v)| (id, Arc::clone(v)))
-            .collect();
+        let visual_entries = cx.external_visual_entries();
 
-        for (id, visual_entry) in visual_entries {
-            let rect = cx.outputs.out_rects.find_or_default(id, &mut cx.debug);
+        for (e, visual_entry) in visual_entries {
+            let rect = cx.rect(e);
             let ex_visual = visual_entry.resolve_visual();
             let metadata = visual_entry.metadata();
 
             // 安定状態の判定
-            let is_interactive = is_entity_interactive(cx, id);
-            let is_transitioning = is_entity_transitioning(cx, id);
-            let prev_rect = cx.outputs.out_prev_rects.find_or_default(id, &mut cx.debug);
+            let is_interactive = cx.is_entity_interactive(e);
+            let is_transitioning = cx.is_entity_transitioning(e);
+            let prev_rect = cx.prev_rect(e);
             let is_size_changing = (rect.width - prev_rect.width).abs() > 0.01
                 || (rect.height - prev_rect.height).abs() > 0.01;
-            let is_stable = !cx.window.win_is_resized
+            let is_stable = !cx.window_is_resized()
                 && self.sync.resize_cooldown_frames == 0
                 && !is_transitioning
                 && !is_size_changing;
@@ -341,52 +346,33 @@ impl MichiuRenderer {
                 scale_factor: self.sync.scale_factor,
                 is_interactive,
                 is_stable,
-                device: &self.wgpu_renderer.device,
-                queue: &self.wgpu_renderer.queue,
+                device: self.active_backend.gpu().map(|f| &f.device),
+                queue: self.active_backend.gpu().map(|f| &f.queue),
                 wic_factory: &self.platform.wic,
             });
 
             // DComp Visual のレイアウト（位置・クリップ・トランスフォーム）を同期
-            self.sync.sync_visual_layout_and_clip(
-                id,
+            michiu_ui::sync_external_visual_layout_and_clip(
+                cx,
+                self.scale_factor(),
+                e,
                 &ex_visual,
                 metadata,
                 &self.platform.dcomp,
-                cx.window.win_is_resized,
-                &cx.renders.rnd_visual,
-                &cx.renders.rnd_active_transitions,
-                &cx.outputs.out_rects,
-                &cx.outputs.out_prev_rects,
-                &cx.outputs.out_clip_rects,
-                &cx.outputs.out_prev_clip_rects,
-                &mut cx.debug,
             );
 
             // 静止画テクスチャがあるかどうかで分岐
             if let Some(static_tex) = visual_entry.static_texture() {
-                self.workspace.processing_static_texture(
-                    id,
-                    static_tex,
-                    &mut cx.topology.topo_active_masks,
-                    &mut cx.contents.cont_external_textures,
-                    &mut cx.renders.rnd_active_external_visual,
-                );
+                self.workspace.processing_static_texture(cx, e, static_tex);
             } else {
                 // 実体表示
-                current_promoted_ids.push(id);
-                self.workspace.processing_punchout_visual(
-                    id,
-                    ex_visual,
-                    &mut cx.topology.topo_active_masks,
-                    &mut cx.contents.cont_external_textures,
-                    &mut cx.renders.rnd_active_external_visual,
-                );
+                current_promoted_ids.push(e);
+                self.workspace.processing_punchout_visual(cx, e, ex_visual);
             }
         }
 
         // アクティブから消えた（要素がデスポーンした）Visual をクリーンアップ
-        self.workspace
-            .cleanup_visuals(&current_promoted_ids, &cx.topology.topo_entities);
+        self.workspace.cleanup_visuals(cx, &current_promoted_ids);
     }
 
     /// Identifies the topmost `ExternalVisual` based on physical pixel coordinates
@@ -402,7 +388,7 @@ impl MichiuRenderer {
         window_phys_pos: LayoutPoint,
         scale_factor: f32,
     ) -> bool {
-        crate::dispatch_raw_input_to_external_visual(
+        michiu_ui::dispatch_raw_input_to_external_visual(
             cx,
             msg,
             wparam,
@@ -513,14 +499,22 @@ impl MichiuRenderer {
 
     #[inline]
     #[must_use]
-    pub fn wgpu_renderer(&self) -> &WgpuRenderer {
-        &self.wgpu_renderer
+    pub fn active_backend(&self) -> &ActiveBackend {
+        &self.active_backend
     }
 
     #[inline]
     #[must_use]
-    pub fn raw_wgpu_renderer_mut(&mut self) -> RawWgpuRenderer<'_> {
-        self.wgpu_renderer.raw_wgpu_renderer_mut()
+    pub fn current_backend(&self) -> &CurrentBackend {
+        &self.current_backend
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn raw_wgpu_renderer_mut(&mut self) -> Option<RawWgpuRenderer<'_>> {
+        self.active_backend
+            .gpu_mut()
+            .map(|f| f.raw_wgpu_renderer_mut())
     }
 
     #[inline]
@@ -577,39 +571,6 @@ pub struct RawMichiuRenderer<'a> {
     pub pending_dcomp_releases: &'a mut Vec<PendingDcompRelease>,
     pub current_backdrop: &'a mut Backdrop,
     pub resize_cooldown_frames: &'a mut u32,
-}
-
-#[track_caller]
-fn is_entity_interactive(cx: &Context, id: Entity) -> bool {
-    let is_focused = cx.interaction_id(InteractionState::Focused) == Some(id);
-    let is_pressed = cx.interaction_id(InteractionState::Pressed) == Some(id);
-    is_focused || is_pressed
-}
-
-fn is_entity_transitioning(cx: &Context, id: Entity) -> bool {
-    cx.renders
-        .rnd_active_transitions
-        .find(id)
-        .is_some_and(|list| {
-            list.iter().any(|t| {
-                t.property_list == PropertyList::Width
-                    || t.property_list == PropertyList::Height
-                    || t.property_list == PropertyList::Size
-                    || t.property_list == PropertyList::Transform
-            })
-        })
-        || cx
-            .renders
-            .rnd_active_animations
-            .find(id)
-            .is_some_and(|list| {
-                list.iter().any(|a| {
-                    a.property == PropertyList::Width
-                        || a.property == PropertyList::Height
-                        || a.property == PropertyList::Size
-                        || a.property == PropertyList::Transform
-                })
-            })
 }
 
 // フレーム拡張用構造体

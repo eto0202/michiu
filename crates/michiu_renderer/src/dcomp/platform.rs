@@ -1,4 +1,4 @@
-use crate::MichiuError;
+use michiu_ui::MichiuError;
 use std::sync::OnceLock;
 use windows::{
     System::DispatcherQueueController,
@@ -38,7 +38,7 @@ unsafe impl Sync for PlatformContext {}
 
 impl PlatformContext {
     #[inline]
-    pub(crate) fn new() -> crate::Result<&'static Self> {
+    pub(crate) fn new() -> michiu_ui::Result<&'static Self> {
         static INSTANCE: OnceLock<PlatformContext> = OnceLock::new();
 
         if let Some(manager) = INSTANCE.get() {
@@ -59,7 +59,7 @@ impl PlatformContext {
     }
 
     #[inline]
-    fn try_create_devices() -> crate::Result<Self> {
+    fn try_create_devices() -> michiu_ui::Result<Self> {
         let controller = Self::create_dispatcher_queue()?;
 
         // D3D11 デバイスを作成
@@ -99,7 +99,7 @@ impl PlatformContext {
     }
 
     #[inline]
-    fn create_dispatcher_queue() -> crate::Result<DispatcherQueueController> {
+    fn create_dispatcher_queue() -> michiu_ui::Result<DispatcherQueueController> {
         // DispatcherQueue を現在のスレッド（UIスレッド）に作成
         #[expect(clippy::as_conversions, clippy::cast_possible_truncation)]
         let options = DispatcherQueueOptions {
@@ -114,7 +114,7 @@ impl PlatformContext {
     }
 
     #[inline]
-    pub(crate) fn commit(&self) -> crate::Result<()> {
+    pub(crate) fn commit(&self) -> michiu_ui::Result<()> {
         unsafe {
             self.dcomp
                 .Commit()

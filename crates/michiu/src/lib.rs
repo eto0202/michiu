@@ -226,6 +226,7 @@
 //! ```
 use crate::{
     guard::Validated,
+    renderer::MichiuRenderer,
     ui::{CapacityConfig, CharIndex, ImeState, prelude::*, raw_wheel_delta_to_logical_pixels},
     window::{ImeStateUpdate, PhysicalPoint, PhysicalSize, WheelDelta, WindowHandle, prelude::*},
 };
@@ -252,8 +253,13 @@ pub use michiu_guard as guard;
 #[doc(inline)]
 pub use michiu_window as window;
 
+#[cfg(feature = "renderer")]
+#[doc(inline)]
+pub use michiu_renderer as renderer;
+
 pub mod prelude {
     pub use crate::guard::{Unvalidated, Validate, Validated};
+    pub use crate::renderer::prelude::*;
     pub use crate::ui::prelude::*;
     pub use crate::window::prelude::*;
     pub use crate::*;
@@ -986,6 +992,8 @@ impl MichiuApp {
         if let Some(_paint) = self.window.begin_paint() {
             self.renderer.draw(&mut self.context);
         }
+
+        self.context.flush_trace();
 
         if self.config.accessibility_support {
             self.context.update_accessibility();

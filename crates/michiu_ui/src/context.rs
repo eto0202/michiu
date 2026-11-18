@@ -156,9 +156,7 @@ pub use window_store::*;
 #[cfg(feature = "trace-lifecycle")]
 use crate::trace_lifecycle;
 use crate::{
-    BasicLayout, ComponentMask, CursorIcon, Entity, FlexLayout, InteractionState, LayoutPoint,
-    LayoutRect, LayoutSize, MichiuSoA, ReadSignal, TextEngine, VisualProperty, WriteSignal,
-    a11y::A11yInferenceTag, bind_context, handle_on_click,
+    Backdrop, BasicLayout, ComponentMask, ContextGuard, CursorIcon, Entity, ExternalTexture, ExternalVisual, FlexLayout, InteractionState, LayoutPoint, LayoutRect, LayoutSize, MichiuSoA, PropertyList, QuadInstance, ReadSignal, RendererView, TextEngine, VisualProperty, WriteSignal, a11y::A11yInferenceTag, bind_context, flush_trace, handle_on_click,
 };
 use std::{borrow::Cow, sync::Arc};
 use windows::Win32::Foundation::HWND;
@@ -358,6 +356,21 @@ impl Context {
             &mut self.acce,
             &mut self.debug,
         );
+    }
+
+    #[inline]
+    pub fn bind_context(&mut self) -> ContextGuard {
+        bind_context(self)
+    }
+
+    #[inline]
+    pub fn debug(&mut self) -> &mut DebugStore {
+        &mut self.debug
+    }
+
+    #[inline]
+    pub fn flush_trace(&mut self) {
+        flush_trace!(self);
     }
 
     /// Sets the margin for visibility checks outside the window bounds (builder format).
@@ -591,16 +604,119 @@ impl Context {
         );
     }
 
+    #[inline]
+    pub fn contains_entities(&self, e: Entity) -> bool {
+        self.topology.topo_entities.contains_key(e)
+    }
+
     /// Get the absolute coordinates of the specified entity on the screen.
     #[inline]
-    pub fn rect(&self, e: Entity) -> Option<LayoutRect> {
+    pub fn rect(&mut self, e: Entity) -> LayoutRect {
+        self.outputs.out_rects.find_or_default(e, &mut self.debug)
+    }
+
+    /// Get the absolute coordinates of the specified entity on the screen.
+    #[inline]
+    pub fn try_rect(&self, e: Entity) -> Option<LayoutRect> {
         self.outputs.out_rects.find(e).copied()
+    }
+
+    #[inline]
+    pub fn prev_rect(&mut self, e: Entity) -> LayoutRect {
+        self.outputs
+            .out_prev_rects
+            .find_or_default(e, &mut self.debug)
+    }
+
+    #[inline]
+    pub fn try_prev_rect(&self, e: Entity) -> Option<LayoutRect> {
+        self.outputs.out_prev_rects.find(e).copied()
     }
 
     /// Get the on-screen clipping boundary of the specified entity.
     #[inline]
-    pub fn clip_rect(&self, e: Entity) -> Option<LayoutRect> {
+    pub fn clip_rect(&mut self, e: Entity) -> LayoutRect {
+        self.outputs
+            .out_clip_rects
+            .find_or_default(e, &mut self.debug)
+    }
+
+    /// Get the on-screen clipping boundary of the specified entity.
+    #[inline]
+    pub fn try_clip_rect(&self, e: Entity) -> Option<LayoutRect> {
         self.outputs.out_clip_rects.find(e).copied()
+    }
+
+    #[inline]
+    pub fn target_backdrop(&mut self) -> Backdrop {
+        let root_id = self.topology.topo_active_entities.first().unwrap_or_trace(
+            None,
+            &mut self.debug,
+            || MichiuError::RootEntityNotFound,
+        );
+        let visual_prop = self.renders.rnd_visual.find(*root_id).unwrap_or_trace(
+            Some(*root_id),
+            &mut self.debug,
+            || MichiuError::ComponentNotFound {
+                id: *root_id,
+                component: "rnd_visual",
+            },
+        );
+        visual_prop.backdrop
+    }
+
+    #[inline]
+    pub fn try_target_backdrop(&self) -> Option<Backdrop> {
+        let root_id = self.topology.topo_active_entities.first()?;
+        let visual_prop = self.renders.rnd_visual.find(*root_id)?;
+        Some(visual_prop.backdrop)
+    }
+
+    #[inline]
+    pub fn external_textures(&self) -> Vec<(Entity, Arc<dyn ExternalTexture + 'static>)> {
+        self.contents
+            .cont_external_textures
+            .iter()
+            .map(|(entity, texture)| (entity, texture.clone()))
+            .collect()
+    }
+
+    #[inline]
+    pub fn set_external_textures(
+        &mut self,
+        e: Entity,
+        static_tex: Arc<dyn ExternalTexture + 'static>,
+    ) {
+        self.contents.cont_external_textures.insert(e, static_tex);
+        self.topology
+            .topo_active_masks
+            .at_mut(e)
+            .set(ComponentMask::COMP_EXTERNAL_TEXTURE_CONTENT);
+        self.renders.rnd_active_external_visual.remove(&e);
+    }
+
+    #[inline]
+    pub fn unset_external_textures(&mut self, e: Entity) {
+        self.topology
+            .topo_active_masks
+            .at_mut(e)
+            .unset(ComponentMask::COMP_EXTERNAL_TEXTURE_CONTENT);
+        self.renders.rnd_active_external_visual.insert(e);
+        self.contents.cont_external_textures.remove(e);
+    }
+
+    #[inline]
+    pub fn external_visual_despawned_queue(&self) -> Vec<Entity> {
+        self.topology.topo_despawned_queue.iter().copied().collect()
+    }
+
+    #[inline]
+    pub fn external_visual_entries(&self) -> Vec<(Entity, Arc<dyn ExternalVisual + 'static>)> {
+        self.contents
+            .cont_external_visual
+            .iter()
+            .map(|(id, v)| (id, Arc::clone(v)))
+            .collect()
     }
 
     /// Whether any part of the `Entity`'s visible area overlaps with the window area (i.e., whether it is visible).
@@ -1122,6 +1238,54 @@ impl Context {
     #[inline]
     pub fn sync_layout(&mut self, root: Entity, window_size: LayoutSize) {
         Pipeline::sync_layout(self, root, window_size);
+    }
+
+    #[inline]
+    pub fn collect_render_data(&mut self, view: &mut RendererView) {
+        Pipeline::collect_render_data(self, view);
+    }
+
+    #[inline]
+    pub fn build_quad_instance_for_entity(
+        &mut self,
+        e: Entity,
+        instance: &QuadInstance,
+    ) -> QuadInstance {
+        Pipeline::build_quad_instance_for_entity(self, e, instance)
+    }
+
+    #[inline]
+    pub fn is_entity_interactive(&self, id: Entity) -> bool {
+        let is_focused = self.interaction_id(InteractionState::Focused) == Some(id);
+        let is_pressed = self.interaction_id(InteractionState::Pressed) == Some(id);
+        is_focused || is_pressed
+    }
+
+    #[inline]
+    pub fn is_entity_transitioning(&self, id: Entity) -> bool {
+        self.renders
+            .rnd_active_transitions
+            .find(id)
+            .is_some_and(|list| {
+                list.iter().any(|t| {
+                    t.property_list == PropertyList::Width
+                        || t.property_list == PropertyList::Height
+                        || t.property_list == PropertyList::Size
+                        || t.property_list == PropertyList::Transform
+                })
+            })
+            || self
+                .renders
+                .rnd_active_animations
+                .find(id)
+                .is_some_and(|list| {
+                    list.iter().any(|a| {
+                        a.property == PropertyList::Width
+                            || a.property == PropertyList::Height
+                            || a.property == PropertyList::Size
+                            || a.property == PropertyList::Transform
+                    })
+                })
     }
 
     /// Update accessibility. This must be called after the layout is calculated.

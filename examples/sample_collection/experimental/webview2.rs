@@ -278,8 +278,8 @@ impl ExternalVisual for WebView2Visual {
         {
             *self.is_capturing.borrow_mut() = true;
 
-            let device = cx.device.clone();
-            let queue = cx.queue.clone();
+            let device = cx.device.cloned();
+            let queue = cx.queue.cloned();
             let wic_factory = cx.wic_factory.clone();
             let size = LayoutSize::new(cx.rect.width, cx.rect.height);
 
@@ -767,8 +767,8 @@ impl WebView2Visual {
         webview: &ICoreWebView2,
         width: u32,
         height: u32,
-        wgpu_device: wgpu::Device,
-        wgpu_queue: wgpu::Queue,
+        wgpu_device: Option<wgpu::Device>,
+        wgpu_queue: Option<wgpu::Queue>,
         wic_factory: IWICImagingFactory,
         on_complete: F,
     ) -> michiu::ui::Result<()>
@@ -803,8 +803,8 @@ impl WebView2Visual {
 
                     // ストリームから HGLOBAL をクエリして WIC で PMA (BGRA8) にデコード
                     let texture_res = Self::process_captured_stream(
-                        &wgpu_device,
-                        &wgpu_queue,
+                        wgpu_device,
+                        wgpu_queue,
                         &wic_factory,
                         &stream_clone,
                         width,
@@ -824,8 +824,8 @@ impl WebView2Visual {
     /// 内部ヘルパー: ストリームに書き込まれた PNG バイト列を WIC で高速に BGRA8 ピクセル配列にデコードし、
     /// `wgpu::Texture` を作成してアップロード
     unsafe fn process_captured_stream(
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
+        device: Option<wgpu::Device>,
+        queue: Option<wgpu::Queue>,
         wic_factory: &IWICImagingFactory,
         stream: &IStream,
         width: u32,
@@ -900,7 +900,7 @@ impl WebView2Visual {
             let _ = GlobalUnlock(hglobal);
 
             // 新規 wgpu::Texture の生成
-            let wgpu_texture = device.create_texture(&wgpu::TextureDescriptor {
+            let wgpu_texture = device.unwrap().create_texture(&wgpu::TextureDescriptor {
                 label: Some("WebView2 Static Cache Texture"),
                 size: wgpu::Extent3d {
                     width,
@@ -916,7 +916,7 @@ impl WebView2Visual {
             });
 
             // VRAM へのアップロード
-            queue.write_texture(
+            queue.unwrap().write_texture(
                 wgpu::TexelCopyTextureInfo {
                     texture: &wgpu_texture,
                     mip_level: 0,

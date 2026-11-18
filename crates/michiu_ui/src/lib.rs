@@ -446,7 +446,6 @@ pub mod prelude {
         m,
         modifier::Modifier,
         pipeline::{EventAction, TickType},
-        renderer::MichiuRenderer,
         scrollbar::{ScrollbarDisplay, ScrollbarMode, ScrollbarStyle},
         signal::{ReadSignal, SignalId, WriteSignal},
         types::{
