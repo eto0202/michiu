@@ -6,7 +6,6 @@ pub trait ExternalTexture: Send + Sync {
     /// this function returns the latest [`wgpu::TextureView`] that should be rendered in this frame.
     fn resolve_view(&self, device: &wgpu::Device, queue: &wgpu::Queue) -> wgpu::TextureView;
 
-    // 未実装の場合は false
     fn resolve_cpu(&self, _f: &mut dyn FnMut(CpuTextureView<'_>)) {}
 
     /// Retrieve the metadata that controls the rendering method.
@@ -49,16 +48,16 @@ pub enum ExternalTextureCompositingMode {
     NonLinear(f32),
 }
 
-/// CPU レンダリング用のピクセル表現
+// CPU レンダリング用のピクセル表現
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum CpuTextureFormat {
-    /// Premultiplied RGBA8
+    // Premultiplied RGBA8
     PremultipliedRgba8,
-    /// 完全不透明な RGBA8
+    // 完全不透明な RGBA8
     OpaqueRgba8,
-    /// ストレート RGBA8
+    // ストレート RGBA8
     StraightRgba8,
-    /// BGRA8
+    // BGRA8
     Bgra8,
 }
 

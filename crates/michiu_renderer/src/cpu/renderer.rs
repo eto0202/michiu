@@ -1,10 +1,12 @@
-use crate::dcomp::PlatformContext;
-use crate::{MichiuRendererResult, Renderer, RendererUserConfig};
+use std::sync::Arc;
+
+use crate::{MichiuRendererResult, Renderer, RendererUserConfig, dcomp::PlatformContext};
 use michiu_ui::{
-    Atlases, BatchType, Context, LayoutRect, LayoutSize, QuadInstance, RenderData, RenderQueue,
-    RendererView,
+    Atlases, BatchType, Context, Entity, ExternalTexture, LayoutRect, LayoutSize, QuadInstance,
+    RenderData, RenderQueue, RendererView,
 };
-use tiny_skia::{BlendMode, FillRule, Mask, Paint, PathBuilder, Pixmap, Transform};
+use rustc_hash::FxHashMap;
+use tiny_skia::{BlendMode, Mask, Paint, Pixmap};
 use windows::{
     Win32::Graphics::{
         Direct3D11::{ID3D11DeviceContext, ID3D11Texture2D},
@@ -30,6 +32,8 @@ pub struct CpuRenderer {
     instance_staging: Vec<QuadInstance>,
     atlases: Atlases,
     render_data: RenderData,
+    external_textures: FxHashMap<Entity, Arc<dyn ExternalTexture>>,
+    scratch_buf: Vec<u8>,
 }
 
 impl CpuRenderer {
@@ -97,6 +101,8 @@ impl CpuRenderer {
             instance_staging: Vec::with_capacity(64),
             atlases: Atlases::new_cpu(),
             render_data: RenderData::new(),
+            external_textures: FxHashMap::default(),
+            scratch_buf: Vec::new(),
         })
     }
 
@@ -106,7 +112,7 @@ impl CpuRenderer {
             .as_chunks_mut::<4>()
             .0
             .iter_mut()
-            .zip(self.pixmap.data().chunks_exact(4))
+            .zip(self.pixmap.data().as_chunks::<4>().0)
             .for_each(|(dst, src)| {
                 dst[0] = src[2]; // B
                 dst[1] = src[1]; // G
@@ -132,7 +138,9 @@ impl CpuRenderer {
     #[inline]
     pub(crate) fn update_external_texture(&mut self, cx: &mut Context) {
         for (e, provider) in &cx.external_textures() {
-            provider.resolve_cpu(&mut |tex| {});
+            provider.resolve_cpu(&mut |tex| {
+                todo!();
+            });
         }
     }
 }
@@ -165,9 +173,11 @@ impl Renderer for CpuRenderer {
     fn render(&mut self, cx: &mut Context, scale_factor: f32) {
         let _context_guard = cx.bind_context();
 
+        // 破棄された要素のキャッシュを解放
         for e in cx.external_visual_despawned_queue().drain(..) {
-            // TODO: 破棄された要素のキャッシュを解放
+            self.external_textures.remove(&e);
         }
+
         // 前面と背面に分類されたバッチを Context から引き出す
         cx.collect_render_data(&mut RendererView {
             render_data: &mut self.render_data,
@@ -176,6 +186,8 @@ impl Renderer for CpuRenderer {
         });
 
         if self.render_data.batches.is_empty() {
+            self.pixmap.fill(tiny_skia::Color::TRANSPARENT);
+            let _ = self.present();
             return;
         }
 
@@ -192,7 +204,6 @@ impl Renderer for CpuRenderer {
 
         self.pixmap.fill(tiny_skia::Color::TRANSPARENT);
 
-        // TODO ここにインスタンス描画ループを入れる
         for batch in &render_data.batches {
             if batch.instance_count == 0 {
                 continue;
@@ -220,28 +231,12 @@ impl Renderer for CpuRenderer {
                     };
 
                     for inst in instances {
-                        if let Some((path, xform)) =
-                            build_quad_path_and_transform(inst, scale_factor)
-                        {
-                            self.pixmap.fill_path(
-                                &path,
-                                &clear_paint,
-                                FillRule::Winding,
-                                xform,
-                                mask,
-                            );
-                        }
+                        todo!();
                     }
                 }
                 BatchType::Normal => {
                     for inst in instances {
-                        draw_quad_instance(
-                            &mut self.pixmap,
-                            inst,
-                            &self.atlases,
-                            scale_factor,
-                            mask,
-                        );
+                        todo!();
                     }
                 }
             }
@@ -284,103 +279,4 @@ fn prepare_scissor_mask(
         }
     }
     Some(clip_mask)
-}
-
-fn build_rounded_rect_path(rect: tiny_skia::Rect, radii: [f32; 4]) -> Option<tiny_skia::Path> {
-    let mut pb = PathBuilder::new();
-    pb.close();
-    pb.finish()
-}
-
-fn build_instance_transform(inst: &QuadInstance, scale_factor: f32) -> Transform {
-    let m = inst.transform;
-    let is_zero = m.iter().flatten().all(|&v| v == 0.0);
-    let base = if is_zero {
-        Transform::identity()
-    } else {
-        let ox = inst.rect.x + inst.rect.width * inst.transform_origin[0];
-        let oy = inst.rect.y + inst.rect.height * inst.transform_origin[1];
-        let local = Transform::from_row(m[0][0], m[1][0], m[0][1], m[1][1], m[0][3], m[1][3]);
-
-        Transform::from_translate(ox, oy)
-            .pre_concat(local)
-            .pre_translate(-ox, -oy)
-    };
-    Transform::from_scale(scale_factor, scale_factor).pre_concat(base)
-}
-
-fn build_quad_path_and_transform(
-    inst: &QuadInstance,
-    scale_factor: f32,
-) -> Option<(tiny_skia::Path, Transform)> {
-    let rect =
-        tiny_skia::Rect::from_xywh(inst.rect.x, inst.rect.y, inst.rect.width, inst.rect.height)?;
-    let radii = [
-        inst.corner_radius.top_left,
-        inst.corner_radius.top_right,
-        inst.corner_radius.bottom_right,
-        inst.corner_radius.bottom_left,
-    ];
-    let path = build_rounded_rect_path(rect, radii)?;
-    let transform = build_instance_transform(inst, scale_factor);
-    Some((path, transform))
-}
-
-fn to_skia_color(c: michiu_ui::Color, opacity: f32) -> Option<tiny_skia::Color> {
-    let a = (c.a * opacity).clamp(0.0, 1.0);
-    if a <= 0.0 {
-        return None;
-    }
-    tiny_skia::Color::from_rgba(
-        c.r.clamp(0.0, 1.0),
-        c.g.clamp(0.0, 1.0),
-        c.b.clamp(0.0, 1.0),
-        a,
-    )
-}
-
-fn draw_quad_instance(
-    pixmap: &mut Pixmap,
-    inst: &QuadInstance,
-    atlases: &Atlases,
-    scale_factor: f32,
-    mask: Option<&Mask>,
-) {
-    let opacity = inst.opacity_mode_sizing[0].clamp(0.0, 1.0);
-    if opacity <= 0.0 {
-        return;
-    }
-
-    let Some(rect) =
-        tiny_skia::Rect::from_xywh(inst.rect.x, inst.rect.y, inst.rect.width, inst.rect.height)
-    else {
-        return;
-    };
-    let radii = [
-        inst.corner_radius.top_left,
-        inst.corner_radius.top_right,
-        inst.corner_radius.bottom_right,
-        inst.corner_radius.bottom_left,
-    ];
-    let transform = build_instance_transform(inst, scale_factor);
-
-    // shadow
-    if let Some(sc) = to_skia_color(inst.shadow_color, opacity) {}
-
-    // 単色 / グラデーション / アトラス
-    if let Some(fill_path) = build_rounded_rect_path(rect, radii) {
-        let mode = inst.opacity_mode_sizing[1] as u32;
-        match mode {
-            0 => {}
-            1 => {}
-            2 => {}
-            _ => {}
-        }
-    }
-
-    // Border
-    if let Some(bc) = to_skia_color(inst.border_color, opacity) {}
-
-    // Outline
-    if let Some(oc) = to_skia_color(inst.outline_color, opacity) {}
 }

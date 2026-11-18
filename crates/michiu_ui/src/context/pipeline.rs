@@ -1901,9 +1901,9 @@ impl Pipeline {
             border_width: instance.border_width,
             border_color: visual.border_color.unwrap_or_default(),
             border_lengths,
-            opacity_mode_sizing: [
+            opacity_mode_sizing_border: [
                 opacity,
-                instance.opacity_mode_sizing[1], // mode (背景=0.0/1.0, テキスト=2.0, 静止WebView=3.0 等)
+                instance.opacity_mode_sizing_border[1], // mode (背景=0.0/1.0, テキスト=2.0, 静止WebView=3.0 等)
                 box_sizing_val,
                 border_flags as f32,
             ],
@@ -2435,7 +2435,7 @@ impl Pipeline {
             transform_origin: params.transform_origin,
             color: Color::WHITE,
             corner_radius: params.corner_radius,
-            opacity_mode_sizing: [params.opacity, 0.0, 0.0, 0.0],
+            opacity_mode_sizing_border: [params.opacity, 0.0, 0.0, 0.0],
             ..Default::default()
         };
 
@@ -2451,7 +2451,7 @@ impl Pipeline {
             corner_radius: params.corner_radius,
             border_width: params.border_width,
             border_color: params.border_color,
-            opacity_mode_sizing: [params.opacity, 0.0, 0.0, 0.0],
+            opacity_mode_sizing_border: [params.opacity, 0.0, 0.0, 0.0],
             transform_origin: params.transform_origin,
             border_lengths: params.border_lengths,
             outline_width: params.outline_width,
@@ -2477,7 +2477,7 @@ impl Pipeline {
             corner_radius: params.corner_radius,
             border_width: params.border_width,
             border_color: params.border_color,
-            opacity_mode_sizing: [params.opacity, 0.0, 0.0, 0.0],
+            opacity_mode_sizing_border: [params.opacity, 0.0, 0.0, 0.0],
             transform_origin: params.transform_origin,
             shadow_color: Color::WHITE,
             border_lengths: params.border_lengths,
@@ -2521,7 +2521,7 @@ impl Pipeline {
                 rect: sel_rect,
                 transform: params.transform,
                 color: sel_bg,
-                opacity_mode_sizing: [params.opacity, -1.0, 0.0, 0.0],
+                opacity_mode_sizing_border: [params.opacity, -1.0, 0.0, 0.0],
                 ..Default::default()
             };
             render_data.push(id, sel_instance);
@@ -2554,7 +2554,7 @@ impl Pipeline {
             border_width: params.border_width,
             border_color: params.border_color,
             border_lengths: params.border_lengths,
-            opacity_mode_sizing: [params.opacity, bg_mode, params.box_sizing_val, 0.0],
+            opacity_mode_sizing_border: [params.opacity, bg_mode, params.box_sizing_val, 0.0],
             gradient,
             shadow_color: Color::WHITE,
             shadow_params: [0.0; 4],
@@ -2655,7 +2655,7 @@ impl Pipeline {
             transform: params.transform,
             transform_origin: params.transform_origin,
             color: icon_color,
-            opacity_mode_sizing: [params.opacity, 2.0, params.box_sizing_val, 0.0],
+            opacity_mode_sizing_border: [params.opacity, 2.0, params.box_sizing_val, 0.0],
             is_color_atlas_pad: [2.0, 0.0],
             uv_min,
             uv_max,
@@ -2702,7 +2702,7 @@ impl Pipeline {
                         rect: sel_rect,
                         transform: params.transform,
                         color: bg_color,
-                        opacity_mode_sizing: [params.opacity, -1.0, 0.0, 0.0],
+                        opacity_mode_sizing_border: [params.opacity, -1.0, 0.0, 0.0],
                         ..Default::default()
                     };
                     render_data.push(id, sel_instance);
@@ -2779,7 +2779,7 @@ impl Pipeline {
                     transform: params.transform,
                     transform_origin: params.transform_origin,
                     color: char_color,
-                    opacity_mode_sizing: [params.opacity, 2.0, params.box_sizing_val, 0.0],
+                    opacity_mode_sizing_border: [params.opacity, 2.0, params.box_sizing_val, 0.0],
                     is_color_atlas_pad: [atlas_mode, 0.0],
                     uv_min: value.uv_min,
                     uv_max: value.uv_max,
@@ -2843,7 +2843,7 @@ impl Pipeline {
                         rect: st_rect,
                         transform: params.transform,
                         color: st_color,
-                        opacity_mode_sizing: [params.opacity, -1.0, 0.0, 0.0],
+                        opacity_mode_sizing_border: [params.opacity, -1.0, 0.0, 0.0],
                         ..Default::default()
                     };
                     render_data.push(id, st_instance);
@@ -2881,7 +2881,7 @@ impl Pipeline {
                                 rect: LayoutRect::new(temp_x, seg_y, seg_w, 1.0),
                                 transform: params.transform,
                                 color: ul_color,
-                                opacity_mode_sizing: [params.opacity, -1.0, 0.0, 0.0],
+                                opacity_mode_sizing_border: [params.opacity, -1.0, 0.0, 0.0],
                                 ..Default::default()
                             };
                             render_data.push(id, wave_instance);
@@ -2896,7 +2896,7 @@ impl Pipeline {
                             rect: ul_rect,
                             transform: params.transform,
                             color: ul_color,
-                            opacity_mode_sizing: [params.opacity, -1.0, 0.0, 0.0],
+                            opacity_mode_sizing_border: [params.opacity, -1.0, 0.0, 0.0],
                             ..Default::default()
                         };
                         render_data.push(id, ul_instance);
@@ -2957,7 +2957,7 @@ impl Pipeline {
             rect: caret_rect,
             transform: params.transform,
             color: c_color,
-            opacity_mode_sizing: [params.opacity, -1.0, 0.0, 0.0],
+            opacity_mode_sizing_border: [params.opacity, -1.0, 0.0, 0.0],
             ..Default::default()
         };
 
@@ -2980,7 +2980,7 @@ impl Pipeline {
             border_width: params.border_width,
             border_color: params.border_color,
             border_lengths: params.border_lengths,
-            opacity_mode_sizing: [params.opacity, 0.0, params.box_sizing_val, 0.0],
+            opacity_mode_sizing_border: [params.opacity, 0.0, params.box_sizing_val, 0.0],
             outline_width: params.outline_width,
             outline_color: params.outline_color,
             outline_lengths: params.outline_lengths,
@@ -3019,7 +3019,7 @@ impl Pipeline {
             rect: params.geom.rect,
             transform: params.transform,
             corner_radius: params.corner_radius,
-            opacity_mode_sizing: [params.opacity, 4.0, 0.0, 0.0], // 外部テクスチャ
+            opacity_mode_sizing_border: [params.opacity, 4.0, 0.0, 0.0], // 外部テクスチャ
             transform_origin: params.transform_origin,
             uv_min: [0.0, 0.0],
             uv_max: [1.0, 1.0],
