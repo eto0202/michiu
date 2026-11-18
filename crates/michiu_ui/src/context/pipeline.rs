@@ -1996,7 +1996,7 @@ impl Pipeline {
             .find_root()
             .unwrap_or_trace(None, &mut cx.debug, || MichiuUiError::RootEntityNotFound);
 
-        let focused_id = cx.interaction_id(InteractionState::Focused);
+        let focused_id = cx.interacted_entity(InteractionState::Focused);
 
         cx.acce.send_snapshot(AccessibilitySnapshot {
             root_id: root_id.into(),

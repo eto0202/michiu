@@ -1071,13 +1071,29 @@ impl Context {
 
     /// Get the `Entity` of the entity currently being interacted with.
     #[inline]
-    pub fn interaction_id(&self, interaction: InteractionState) -> Option<Entity> {
-        match interaction {
+    pub fn interacted_entity(&self, state: InteractionState) -> Option<Entity> {
+        match state {
             InteractionState::Hovered => self.events.evt_interaction_states.hovered,
             InteractionState::Focused => self.events.evt_interaction_states.focused,
             InteractionState::Pressed => self.events.evt_interaction_states.pressed,
             InteractionState::Dragged => self.events.evt_interaction_states.dragged,
         }
+    }
+    #[inline]
+    pub fn hovered_entity(&self) -> Option<Entity> {
+        self.events.evt_interaction_states.hovered
+    }
+    #[inline]
+    pub fn pressed_entity(&self) -> Option<Entity> {
+        self.events.evt_interaction_states.pressed
+    }
+    #[inline]
+    pub fn focused_entity(&self) -> Option<Entity> {
+        self.events.evt_interaction_states.focused
+    }
+    #[inline]
+    pub fn dragged_entity(&self) -> Option<Entity> {
+        self.events.evt_interaction_states.dragged
     }
 
     /// Programmatically click the specified entity.
@@ -1185,30 +1201,13 @@ impl Context {
 
     /// Sets the interaction state ([`InteractionState`]).
     #[inline]
-    pub fn interaction_states(&mut self, e: Option<Entity>, interaction: InteractionState) {
+    pub fn interaction_states(&mut self, e: Entity, interaction: InteractionState) {
         match interaction {
-            InteractionState::Hovered => self.events.evt_interaction_states.hovered = e,
-            InteractionState::Focused => self.events.evt_interaction_states.focused = e,
-            InteractionState::Pressed => self.events.evt_interaction_states.pressed = e,
-            InteractionState::Dragged => self.events.evt_interaction_states.dragged = e,
+            InteractionState::Hovered => self.events.evt_interaction_states.hovered = Some(e),
+            InteractionState::Focused => self.events.evt_interaction_states.focused = Some(e),
+            InteractionState::Pressed => self.events.evt_interaction_states.pressed = Some(e),
+            InteractionState::Dragged => self.events.evt_interaction_states.dragged = Some(e),
         }
-    }
-
-    #[inline]
-    pub fn hovered_entity(&self) -> Option<Entity> {
-        self.events.evt_interaction_states.hovered
-    }
-    #[inline]
-    pub fn pressed_entity(&self) -> Option<Entity> {
-        self.events.evt_interaction_states.pressed
-    }
-    #[inline]
-    pub fn focused_entity(&self) -> Option<Entity> {
-        self.events.evt_interaction_states.focused
-    }
-    #[inline]
-    pub fn dragged_entity(&self) -> Option<Entity> {
-        self.events.evt_interaction_states.dragged
     }
 
     /// Call it in the corresponding event and add the user action to the queue ([`EventAction`]).
@@ -1303,8 +1302,8 @@ impl Context {
 
     #[inline]
     pub fn is_entity_interactive(&self, id: Entity) -> bool {
-        let is_focused = self.interaction_id(InteractionState::Focused) == Some(id);
-        let is_pressed = self.interaction_id(InteractionState::Pressed) == Some(id);
+        let is_focused = self.interacted_entity(InteractionState::Focused) == Some(id);
+        let is_pressed = self.interacted_entity(InteractionState::Pressed) == Some(id);
         is_focused || is_pressed
     }
 

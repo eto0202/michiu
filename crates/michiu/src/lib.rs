@@ -645,11 +645,11 @@ impl MichiuApp {
 
         let has_hovered = self
             .context
-            .interaction_id(InteractionState::Hovered)
+            .interacted_entity(InteractionState::Hovered)
             .is_some();
         let has_focused = self
             .context
-            .interaction_id(InteractionState::Focused)
+            .interacted_entity(InteractionState::Focused)
             .is_some();
 
         match raw.msg {
@@ -1026,7 +1026,7 @@ impl MichiuApp {
         }
 
         let target_cursor =
-            if let Some(hovered) = self.context.interaction_id(InteractionState::Hovered) {
+            if let Some(hovered) = self.context.interacted_entity(InteractionState::Hovered) {
                 self.context.resolve_cursor(hovered)
             } else {
                 CursorIcon::Default(None)
