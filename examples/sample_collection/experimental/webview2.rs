@@ -1,7 +1,7 @@
 use michiu::ui::{
     Color, ExternalTexture, ExternalTextureAlphaMode, ExternalTextureCompositingMode,
     ExternalTextureMetadata, ExternalVisual, ExternalVisualMetadata, LayoutRect, LayoutSize,
-    MichiuError, MichiuTaskSender, StaticExternalTexture, VisualUpdateContext,
+    MichiuTaskSender, MichiuUiError, StaticExternalTexture, VisualUpdateContext,
 };
 use std::{
     borrow::Cow,
@@ -403,7 +403,7 @@ impl WebView2Visual {
         contents: WebView2Contents,
         scale_factor: f32,
         task_sender: &MichiuTaskSender,
-    ) -> michiu::ui::Result<Self> {
+    ) -> michiu::ui::MichiuUiResult<Self> {
         let visual: IDCompositionVisual2 = unsafe { dcomp_device.CreateVisual()?.cast()? };
         let controller = Rc::new(RefCell::new(None));
 
@@ -468,7 +468,7 @@ impl WebView2Visual {
         settings: &WebView2Contents,
         env_slot: Option<ICoreWebView2Environment3>,
         sys_task_sender: &MichiuTaskSender,
-    ) -> michiu::ui::Result<()> {
+    ) -> michiu::ui::MichiuUiResult<()> {
         let webview_visual_clone = webview_visual.clone();
         let controller_slot_clone = controller_slot.clone();
         let settings_clone = settings.clone();
@@ -771,9 +771,9 @@ impl WebView2Visual {
         wgpu_queue: Option<wgpu::Queue>,
         wic_factory: IWICImagingFactory,
         on_complete: F,
-    ) -> michiu::ui::Result<()>
+    ) -> michiu::ui::MichiuUiResult<()>
     where
-        F: FnOnce(michiu::ui::Result<wgpu::Texture>) + 'static,
+        F: FnOnce(michiu::ui::MichiuUiResult<wgpu::Texture>) + 'static,
     {
         unsafe {
             // メモリ上に COM の IStream を作成
@@ -830,14 +830,14 @@ impl WebView2Visual {
         stream: &IStream,
         width: u32,
         height: u32,
-    ) -> michiu::ui::Result<wgpu::Texture> {
+    ) -> michiu::ui::MichiuUiResult<wgpu::Texture> {
         unsafe {
             let hglobal = GetHGlobalFromStream(stream)?;
             let data_ptr = GlobalLock(hglobal);
 
             // ポインタが null の場合は早期リターン
             if data_ptr.is_null() {
-                return Err(MichiuError::GlobalLockFailed);
+                return Err(MichiuUiError::GlobalLockFailed);
             }
 
             let size = GlobalSize(hglobal);
@@ -845,7 +845,7 @@ impl WebView2Visual {
             // 正常な PNG ファイルとして不十分なサイズの場合は即座にエラーとする
             if size < 128 {
                 let _ = GlobalUnlock(hglobal);
-                return Err(MichiuError::InvalidImageData);
+                return Err(MichiuUiError::InvalidImageData);
             }
 
             let png_bytes = std::slice::from_raw_parts(data_ptr as *const u8, size);

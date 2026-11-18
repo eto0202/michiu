@@ -376,7 +376,7 @@ fn test_window_handle_generation_and_validation_lifecycle() {
 
         // すでに解体済みのウィンドウハンドルを再度バリデーションにかける
         let raw_handle_recovered = Unvalidated::new(validated_handle.into_inner());
-        let stale_validation_result: Result<Validated<WindowHandle>> =
+        let stale_validation_result: MichiuWindowResult<Validated<WindowHandle>> =
             raw_handle_recovered.try_into();
 
         // OS上の破棄を検知して確実にエラー（InvalidHandleState）になることを検証
@@ -387,7 +387,7 @@ fn test_window_handle_generation_and_validation_lifecycle() {
         assert!(
             matches!(
                 stale_validation_result.unwrap_err(),
-                MichiuError::InvalidHandleState { .. }
+                MichiuWindowError::InvalidHandleState { .. }
             ),
             "Expected InvalidHandleState error"
         );
@@ -479,7 +479,7 @@ fn test_raw_subclass_normal_and_abnormal_lifecycle() {
         assert!(
             matches!(
                 bad_register_result.unwrap_err(),
-                MichiuError::SubclassSetupFailed { .. }
+                MichiuWindowError::SubclassSetupFailed { .. }
             ),
             "Expected SubclassSetupFailed error type"
         );

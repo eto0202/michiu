@@ -534,7 +534,7 @@ impl Context {
     #[inline]
     pub fn current(&mut self) -> Entity {
         self.try_current()
-            .unwrap_or_trace(None, &mut self.debug, || MichiuError::NoActiveEntity)
+            .unwrap_or_trace(None, &mut self.debug, || MichiuUiError::NoActiveEntity)
     }
 
     /// Mark the specified entity as drity, causing it to redraw and re-render.
@@ -669,12 +669,12 @@ impl Context {
         let root_id = self.topology.topo_active_entities.first().unwrap_or_trace(
             None,
             &mut self.debug,
-            || MichiuError::RootEntityNotFound,
+            || MichiuUiError::RootEntityNotFound,
         );
         let visual_prop = self.renders.rnd_visual.find(*root_id).unwrap_or_trace(
             Some(*root_id),
             &mut self.debug,
-            || MichiuError::ComponentNotFound {
+            || MichiuUiError::ComponentNotFound {
                 id: *root_id,
                 component: "rnd_visual",
             },
@@ -860,7 +860,7 @@ impl Context {
     #[inline]
     pub fn use_provided_setter<T: Send + 'static>(&mut self) -> WriteSignal<T> {
         let entity = ReactiveStore::resolve_entity_effect(&self.reactive.react_effect_to_entity)
-            .unwrap_or_trace(None, &mut self.debug, || MichiuError::ScopeViolation {
+            .unwrap_or_trace(None, &mut self.debug, || MichiuUiError::ScopeViolation {
                 caller: "use_provided_setter",
             });
 
@@ -870,7 +870,7 @@ impl Context {
             &self.topology.topo_parents,
         )
         .unwrap_or_trace(Some(entity), &mut self.debug, || {
-            MichiuError::EntityNotFound { id: entity }
+            MichiuUiError::EntityNotFound { id: entity }
         })
     }
 
@@ -893,7 +893,7 @@ impl Context {
     #[inline]
     pub fn use_provided<T: Clone + 'static>(&mut self) -> ReadSignal<T> {
         let entity = ReactiveStore::resolve_entity_effect(&self.reactive.react_effect_to_entity)
-            .unwrap_or_trace(None, &mut self.debug, || MichiuError::ScopeViolation {
+            .unwrap_or_trace(None, &mut self.debug, || MichiuUiError::ScopeViolation {
                 caller: "use_provided",
             });
 
@@ -903,7 +903,7 @@ impl Context {
             &self.topology.topo_parents,
         )
         .unwrap_or_trace(Some(entity), &mut self.debug, || {
-            MichiuError::EntityNotFound { id: entity }
+            MichiuUiError::EntityNotFound { id: entity }
         })
     }
 
@@ -1279,7 +1279,7 @@ impl Context {
     }
 
     #[inline]
-    pub fn has_active_transform(&self,e: Entity) -> bool {
+    pub fn has_active_transform(&self, e: Entity) -> bool {
         self.renders
             .rnd_active_transitions
             .find(e)

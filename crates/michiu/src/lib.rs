@@ -990,7 +990,11 @@ impl MichiuApp {
         self.renderer.update_composition_tree(&mut self.context);
 
         if let Some(_paint) = self.window.begin_paint() {
-            self.renderer.draw(&mut self.context);
+            let result = self.renderer.draw(&mut self.context);
+            #[cfg(debug_assertions)]
+            if let Err(e) = result {
+                eprintln!("MichiuRendererError: {e}");
+            }
         }
 
         if self.config.accessibility_support {
@@ -1211,7 +1215,10 @@ impl MichiuAppBuilder {
     /// # }
     /// ```
     #[inline]
-    pub fn build(self, renderer: MichiuRenderer) -> window::Result<(MichiuApp, MichiuEventPump)> {
+    pub fn build(
+        self,
+        renderer: MichiuRenderer,
+    ) -> window::MichiuWindowResult<(MichiuApp, MichiuEventPump)> {
         let handle: Validated<WindowHandle> = self.window.handle().try_into()?;
         let hwnd = handle.hwnd();
 
@@ -1277,7 +1284,7 @@ impl MichiuAppBuilder {
         self,
         renderer: MichiuRenderer,
         ui_fn: F,
-    ) -> window::Result<(MichiuApp, MichiuEventPump)>
+    ) -> window::MichiuWindowResult<(MichiuApp, MichiuEventPump)>
     where
         F: FnOnce() -> Entity,
     {
@@ -1804,10 +1811,13 @@ pub type Result<T> = std::result::Result<T, MichiuError>;
 #[derive(Debug, Error)]
 pub enum MichiuError {
     #[error("window error: {0}")]
-    Window(#[from] window::MichiuError),
+    Window(#[from] window::MichiuWindowError),
 
     #[error("ui error: {0}")]
-    Ui(#[from] ui::MichiuError),
+    Ui(#[from] ui::MichiuUiError),
+
+    #[error("renderer error: {0}")]
+    Renderer(#[from] renderer::MichiuRendererError),
 
     #[error("invalid size: {0}")]
     InvalidSize(#[from] SizeValidationError),

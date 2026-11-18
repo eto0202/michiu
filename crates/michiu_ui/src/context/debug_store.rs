@@ -11,8 +11,8 @@ use crate::{
     DndDropPropertiesSparse, EffectId, EffectToEntitySecondary, EffectiveZindicesSecondary,
     ElementState, EntitiesSlot, Entity, EntityEffectsSecondary, ExternalTextureSparse,
     ExternalVisualSparse, FlexLayoutsSecondary, InputContentsSparse,
-    InteractionPropertiesSecondary, LayoutPoint, LayoutRect, LayoutSize, 
-    MichiuString, MichiuTagRegistry, Modifiers, MouseButton, ParentsSecondary, PendingActions,
+    InteractionPropertiesSecondary, LayoutPoint, LayoutRect, LayoutSize, MichiuString,
+    MichiuTagRegistry, Modifiers, MouseButton, ParentsSecondary, PendingActions,
     PendingEntityEffectsVec, PrevClipRectsSecondary, PrevRectsSecondary, ProvidersSparseSecondary,
     QuadInstance, RectsSecondary, RenderData, ResizingState, ResolvedBasicSecondary,
     ResolvedFlexSecondary, ScrollOffsetsSecondary, ScrollSizesSecondary, ScrollbarStylesSparse,
@@ -527,7 +527,7 @@ pub enum MichiuTrace {
     /// Log all internal errors
     #[cfg(feature = "trace-error")]
     Error {
-        detail: MichiuError,
+        detail: MichiuUiError,
         add: Option<&'static str>,
     },
 
@@ -1336,11 +1336,10 @@ impl ContextSnapshot {
 // ================================================================
 // ================================================================
 
-pub type Result<T> = std::result::Result<T, MichiuError>;
+pub type MichiuUiResult<T> = std::result::Result<T, MichiuUiError>;
 
-// 後々追加
 #[derive(Error, Debug, Clone)]
-pub enum MichiuError {
+pub enum MichiuUiError {
     #[error(
         "Entity {id:?} not found.\n\
             Possible causes:\n\
@@ -1447,48 +1446,6 @@ pub enum MichiuError {
         source: taffy::TaffyError,
     },
 
-    #[error("Failded surface creation: {source}")]
-    CreateSurfaceError {
-        #[source]
-        #[from]
-        source: wgpu::CreateSurfaceError,
-    },
-
-    #[error("Failded surface creation: {source}")]
-    RequestAdapterError {
-        #[source]
-        #[from]
-        source: wgpu::RequestAdapterError,
-    },
-
-    #[error("Failded request device: {source}")]
-    RequestDeviceError {
-        #[source]
-        #[from]
-        source: wgpu::RequestDeviceError,
-    },
-
-    #[error("Failded request device type")]
-    RequestDeviceTypeError,
-
-    #[error("Failed to create D3D11 hardware device.")]
-    D3d11DeviceCreationFailed,
-
-    #[error("Failed to create DispatcherQueueController.")]
-    DispatcherQueueControllerCreationFailed,
-
-    #[error(
-        "DCompDeviceManager has not been initialized.\n\
-         Please perform the initialization process first."
-    )]
-    UninitializedDeviceManager,
-
-    #[error("Failed to initialize webview2: {source}")]
-    WebView2Error {
-        #[source]
-        source: windows_core::Error,
-    },
-
     #[error("Failed to lock the OS's global memory. (GlobalLock returned null)")]
     GlobalLockFailed,
 
@@ -1569,7 +1526,7 @@ pub trait OptionTraceExt<T> {
     #[track_caller]
     fn unwrap_or_trace<F>(self, id: Option<Entity>, debug: &mut DebugStore, err: F) -> T
     where
-        F: FnOnce() -> MichiuError;
+        F: FnOnce() -> MichiuUiError;
 
     /// If a value exists, return it; if it is None, log a trace and return the default value.
     #[track_caller]
@@ -1597,7 +1554,7 @@ impl<T> OptionTraceExt<T> for Option<T> {
     #[inline]
     fn unwrap_or_trace<F>(self, id: Option<Entity>, debug: &mut DebugStore, err: F) -> T
     where
-        F: FnOnce() -> MichiuError,
+        F: FnOnce() -> MichiuUiError,
     {
         if let Some(val) = self {
             val
@@ -1708,7 +1665,7 @@ pub trait ResultTraceExt<T> {
     fn unwrap_or_trace(self, id: Option<Entity>, debug: &mut DebugStore) -> T;
 }
 
-impl<T> ResultTraceExt<T> for Result<T> {
+impl<T> ResultTraceExt<T> for MichiuUiResult<T> {
     #[expect(clippy::panic)]
     #[track_caller]
     #[inline]
@@ -1752,7 +1709,7 @@ impl<T> TaffyResultTraceExt<T> for taffy::TaffyResult<T> {
                 #[cfg(feature = "trace-error")]
                 {
                     trace_error!(id, debug, || MichiuTrace::Error {
-                        detail: MichiuError::TaffyError { source: e.clone() },
+                        detail: MichiuUiError::TaffyError { source: e.clone() },
                         add: None,
                     });
 
@@ -1785,7 +1742,7 @@ impl<T> WindowsResultTraceExt<T> for windows_core::Result<T> {
                 #[cfg(feature = "trace-error")]
                 {
                     trace_error!(id, debug, || MichiuTrace::Error {
-                        detail: MichiuError::WindowsApiError { source: e.clone() },
+                        detail: MichiuUiError::WindowsApiError { source: e.clone() },
                         add: None,
                     });
 
@@ -2089,7 +2046,7 @@ mod tests {
 
         // dbg_tx が None の場合はキューイングされない
         trace_error!(None, &mut store, || MichiuTrace::Error {
-            detail: MichiuError::RootEntityNotFound,
+            detail: MichiuUiError::RootEntityNotFound,
             add: None,
         });
         assert!(store.dbg_trace_queue.is_empty());
@@ -2099,14 +2056,14 @@ mod tests {
         DebugStore::set_inspector(&mut store, &inspector);
 
         trace_error!(None, &mut store, || MichiuTrace::Error {
-            detail: MichiuError::RootEntityNotFound,
+            detail: MichiuUiError::RootEntityNotFound,
             add: None,
         });
         assert_eq!(store.dbg_trace_queue.len(), 1);
         assert!(matches!(
             store.dbg_trace_queue[0].trace,
             MichiuTrace::Error {
-                detail: MichiuError::RootEntityNotFound,
+                detail: MichiuUiError::RootEntityNotFound,
                 add: None,
             }
         ));
@@ -2116,7 +2073,7 @@ mod tests {
     fn test_option_unwrap_or_trace_ok() {
         let mut store = DebugStore::new();
         let opt = Some(100);
-        let val = opt.unwrap_or_trace(None, &mut store, || MichiuError::RootEntityNotFound);
+        let val = opt.unwrap_or_trace(None, &mut store, || MichiuUiError::RootEntityNotFound);
         assert_eq!(val, 100);
     }
 
@@ -2129,7 +2086,7 @@ mod tests {
 
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let opt: Option<i32> = None;
-            opt.unwrap_or_trace(None, &mut store, || MichiuError::RootEntityNotFound);
+            opt.unwrap_or_trace(None, &mut store, || MichiuUiError::RootEntityNotFound);
         }));
 
         assert!(result.is_err());
@@ -2138,7 +2095,7 @@ mod tests {
         assert!(matches!(
             received[0].trace,
             MichiuTrace::Error {
-                detail: MichiuError::RootEntityNotFound,
+                detail: MichiuUiError::RootEntityNotFound,
                 add: None,
             }
         ));
@@ -2210,11 +2167,11 @@ mod tests {
     fn test_result_unwrap_or_trace() {
         let mut store = DebugStore::new();
 
-        let ok_res: Result<i32> = Ok(123);
+        let ok_res: MichiuUiResult<i32> = Ok(123);
         assert_eq!(ok_res.unwrap_or_trace(None, &mut store), 123);
 
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            let err_res: Result<i32> = Err(MichiuError::RootEntityNotFound);
+            let err_res: MichiuUiResult<i32> = Err(MichiuUiError::RootEntityNotFound);
             err_res.unwrap_or_trace(None, &mut store);
         }));
         assert!(result.is_err());
@@ -2280,22 +2237,22 @@ mod tests {
     fn test_michiu_error_traits_boundary() {
         // Send + Sync + Clone + 'static を満たしていることを静的に検証
         fn assert_traits<T: Send + Sync + Clone + std::error::Error + 'static>() {}
-        assert_traits::<MichiuError>();
+        assert_traits::<MichiuUiError>();
     }
 
     #[test]
     fn test_michiu_error_from_conversions() {
         // windows_core::Error -> MichiuError
         let win_err = windows_core::Error::from_hresult(windows_core::HRESULT(-1));
-        let err: MichiuError = win_err.into();
-        assert!(matches!(err, MichiuError::WindowsApiError { .. }));
+        let err: MichiuUiError = win_err.into();
+        assert!(matches!(err, MichiuUiError::WindowsApiError { .. }));
 
         // taffy::TaffyError -> MichiuError
         let mut tree = taffy::TaffyTree::<()>::new();
         let leaf = tree.new_leaf(taffy::Style::default()).unwrap();
         let taffy_err = tree.child_at_index(leaf, 0).unwrap_err();
-        let err: MichiuError = taffy_err.into();
-        assert!(matches!(err, MichiuError::TaffyError { .. }));
+        let err: MichiuUiError = taffy_err.into();
+        assert!(matches!(err, MichiuUiError::TaffyError { .. }));
     }
 
     #[test]
@@ -2307,33 +2264,33 @@ mod tests {
             std::io::ErrorKind::NotFound,
             "file not found",
         ));
-        let err = MichiuError::CanonicalizeFailed {
+        let err = MichiuUiError::CanonicalizeFailed {
             path: PathBuf::from("test/path"),
             source: Arc::clone(&io_err),
         };
         assert!(err.source().is_some());
 
         // sourceを持たないバリアントでは None が返るか
-        let err_no_source = MichiuError::RootEntityNotFound;
+        let err_no_source = MichiuUiError::RootEntityNotFound;
         assert!(err_no_source.source().is_none());
     }
 
     #[test]
     fn test_michiu_error_display_formatting() {
-        let err = MichiuError::ComponentNotFound {
+        let err = MichiuUiError::ComponentNotFound {
             id: slotmap::Key::null(),
             component: "Transform",
         };
         let msg = err.to_string();
         assert!(msg.contains("Component 'Transform' not found"));
 
-        let err = MichiuError::ScopeViolation {
+        let err = MichiuUiError::ScopeViolation {
             caller: "use_signal",
         };
         let msg = err.to_string();
         assert!(msg.contains("'use_signal' must be called inside"));
 
-        let err = MichiuError::GlyphAllocationFailed {
+        let err = MichiuUiError::GlyphAllocationFailed {
             width: 64,
             height: 64,
             atlas_w: 1024,

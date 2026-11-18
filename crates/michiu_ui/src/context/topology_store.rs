@@ -3,7 +3,7 @@ use crate::{
     BasicLayoutsSecondary, CapacityConfig, ClipRectsSecondary, ComponentMask, ContentStore,
     ContentVisibility, Context, DebugStore, DirtyLayoutEntitiesVec, DirtyRenderEntitiesVec, Entity,
     EventStore, FlexLayoutsSecondary, IDENTITY_MATRIX, LayoutPoint, LayoutRect, LayoutSize,
-    LayoutStore, MichiuError, MichiuSoA, MichiuTagRegistry, OptionTraceExt, OutputStore,
+    LayoutStore, MichiuSoA, MichiuTagRegistry, MichiuUiError, OptionTraceExt, OutputStore,
     PointerEvents, ReactiveStore, RectsSecondary, RenderStore, ResultTraceExt, StateStore,
     SystemStore, TaffyNodesSecondary, TaffyResultTraceExt, TaffyTreeEntity,
     VisualPropertiesSecondary, WindowStore, a11y::A11yInferenceTag, define_secondary,
@@ -624,7 +624,7 @@ impl TopologyStore {
                     let diff = topo_flat_dfs_sequence.entities.len() - index;
                     let subtree_size: u32 = diff
                         .try_into()
-                        .map_err(|e| MichiuError::ExceedsSubtreeLimit { source: e })
+                        .map_err(|e| MichiuUiError::ExceedsSubtreeLimit { source: e })
                         .unwrap_or_trace(None, debug);
                     topo_flat_dfs_sequence.subtree_sizes[index] = subtree_size;
                 }
@@ -1198,7 +1198,7 @@ impl TopologyStore {
         topo_tag_registry
             .get_entities::<T>()
             .and_then(|t| t.first().copied())
-            .unwrap_or_trace(None, debug, || MichiuError::TagNotFound {
+            .unwrap_or_trace(None, debug, || MichiuUiError::TagNotFound {
                 type_name: std::any::type_name::<T>(),
             })
     }
@@ -1233,7 +1233,7 @@ impl TopologyStore {
     ) -> Entity {
         topo_tag_registry
             .query_first_descendant_of_type::<T>(parent, topo_flat_dfs_sequence)
-            .unwrap_or_trace(None, debug, || MichiuError::TagNotFound {
+            .unwrap_or_trace(None, debug, || MichiuUiError::TagNotFound {
                 type_name: std::any::type_name::<T>(),
             })
     }

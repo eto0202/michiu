@@ -104,10 +104,10 @@
 //!
 //! For consumer applications, safe read access is provided through immutable getters such as [`d3d11_device(&self)`](MichiuRenderer::d3d11_device) and [`surface(&self)`](WgpuRenderer::surface).
 
-use crate::{Renderer, RendererUserConfig, Vertex};
+use crate::{MichiuRendererError, MichiuRendererResult, Renderer, RendererUserConfig, Vertex};
 use michiu_ui::{
-    Atlases, BatchType, Context, DrawBatch, Entity, LayoutSize, MichiuError, QuadInstance,
-    RenderData, RenderQueue, RendererView,
+    Atlases, BatchType, Context, DrawBatch, Entity, LayoutSize, QuadInstance, RenderData,
+    RenderQueue, RendererView,
     wgpu::{self, util::DeviceExt},
 };
 use rustc_hash::FxHashMap;
@@ -344,7 +344,7 @@ impl WgpuRenderer {
         visual: *mut std::ffi::c_void, // wgpu ビジュアル (前面)
         size: LayoutSize,
         scale_factor: f32,
-    ) -> michiu_ui::Result<Self> {
+    ) -> MichiuRendererResult<Self> {
         unsafe {
             Self::with_config(visual, size, scale_factor, &RendererUserConfig::default()).await
         }
@@ -368,7 +368,7 @@ impl WgpuRenderer {
         size: LayoutSize,
         scale_factor: f32,
         user_config: &RendererUserConfig,
-    ) -> michiu_ui::Result<Self> {
+    ) -> MichiuRendererResult<Self> {
         // インスタンス生成（DX12を明示的に指定）
         let instance = WgpuRenderer::create_instance();
 
@@ -378,7 +378,7 @@ impl WgpuRenderer {
         let surface = unsafe {
             instance
                 .create_surface_unsafe(target)
-                .map_err(|e| MichiuError::CreateSurfaceError { source: e })?
+                .map_err(|e| MichiuRendererError::CreateSurfaceError { source: e })?
         };
 
         // アダプターの取得
@@ -388,10 +388,10 @@ impl WgpuRenderer {
                 ..Default::default()
             })
             .await
-            .map_err(|e| MichiuError::RequestAdapterError { source: e })?;
+            .map_err(|e| MichiuRendererError::RequestAdapterError { source: e })?;
 
         if adapter.get_info().device_type == wgpu::DeviceType::Cpu {
-            return Err(MichiuError::RequestDeviceTypeError);
+            return Err(MichiuRendererError::RequestDeviceTypeError);
         }
 
         // デバイスとキューの取得
@@ -409,7 +409,7 @@ impl WgpuRenderer {
                 trace: wgpu::Trace::Off,
             })
             .await
-            .map_err(|e| MichiuError::RequestDeviceError { source: e })?;
+            .map_err(|e| MichiuRendererError::RequestDeviceError { source: e })?;
 
         // Surface 設定
         let config = WgpuRenderer::surface_config(size, &surface, &adapter, user_config);

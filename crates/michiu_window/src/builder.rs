@@ -1,6 +1,6 @@
 use crate::{
     LogicalPoint, LogicalSize, MessageFilter, MichiuComContext, MichiuIcon, MichiuTray,
-    error::{MichiuError, Result},
+    error::{MichiuWindowError, MichiuWindowResult},
 };
 use michiu_guard::{Unvalidated, Validate};
 use std::{borrow::Cow, sync::Arc};
@@ -394,7 +394,7 @@ impl<'a> MichiuWindowBuilder<'a> {
 }
 
 impl Validate for MichiuWindowBuilder<'_> {
-    type Error = MichiuError;
+    type Error = MichiuWindowError;
 
     /// Validates all configuration parameters to ensure Win32 style consistency and subsystem compatibility.
     ///
@@ -431,23 +431,23 @@ impl Validate for MichiuWindowBuilder<'_> {
     /// ```
     #[expect(clippy::too_many_lines)]
     #[inline]
-    fn validate(self) -> Result<Self> {
+    fn validate(self) -> MichiuWindowResult<Self> {
         if self.no_redirection_bitmap && self.com_context.is_none() {
-            return Err(MichiuError::ValidationError {
+            return Err(MichiuWindowError::ValidationError {
                 parameter: "no_redirection_bitmap",
                 message: "DirectComposition (no_redirection_bitmap) requires a valid ComContext."
                     .into(),
             });
         }
         if self.no_redirection_bitmap && !self.manual_paint_validation {
-            return Err(MichiuError::ValidationError {
+            return Err(MichiuWindowError::ValidationError {
                 parameter: "manual_paint_validation",
                 message: "`manual_paint_validation` must be true when `no_redirection_bitmap` is enabled \
                      to allow DirectComposition to synchronize live resizing during modal sizing loops.".into(),
             });
         }
         if !self.no_redirection_bitmap && self.manual_paint_validation {
-            return Err(MichiuError::ValidationError {
+            return Err(MichiuWindowError::ValidationError {
                 parameter: "manual_paint_validation",
                 message: "`manual_paint_validation` cannot be true when `no_redirection_bitmap` is disabled \
                      to prevent `WM_PAINT` infinite loops on standard windows.".into(),
@@ -457,7 +457,7 @@ impl Validate for MichiuWindowBuilder<'_> {
             if let Some(ctx) = self.com_context {
                 // コンテキストが OLE STA でない場合は、Win32の E_OUTOFMEMORY 罠を避けるために早期エラーにする
                 if !ctx.is_ole() {
-                    return Err(MichiuError::ValidationError {
+                    return Err(MichiuWindowError::ValidationError {
                                 parameter: "drag_and_drop",
                                 message: "OLE Drag and Drop requires an OLE-initialized ComContext (use ComContext::new_com_single()). \
                                           MTA or WinRT contexts are not compatible on this thread.".into(),
@@ -465,7 +465,7 @@ impl Validate for MichiuWindowBuilder<'_> {
                 }
             } else {
                 // コンテキスト自体が渡されていない場合
-                return Err(MichiuError::ValidationError {
+                return Err(MichiuWindowError::ValidationError {
                             parameter: "drag_and_drop",
                             message: "Drag and Drop (drag_and_drop) requires a valid OLE-initialized ComContext (use ComContext::new_com_single()).".into(),
                         });
@@ -474,7 +474,7 @@ impl Validate for MichiuWindowBuilder<'_> {
 
         // 透明ウィンドウと標準の装飾の間に不整合がないか確認
         if self.transparent && self.decorations {
-            return Err(MichiuError::ValidationError {
+            return Err(MichiuWindowError::ValidationError {
                 parameter: "decorations",
                 message: "Transparent windows cannot have standard OS decorations (titlebar/borders) due to rendering artifacts.".into(),
             });
@@ -484,7 +484,7 @@ impl Validate for MichiuWindowBuilder<'_> {
         let is_child =
             self.parent_hwnd.is_some() || self.raw_style.is_some_and(|s| s.contains(WS_CHILD));
         if is_child && self.taskbar_button {
-            return Err(MichiuError::ValidationError {
+            return Err(MichiuWindowError::ValidationError {
                 parameter: "taskbar_button",
                 message: "Child windows cannot have a taskbar button (WS_EX_APPWINDOW).".into(),
             });
@@ -494,7 +494,7 @@ impl Validate for MichiuWindowBuilder<'_> {
             .raw_ex_style
             .is_some_and(|ex| ex.contains(WS_EX_TOPMOST));
         if is_child && has_top {
-            return Err(MichiuError::ValidationError {
+            return Err(MichiuWindowError::ValidationError {
                 parameter: "raw_ex_style",
                 message: "A child window (WS_CHILD) cannot have the WS_EX_TOPMOST style.".into(),
             });
@@ -504,7 +504,7 @@ impl Validate for MichiuWindowBuilder<'_> {
         if let Some(raw) = self.raw_style {
             // WS_CHILD と WS_POPUP の排他性を検証
             if raw.contains(WS_CHILD) && raw.contains(WS_POPUP) {
-                return Err(MichiuError::ValidationError {
+                return Err(MichiuWindowError::ValidationError {
                     parameter: "raw_style",
                     message: "WS_CHILD and WS_POPUP are mutually exclusive styles.".into(),
                 });
@@ -512,7 +512,7 @@ impl Validate for MichiuWindowBuilder<'_> {
 
             // WS_CHILD に対して有効な親ウィンドウが指定されているかを確認
             if raw.contains(WS_CHILD) && self.parent_hwnd.is_none() {
-                return Err(MichiuError::ValidationError {
+                return Err(MichiuWindowError::ValidationError {
                     parameter: "parent_hwnd",
                     message: "A child window (WS_CHILD) must have a valid parent window handle."
                         .into(),
@@ -521,7 +521,7 @@ impl Validate for MichiuWindowBuilder<'_> {
 
             // WS_CAPTION と WS_DLGFRAME の排他性を検証
             if raw.contains(WS_CAPTION) && raw.contains(WS_DLGFRAME) {
-                return Err(MichiuError::ValidationError {
+                return Err(MichiuWindowError::ValidationError {
                     parameter: "raw_style",
                     message: "WS_CAPTION and WS_DLGFRAME are mutually exclusive styles.".into(),
                 });
@@ -529,7 +529,7 @@ impl Validate for MichiuWindowBuilder<'_> {
 
             let has_box = raw.contains(WS_MINIMIZEBOX) || raw.contains(WS_MAXIMIZEBOX);
             if has_box && !raw.contains(WS_SYSMENU) {
-                return Err(MichiuError::ValidationError {
+                return Err(MichiuWindowError::ValidationError {
                     parameter: "raw_style",
                     message: "WS_MINIMIZEBOX or WS_MAXIMIZEBOX requires WS_SYSMENU to be enabled to be visible.".into(),
                 });
@@ -540,7 +540,7 @@ impl Validate for MichiuWindowBuilder<'_> {
                 && raw_ex.contains(WS_EX_CONTEXTHELP)
                 && (raw.contains(WS_MAXIMIZEBOX) || raw.contains(WS_MINIMIZEBOX))
             {
-                return Err(MichiuError::ValidationError {
+                return Err(MichiuWindowError::ValidationError {
                         parameter: "raw_ex_style",
                         message: "WS_EX_CONTEXTHELP cannot be combined with WS_MAXIMIZEBOX or WS_MINIMIZEBOX.".into(),
                     });
@@ -551,7 +551,7 @@ impl Validate for MichiuWindowBuilder<'_> {
             && raw_ex.contains(WS_EX_TOOLWINDOW)
             && raw_ex.contains(WS_EX_APPWINDOW)
         {
-            return Err(MichiuError::ValidationError {
+            return Err(MichiuWindowError::ValidationError {
                 parameter: "raw_ex_style",
                 message:
                     "WS_EX_TOOLWINDOW and WS_EX_APPWINDOW are contradictory and cannot be combined."

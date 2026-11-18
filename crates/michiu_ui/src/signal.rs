@@ -1,7 +1,7 @@
 #[cfg(feature = "trace-error")]
 use crate::trace_error;
 use crate::{
-    Context, DebugStore, Effects, Entity, MichiuError, MichiuTaskSender, MichiuTrace,
+    Context, DebugStore, Effects, Entity, MichiuTaskSender, MichiuTrace, MichiuUiError,
     OptionTraceExt, with_context,
 };
 use slotmap::new_key_type;
@@ -104,12 +104,12 @@ impl<T: 'static> ReadSignal<T> {
                 cx.reactive
                     .react_signals
                     .get(self.id)
-                    .unwrap_or_trace(None, &mut cx.debug, || MichiuError::SignalNotFound {
+                    .unwrap_or_trace(None, &mut cx.debug, || MichiuUiError::SignalNotFound {
                         id: self.id,
                     });
             let val = any_val
                 .downcast_ref::<T>()
-                .unwrap_or_trace(None, &mut cx.debug, || MichiuError::DowncastFailed {
+                .unwrap_or_trace(None, &mut cx.debug, || MichiuUiError::DowncastFailed {
                     expected: std::any::type_name::<T>(),
                 });
             f(val)
@@ -188,13 +188,13 @@ impl<T: Clone + 'static> ReadSignal<T> {
                 cx.reactive
                     .react_signals
                     .get(self.id)
-                    .unwrap_or_trace(None, &mut cx.debug, || MichiuError::SignalNotFound {
+                    .unwrap_or_trace(None, &mut cx.debug, || MichiuUiError::SignalNotFound {
                         id: self.id,
                     });
             any_val
                 .downcast_ref::<T>()
                 .cloned()
-                .unwrap_or_trace(None, &mut cx.debug, || MichiuError::DowncastFailed {
+                .unwrap_or_trace(None, &mut cx.debug, || MichiuUiError::DowncastFailed {
                     expected: std::any::type_name::<T>(),
                 })
         })
@@ -352,7 +352,7 @@ impl<T: Send + 'static> WriteSignal<T> {
             *cx.reactive.react_signals.get_mut(self.id).unwrap_or_trace(
                 None,
                 &mut cx.debug,
-                || MichiuError::SignalNotFound { id: self.id },
+                || MichiuUiError::SignalNotFound { id: self.id },
             ) = Box::new(new_value);
 
             // 依存しているエフェクトIDのリストをクローン
@@ -441,7 +441,7 @@ pub(crate) fn execute_effect(effect_id: EffectId) {
         let dummy = Effects(Box::new(move |cx| {
             #[cfg(feature = "trace-error")]
             trace_error!(None, &mut cx.debug, || MichiuTrace::Error {
-                detail: MichiuError::RecursiveEffectDetected { effect_id },
+                detail: MichiuUiError::RecursiveEffectDetected { effect_id },
                 add: None,
             });
         }));
@@ -450,7 +450,7 @@ pub(crate) fn execute_effect(effect_id: EffectId) {
             .reactive
             .react_effects
             .get_mut(effect_id)
-            .unwrap_or_trace(None, &mut cx.debug, || MichiuError::EffectNotFound {
+            .unwrap_or_trace(None, &mut cx.debug, || MichiuUiError::EffectNotFound {
                 id: effect_id,
             });
 

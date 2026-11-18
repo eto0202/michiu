@@ -1,4 +1,4 @@
-use crate::CompositionTargetLayer;
+use crate::{CompositionTargetLayer, MichiuRendererResult};
 use michiu_ui::{Context, Entity, ExternalTexture};
 use std::sync::Arc;
 use windows::Win32::{
@@ -42,7 +42,7 @@ impl DCompWorkspace {
         hwnd: HWND,
         dcomp: &IDCompositionDesktopDevice,
         target_layer: CompositionTargetLayer,
-    ) -> michiu_ui::Result<Self> {
+    ) -> MichiuRendererResult<Self> {
         unsafe {
             let topmost = match target_layer {
                 CompositionTargetLayer::Topmost => true,

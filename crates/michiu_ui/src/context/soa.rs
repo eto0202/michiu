@@ -1,4 +1,4 @@
-use crate::{DebugStore, Entity, MichiuError, OptionTraceExt, Result};
+use crate::{DebugStore, Entity, MichiuUiError, MichiuUiResult, OptionTraceExt};
 
 pub trait MichiuSoA {
     type Item;
@@ -11,21 +11,22 @@ pub trait MichiuSoA {
     ///
     /// Returns [`MichiuError::ComponentNotFound`] If `Entity` is not found.
     #[inline]
-    fn require(&self, id: Entity) -> Result<&Self::Item> {
-        self.find(id).ok_or_else(|| MichiuError::ComponentNotFound {
-            id,
-            component: std::any::type_name::<Self>(),
-        })
+    fn require(&self, id: Entity) -> MichiuUiResult<&Self::Item> {
+        self.find(id)
+            .ok_or_else(|| MichiuUiError::ComponentNotFound {
+                id,
+                component: std::any::type_name::<Self>(),
+            })
     }
 
     /// # Errors
     ///
     /// Returns [`MichiuError::ComponentNotFound`] If `Entity` is not found.
     #[inline]
-    fn require_mut(&mut self, id: Entity) -> Result<&mut Self::Item> {
+    fn require_mut(&mut self, id: Entity) -> MichiuUiResult<&mut Self::Item> {
         let component = std::any::type_name::<Self>();
         self.find_mut(id)
-            .ok_or(MichiuError::ComponentNotFound { id, component })
+            .ok_or(MichiuUiError::ComponentNotFound { id, component })
     }
 
     /// Panic-Prone Immutable Reference Accessors
@@ -279,7 +280,7 @@ mod tests {
         // require
         assert_eq!(map.require(entity).unwrap(), &100);
         match map.require(missing) {
-            Err(MichiuError::ComponentNotFound { id, component }) => {
+            Err(MichiuUiError::ComponentNotFound { id, component }) => {
                 assert_eq!(id, missing);
                 assert!(component.contains("TestSecondary"));
             }
@@ -291,7 +292,7 @@ mod tests {
         assert_eq!(map.require(entity).unwrap(), &200);
         assert!(matches!(
             map.require_mut(missing),
-            Err(MichiuError::ComponentNotFound { .. })
+            Err(MichiuUiError::ComponentNotFound { .. })
         ));
     }
 

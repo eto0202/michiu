@@ -238,7 +238,7 @@ fn redraw(app: &mut MichiuApp) {
     // これも必須
     // This is also required
     if let Some(_paint) = app.window.begin_paint() {
-        app.renderer.draw(&mut app.context);
+        app.renderer.draw(&mut app.context).unwrap();
     }
     let draw_elapsed = draw_start.elapsed();
 

@@ -2,7 +2,7 @@ use crate::{
     CursorIcon, FileDialog, FileDialogOptions, FileDropTarget, ImeRelayServer, LogicalSize,
     MichiuTray, MichiuWindowBuilder, PhysicalPoint, PhysicalSize, PreferredAppMode, WindowHandle,
     ZOrder,
-    error::{MichiuError, Result},
+    error::{MichiuWindowError, MichiuWindowResult},
     translate_and_dispatch,
     utils::{
         get_window_ex_style, get_window_style, get_window_userdata_mut, round_to_i32,
@@ -138,8 +138,9 @@ impl MichiuWindow {
     /// # }
     /// ```
     #[expect(clippy::too_many_lines)]
-    pub fn build(builder: Validated<MichiuWindowBuilder<'_>>) -> Result<Self> {
-        let hmodule = unsafe { GetModuleHandleW(None).map_err(MichiuError::UnexpectedOsError)? };
+    pub fn build(builder: Validated<MichiuWindowBuilder<'_>>) -> MichiuWindowResult<Self> {
+        let hmodule =
+            unsafe { GetModuleHandleW(None).map_err(MichiuWindowError::UnexpectedOsError)? };
         let hinstance = HINSTANCE(hmodule.0);
 
         let builder = builder.into_inner();
@@ -225,7 +226,7 @@ impl MichiuWindow {
                         let _ = Box::from_raw(state_raw_ptr);
                     }
                 }
-                return Err(MichiuError::WindowCreationFailed {
+                return Err(MichiuWindowError::WindowCreationFailed {
                     title: builder.title,
                     class_name: builder
                         .custom_class_name
@@ -354,7 +355,7 @@ impl MichiuWindow {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn subclass<F>(&self, id_subclass: usize, handler: F) -> Result<()>
+    pub fn subclass<F>(&self, id_subclass: usize, handler: F) -> MichiuWindowResult<()>
     where
         F: FnMut(HWND, u32, WPARAM, LPARAM) -> SubclassResult + 'static,
     {
@@ -422,7 +423,7 @@ impl MichiuWindow {
                 Ok(())
             } else {
                 let _ = Box::from_raw(boxed_handler);
-                Err(MichiuError::SubclassSetupFailed {
+                Err(MichiuWindowError::SubclassSetupFailed {
                     hwnd: self.hwnd,
                     subclass_id: id_subclass,
                     source: windows::core::Error::from_thread(),
@@ -482,14 +483,14 @@ impl MichiuWindow {
         id_subclass: usize,
         ref_data: usize,
         subclass_proc: RawSubclassProc,
-    ) -> Result<()> {
+    ) -> MichiuWindowResult<()> {
         let result =
             unsafe { SetWindowSubclass(self.hwnd, Some(subclass_proc), id_subclass, ref_data) };
 
         if result.as_bool() {
             Ok(())
         } else {
-            Err(MichiuError::SubclassSetupFailed {
+            Err(MichiuWindowError::SubclassSetupFailed {
                 hwnd: self.hwnd,
                 subclass_id: id_subclass,
                 source: windows::core::Error::from_thread(),
@@ -659,7 +660,7 @@ impl MichiuWindow {
     /// # Errors
     /// Returns an error if opening or emptying the clipboard fails, or memory allocation fails.
     #[inline]
-    pub fn set_clipboard_text(&self, text: impl Into<Cow<'static, str>>) -> Result<()> {
+    pub fn set_clipboard_text(&self, text: impl Into<Cow<'static, str>>) -> MichiuWindowResult<()> {
         set_clipboard_text_impl(self.hwnd, &text.into())
     }
 
@@ -668,7 +669,7 @@ impl MichiuWindow {
     /// # Errors
     /// Returns an error if the clipboard cannot be opened, or the data is not Unicode text.
     #[inline]
-    pub fn get_clipboard_text(&self) -> Result<String> {
+    pub fn get_clipboard_text(&self) -> MichiuWindowResult<String> {
         get_clipboard_text_impl(self.hwnd)
     }
 
@@ -737,7 +738,7 @@ impl MichiuWindow {
     /// - If the operating system fails to instantiate or display the dialog.
     /// - If the selected file path contains invalid characters and cannot be converted.
     #[inline]
-    pub fn open_file_dialog(&self, owner: FileDialog) -> Result<Option<PathBuf>> {
+    pub fn open_file_dialog(&self, owner: FileDialog) -> MichiuWindowResult<Option<PathBuf>> {
         let hwnd = match owner {
             FileDialog::ThisWindow => Some(self.hwnd),
             FileDialog::None => None,
@@ -759,7 +760,7 @@ impl MichiuWindow {
         &self,
         owner: FileDialog,
         options: &FileDialogOptions,
-    ) -> Result<Option<PathBuf>> {
+    ) -> MichiuWindowResult<Option<PathBuf>> {
         let hwnd = match owner {
             FileDialog::ThisWindow => Some(self.hwnd),
             FileDialog::None => None,
@@ -836,8 +837,8 @@ impl MichiuWindow {
     /// it is usually safe to **ignore this error** (or log a warning) and continue the render loop.
     /// The error is often transient, resulting only in a single dropped or skipped frame rather than a permanent failure.
     #[inline]
-    pub fn dwm_flush(&self) -> Result<()> {
-        unsafe { DwmFlush().map_err(MichiuError::UnexpectedOsError) }
+    pub fn dwm_flush(&self) -> MichiuWindowResult<()> {
+        unsafe { DwmFlush().map_err(MichiuWindowError::UnexpectedOsError) }
     }
 
     /// Initializes the entire application process for High-DPI support (Per-Monitor DPI v2).
@@ -1102,8 +1103,9 @@ fn register_window_class(
     default_class_name: &'static str,
     hinstance: HINSTANCE,
     builder: &MichiuWindowBuilder<'_>,
-) -> Result<()> {
-    let hcursor = unsafe { LoadCursorW(None, IDC_ARROW).map_err(MichiuError::UnexpectedOsError)? };
+) -> MichiuWindowResult<()> {
+    let hcursor =
+        unsafe { LoadCursorW(None, IDC_ARROW).map_err(MichiuWindowError::UnexpectedOsError)? };
 
     let wnd_class = WNDCLASSEXW {
         cbSize: size_of_u32::<WNDCLASSEXW>(),
@@ -1132,7 +1134,7 @@ fn register_window_class(
                 .clone()
                 .unwrap_or_else(|| default_class_name.into());
 
-            return Err(MichiuError::ClassRegistrationFailed {
+            return Err(MichiuWindowError::ClassRegistrationFailed {
                 class_name: class_str_to_report,
                 source: err,
             });
@@ -1156,7 +1158,7 @@ fn calc_window_rect(
     builder: &MichiuWindowBuilder<'_>,
     dpi: u32,
     scale_factor: f64,
-) -> Result<(i32, i32)> {
+) -> MichiuWindowResult<(i32, i32)> {
     let Some(logical_size) = builder.inner_size else {
         return Ok((CW_USEDEFAULT, CW_USEDEFAULT));
     };
@@ -1181,7 +1183,7 @@ fn calc_window_rect(
 
     unsafe {
         AdjustWindowRectExForDpi(&raw mut rect, style, false, ex_style, dpi).map_err(|err| {
-            MichiuError::GeometryUpdateFailed {
+            MichiuWindowError::GeometryUpdateFailed {
                 x: 0,
                 y: 0,
                 width: u32::try_from(physical_width.max(0)).unwrap_or(0),
@@ -1367,10 +1369,10 @@ pub(crate) fn is_system_dark_mode() -> bool {
     false // 取得失敗時は安全のためにライトモード（false）をデフォルトとする
 }
 
-pub(crate) fn set_clipboard_text_impl(hwnd: HWND, text: &str) -> Result<()> {
+pub(crate) fn set_clipboard_text_impl(hwnd: HWND, text: &str) -> MichiuWindowResult<()> {
     unsafe {
         if OpenClipboard(Some(hwnd)).is_err() {
-            return Err(MichiuError::UnexpectedOsError(
+            return Err(MichiuWindowError::UnexpectedOsError(
                 windows::core::Error::from_thread(),
             ));
         }
@@ -1380,11 +1382,11 @@ pub(crate) fn set_clipboard_text_impl(hwnd: HWND, text: &str) -> Result<()> {
         let byte_count = wide.len() * 2;
 
         let h_mem = windows::Win32::System::Memory::GlobalAlloc(GMEM_MOVEABLE, byte_count)
-            .map_err(MichiuError::UnexpectedOsError)?;
+            .map_err(MichiuWindowError::UnexpectedOsError)?;
         let ptr = GlobalLock(HGLOBAL(h_mem.0));
         if ptr.is_null() {
             let _ = CloseClipboard();
-            return Err(MichiuError::UnexpectedOsError(
+            return Err(MichiuWindowError::UnexpectedOsError(
                 windows::core::Error::from_thread(),
             ));
         }
@@ -1395,7 +1397,7 @@ pub(crate) fn set_clipboard_text_impl(hwnd: HWND, text: &str) -> Result<()> {
         if SetClipboardData(u32::from(CF_UNICODETEXT.0), Some(HANDLE(h_mem.0.cast()))).is_err() {
             let _ = GlobalFree(Some(h_mem)); // メモリの解放漏れを防止
             let _ = CloseClipboard();
-            return Err(MichiuError::UnexpectedOsError(
+            return Err(MichiuWindowError::UnexpectedOsError(
                 windows::core::Error::from_thread(),
             ));
         }
@@ -1404,22 +1406,22 @@ pub(crate) fn set_clipboard_text_impl(hwnd: HWND, text: &str) -> Result<()> {
     }
 }
 
-pub(crate) fn get_clipboard_text_impl(hwnd: HWND) -> Result<String> {
+pub(crate) fn get_clipboard_text_impl(hwnd: HWND) -> MichiuWindowResult<String> {
     unsafe {
         if OpenClipboard(Some(hwnd)).is_err() {
-            return Err(MichiuError::UnexpectedOsError(
+            return Err(MichiuWindowError::UnexpectedOsError(
                 windows::core::Error::from_thread(),
             ));
         }
         let h_mem = GetClipboardData(u32::from(CF_UNICODETEXT.0)).map_err(|err| {
             let _ = CloseClipboard();
-            MichiuError::UnexpectedOsError(err)
+            MichiuWindowError::UnexpectedOsError(err)
         })?;
 
         let ptr = GlobalLock(HGLOBAL(h_mem.0));
         if ptr.is_null() {
             let _ = CloseClipboard();
-            return Err(MichiuError::UnexpectedOsError(
+            return Err(MichiuWindowError::UnexpectedOsError(
                 windows::core::Error::from_thread(),
             ));
         }

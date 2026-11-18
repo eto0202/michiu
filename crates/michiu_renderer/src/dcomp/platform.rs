@@ -1,4 +1,3 @@
-use michiu_ui::MichiuError;
 use std::sync::OnceLock;
 use windows::{
     System::DispatcherQueueController,
@@ -24,6 +23,8 @@ use windows::{
     },
 };
 
+use crate::{MichiuRendererError, MichiuRendererResult};
+
 #[derive(Debug, Clone)]
 pub(crate) struct PlatformContext {
     pub(crate) d3d11: ID3D11Device,
@@ -38,7 +39,7 @@ unsafe impl Sync for PlatformContext {}
 
 impl PlatformContext {
     #[inline]
-    pub(crate) fn new() -> michiu_ui::Result<&'static Self> {
+    pub(crate) fn new() -> MichiuRendererResult<&'static Self> {
         static INSTANCE: OnceLock<PlatformContext> = OnceLock::new();
 
         if let Some(manager) = INSTANCE.get() {
@@ -55,11 +56,11 @@ impl PlatformContext {
 
         INSTANCE
             .get()
-            .ok_or(MichiuError::UninitializedDeviceManager)
+            .ok_or(MichiuRendererError::UninitializedDeviceManager)
     }
 
     #[inline]
-    fn try_create_devices() -> michiu_ui::Result<Self> {
+    fn try_create_devices() -> MichiuRendererResult<Self> {
         let controller = Self::create_dispatcher_queue()?;
 
         // D3D11 デバイスを作成
@@ -77,7 +78,7 @@ impl PlatformContext {
                 None,
             )?;
         }
-        let d3d11 = d3d11_device.ok_or(MichiuError::D3d11DeviceCreationFailed)?;
+        let d3d11 = d3d11_device.ok_or(MichiuRendererError::D3d11DeviceCreationFailed)?;
 
         // WinRT の Compositor を作成 (STAスレッドと DispatcherQueue が必要)
         let compositor = Compositor::new()?;
@@ -99,7 +100,7 @@ impl PlatformContext {
     }
 
     #[inline]
-    fn create_dispatcher_queue() -> michiu_ui::Result<DispatcherQueueController> {
+    fn create_dispatcher_queue() -> MichiuRendererResult<DispatcherQueueController> {
         // DispatcherQueue を現在のスレッド（UIスレッド）に作成
         #[expect(clippy::as_conversions, clippy::cast_possible_truncation)]
         let options = DispatcherQueueOptions {
@@ -109,16 +110,16 @@ impl PlatformContext {
         };
         unsafe {
             CreateDispatcherQueueController(options)
-                .map_err(|_| MichiuError::DispatcherQueueControllerCreationFailed)
+                .map_err(|_| MichiuRendererError::DispatcherQueueControllerCreationFailed)
         }
     }
 
     #[inline]
-    pub(crate) fn commit(&self) -> michiu_ui::Result<()> {
+    pub(crate) fn commit(&self) -> MichiuRendererResult<()> {
         unsafe {
             self.dcomp
                 .Commit()
-                .map_err(|e| MichiuError::WindowsApiError { source: e })
+                .map_err(|e| MichiuRendererError::WindowsApiError { source: e })
         }
     }
 }

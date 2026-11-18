@@ -212,7 +212,7 @@ pub mod input_func;
 
 use crate::{
     BasicLayout, ComponentMask, Context, DebugStore, EffectCategory, ExternalMask, ExternalTexture,
-    ExternalVisual, FlexLayout, IntoOptionProp, LayoutSize, MichiuError, MichiuSoA, MichiuTrace,
+    ExternalVisual, FlexLayout, IntoOptionProp, LayoutSize, MichiuSoA, MichiuTrace, MichiuUiError,
     ModTarget, Modifier, OptionTraceExt, ReadSignal, ResultTraceExt, ScrollBarState,
     ScrollbarDisplay, ScrollbarStyle, SystemStore, Val, VisualProperty, a11y::A11yInferenceTag,
     div_n, trace_error,
@@ -469,7 +469,7 @@ impl Entity {
     {
         with_context(|cx| {
             cx.load_font_file(path)
-                .map_err(move |e| MichiuError::LoadFontFileFailed {
+                .map_err(move |e| MichiuUiError::LoadFontFileFailed {
                     source: Arc::new(e),
                 })
                 .unwrap_or_trace(None, &mut cx.debug);
@@ -896,7 +896,7 @@ impl Entity {
                     } else {
                         #[cfg(feature = "trace-error")]
                         trace_error!(Some(self), &mut cx.debug, || MichiuTrace::Error {
-                            detail: MichiuError::UnsupportedDynamicNesting {
+                            detail: MichiuUiError::UnsupportedDynamicNesting {
                                 caller: "children_d"
                             },
                             add: None,

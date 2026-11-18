@@ -1,6 +1,6 @@
 use crate::{
-    AtlasTypes, ByteIndex, DebugStore, FontDate, FontStyle, LayoutPoint, LayoutRect, MichiuError,
-    MichiuString, OptionTraceExt, RendererView, TextAlign, TextSpan,
+    AtlasTypes, ByteIndex, DebugStore, FontDate, FontStyle, LayoutPoint, LayoutRect, MichiuString,
+    MichiuUiError, OptionTraceExt, RendererView, TextAlign, TextSpan,
 };
 use cosmic_text::{
     Attrs, Buffer, CacheKey, Family, FontSystem, Metrics, Shaping, Style, SwashCache, Weight, Wrap,
@@ -426,7 +426,7 @@ impl TextEngine {
             // 再度アロケート
             view.atlases
                 .allocate(image.content, width, height)
-                .unwrap_or_trace(None, debug, || MichiuError::GlyphAllocationFailed {
+                .unwrap_or_trace(None, debug, || MichiuUiError::GlyphAllocationFailed {
                     width,
                     height,
                     atlas_w: target_atlas_size,

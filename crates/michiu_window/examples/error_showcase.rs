@@ -14,12 +14,13 @@ fn main() {
 
     // Intentionally set up a conflict where the window is transparent
     // but attempts to enable the OS's standard window decorations
-    let builder: michiu_window::Result<Validated<MichiuWindowBuilder>> = MichiuWindowBuilder::new()
-        .with_title("Conflict Window")
-        .with_transparent(true)
-        .with_decorations(true)
-        .into_unvalidated()
-        .try_into();
+    let builder: michiu_window::MichiuWindowResult<Validated<MichiuWindowBuilder>> =
+        MichiuWindowBuilder::new()
+            .with_title("Conflict Window")
+            .with_transparent(true)
+            .with_decorations(true)
+            .into_unvalidated()
+            .try_into();
 
     match builder {
         Ok(_) => println!("Successfully validated? (Should not happen)"),
@@ -71,7 +72,7 @@ fn main() {
         // By calling `validate` on a zombie handle after it has been destroyed,
         // you can intentionally trigger an `InvalidHandleState` error
         let unvalidate_result = Unvalidated::new(handle.into_inner());
-        let validate_result: michiu_window::Result<Validated<WindowHandle>> =
+        let validate_result: michiu_window::MichiuWindowResult<Validated<WindowHandle>> =
             unvalidate_result.try_into();
 
         match validate_result {

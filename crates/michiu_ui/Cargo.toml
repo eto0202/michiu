@@ -14,13 +14,6 @@ readme = "README.md"
 [lints]
 workspace = true
 
-[dev-dependencies]
-pollster = "1.0.1"
-tiff-reader = "0.11.1"
-strum = { version = "0.28.0", features = ["derive"] }
-image = "0.25.10"
-windows-result = "0.4.1"
-
 [dependencies]
 accesskit = "=0.25.2"
 accesskit_windows = "0.35.2"

@@ -305,11 +305,13 @@ mod backend;
 mod composed_renderer;
 mod cpu;
 mod dcomp;
+mod error;
 mod gpu;
 
 pub use backend::*;
 pub use composed_renderer::*;
 pub use cpu::*;
+pub use error::*;
 pub use gpu::*;
 
 use bytemuck::{Pod, Zeroable};

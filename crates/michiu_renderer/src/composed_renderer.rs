@@ -129,8 +129,8 @@
 //! For consumer applications, safe read access is provided through immutable getters such as [`d3d11_device(&self)`](MichiuRenderer::d3d11_device) and [`surface(&self)`](WgpuRenderer::surface).
 
 use crate::{
-    ActiveBackend, CpuRenderer, CurrentBackend, RawWgpuRenderer, RendererBackend,
-    RendererUserConfig, WgpuRenderer,
+    ActiveBackend, CpuRenderer, CurrentBackend, MichiuRendererResult, RawWgpuRenderer,
+    RendererBackend, RendererUserConfig, WgpuRenderer,
     dcomp::{
         DCompWorkspace, PendingDcompRelease, PlatformContext, PromotedVisual, WindowSynchronizer,
     },
@@ -180,7 +180,7 @@ impl MichiuRenderer {
         hwnd: HWND,
         window_size: LayoutSize,
         scale_factor: f32,
-    ) -> michiu_ui::Result<Self> {
+    ) -> MichiuRendererResult<Self> {
         Self::with_config(
             hwnd,
             window_size,
@@ -204,7 +204,7 @@ impl MichiuRenderer {
         window_size: LayoutSize,
         scale_factor: f32,
         user_config: &RendererUserConfig,
-    ) -> michiu_ui::Result<Self> {
+    ) -> MichiuRendererResult<Self> {
         let sync = WindowSynchronizer::new(window_size, scale_factor);
         let platform = PlatformContext::new()?;
         let workspace = DCompWorkspace::new(hwnd, &platform.dcomp, user_config.target_layer)?;
@@ -290,15 +290,17 @@ impl MichiuRenderer {
     /// Drawing Triggers
     #[track_caller]
     #[inline]
-    pub fn draw(&mut self, cx: &mut Context) {
+    pub fn draw(&mut self, cx: &mut Context) -> MichiuRendererResult<()> {
         self.active_backend.render(cx, self.sync.scale_factor);
 
-        self.platform.commit().unwrap_or_trace(None, cx.debug());
+        self.platform.commit()?;
 
         // ダーティフラグをクリア
         cx.clear_dirty();
         // ログを送信
         cx.flush_trace();
+
+        Ok(())
     }
 
     #[track_caller]

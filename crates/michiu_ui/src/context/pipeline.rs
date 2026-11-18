@@ -195,7 +195,7 @@ use crate::{
     EventStore, ExternalMaskSparse, ExternalTextureAlphaMode, ExternalTextureCompositingMode,
     ExternalTextureSparse, FlatDfsSequence, FlexLayout, FocusStore, GradientType, IDENTITY_MATRIX,
     ImeState, InputContentsSparse, InteractionState, LayoutPoint, LayoutRect, LayoutSize,
-    LayoutStore, LinearGradientInner, MichiuError, MichiuSoA, Modifiers, MouseButton,
+    LayoutStore, LinearGradientInner, MichiuSoA, MichiuUiError, Modifiers, MouseButton,
     OptionTraceExt, OutputStore, ParentsSecondary, PrevClipRectsSecondary, PrevRectsSecondary,
     QuadInstance, ReactiveStore, RectsSecondary, RenderData, RenderStore, RendererView,
     ResolvedBasicSecondary, ResolvedFlexSecondary, ResolvedGeometry, ScrollBarState,
@@ -1994,7 +1994,7 @@ impl Pipeline {
 
         let root_id = cx
             .find_root()
-            .unwrap_or_trace(None, &mut cx.debug, || MichiuError::RootEntityNotFound);
+            .unwrap_or_trace(None, &mut cx.debug, || MichiuUiError::RootEntityNotFound);
 
         let focused_id = cx.interaction_id(InteractionState::Focused);
 
@@ -2619,7 +2619,7 @@ impl Pipeline {
                 .atlases
                 .user_atlas
                 .allocate(image.width, image.height)
-                .unwrap_or_trace(Some(id), debug, || MichiuError::GlyphAllocationFailed {
+                .unwrap_or_trace(Some(id), debug, || MichiuUiError::GlyphAllocationFailed {
                     width: image.width,
                     height: image.height,
                     atlas_w: view.atlases.user_atlas.size,
