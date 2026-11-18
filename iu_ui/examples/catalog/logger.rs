@@ -7,13 +7,8 @@ pub(crate) fn logger(sub: TraceSubscription) {
             let mut stderr = std::io::stderr().lock();
 
             for record in batch.iter() {
-                let (frame, entity, time, loc, func) = (
-                    record.frame,
-                    record.e,
-                    record.time,
-                    record.loc,
-                    record.func,
-                );
+                let (frame, entity, time, loc, func) =
+                    (record.frame, record.e, record.time, record.loc, record.func);
                 if let MichiuTrace::Error { detail, .. } = &record.trace {
                     let _ = writeln!(
                         stderr,

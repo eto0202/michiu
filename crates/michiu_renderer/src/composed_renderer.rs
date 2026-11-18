@@ -226,7 +226,7 @@ impl MichiuRenderer {
                     window_size,
                     scale_factor,
                     user_config,
-                );
+                )?;
                 ActiveBackend::Cpu(Box::new(cpu))
             }
             RendererBackend::Auto => {
@@ -253,7 +253,7 @@ impl MichiuRenderer {
                             window_size,
                             scale_factor,
                             user_config,
-                        );
+                        )?;
                         ActiveBackend::Cpu(Box::new(cpu))
                     }
                 }

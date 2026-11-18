@@ -302,6 +302,10 @@ impl TextureAtlas {
         height: u32,
         src: &[u8],
     ) {
+        if width == 0 || height == 0 {
+            return;
+        }
+
         match (&mut self.storage, queue) {
             (AtlasStorage::Gpu { texture, .. }, RenderQueue::Gpu(q)) => {
                 q.write_texture(

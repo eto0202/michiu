@@ -17,9 +17,7 @@ impl ExternalTexture for StaticExternalTexture {
         self.view.clone()
     }
 
-    fn resolve_cpu(&self, _f: &mut dyn FnMut(CpuTextureView<'_>)) {
-        todo!()
-    }
+    fn resolve_cpu(&self, _f: &mut dyn FnMut(CpuTextureView<'_>)) {}
 
     fn metadata(&self) -> ExternalTextureMetadata {
         self.metadata

@@ -1,3 +1,4 @@
+use crate::{MichiuRendererError, MichiuRendererResult};
 use std::sync::OnceLock;
 use windows::{
     System::DispatcherQueueController,
@@ -5,7 +6,7 @@ use windows::{
     Win32::{
         Foundation::HMODULE,
         Graphics::{
-            Direct3D::D3D_DRIVER_TYPE_HARDWARE,
+            Direct3D::{D3D_DRIVER_TYPE_HARDWARE, D3D_DRIVER_TYPE_WARP},
             Direct3D11::{
                 D3D11_CREATE_DEVICE_BGRA_SUPPORT, D3D11_SDK_VERSION, D3D11CreateDevice,
                 ID3D11Device,
@@ -22,8 +23,6 @@ use windows::{
         },
     },
 };
-
-use crate::{MichiuRendererError, MichiuRendererResult};
 
 #[derive(Debug, Clone)]
 pub(crate) struct PlatformContext {
@@ -66,17 +65,31 @@ impl PlatformContext {
         // D3D11 デバイスを作成
         let mut d3d11_device: Option<ID3D11Device> = None;
         unsafe {
-            D3D11CreateDevice(
+            let flags = D3D11_CREATE_DEVICE_BGRA_SUPPORT;
+            let res = D3D11CreateDevice(
                 None,
                 D3D_DRIVER_TYPE_HARDWARE,
                 HMODULE::default(),
-                D3D11_CREATE_DEVICE_BGRA_SUPPORT,
+                flags,
                 None,
                 D3D11_SDK_VERSION,
                 Some(&raw mut d3d11_device),
                 None,
                 None,
-            )?;
+            );
+            if res.is_err() {
+                D3D11CreateDevice(
+                    None,
+                    D3D_DRIVER_TYPE_WARP, // ソフトウェアフォールバック
+                    HMODULE::default(),
+                    flags,
+                    None,
+                    D3D11_SDK_VERSION,
+                    Some(&raw mut d3d11_device),
+                    None,
+                    None,
+                )?;
+            }
         }
         let d3d11 = d3d11_device.ok_or(MichiuRendererError::D3d11DeviceCreationFailed)?;
 

@@ -1709,7 +1709,9 @@ impl<T> TaffyResultTraceExt<T> for taffy::TaffyResult<T> {
                 #[cfg(feature = "trace-error")]
                 {
                     trace_error!(e, debug, || MichiuTrace::Error {
-                        detail: MichiuUiError::TaffyError { source: err.clone() },
+                        detail: MichiuUiError::TaffyError {
+                            source: err.clone()
+                        },
                         add: None,
                     });
 
@@ -1742,7 +1744,9 @@ impl<T> WindowsResultTraceExt<T> for windows_core::Result<T> {
                 #[cfg(feature = "trace-error")]
                 {
                     trace_error!(e, debug, || MichiuTrace::Error {
-                        detail: MichiuUiError::WindowsApiError { source: err.clone() },
+                        detail: MichiuUiError::WindowsApiError {
+                            source: err.clone()
+                        },
                         add: None,
                     });
 

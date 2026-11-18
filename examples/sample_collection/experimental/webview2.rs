@@ -802,17 +802,21 @@ impl WebView2Visual {
                     }
 
                     // ストリームから HGLOBAL をクエリして WIC で PMA (BGRA8) にデコード
-                    let texture_res = Self::process_captured_stream(
-                        wgpu_device,
-                        wgpu_queue,
-                        &wic_factory,
-                        &stream_clone,
-                        width,
-                        height,
-                    );
+                    if let Some(device) = wgpu_device
+                        && let Some(queue) = wgpu_queue
+                    {
+                        let texture_res = Self::process_captured_stream(
+                            device,
+                            queue,
+                            &wic_factory,
+                            &stream_clone,
+                            width,
+                            height,
+                        );
 
-                    // 完了コールバックを呼び出してテクスチャを通知
-                    on_complete(texture_res);
+                        // 完了コールバックを呼び出してテクスチャを通知
+                        on_complete(texture_res);
+                    }
                     Ok(())
                 })),
             )?;
@@ -824,8 +828,8 @@ impl WebView2Visual {
     /// 内部ヘルパー: ストリームに書き込まれた PNG バイト列を WIC で高速に BGRA8 ピクセル配列にデコードし、
     /// `wgpu::Texture` を作成してアップロード
     unsafe fn process_captured_stream(
-        device: Option<wgpu::Device>,
-        queue: Option<wgpu::Queue>,
+        device: wgpu::Device,
+        queue: wgpu::Queue,
         wic_factory: &IWICImagingFactory,
         stream: &IStream,
         width: u32,
@@ -900,7 +904,7 @@ impl WebView2Visual {
             let _ = GlobalUnlock(hglobal);
 
             // 新規 wgpu::Texture の生成
-            let wgpu_texture = device.unwrap().create_texture(&wgpu::TextureDescriptor {
+            let wgpu_texture = device.create_texture(&wgpu::TextureDescriptor {
                 label: Some("WebView2 Static Cache Texture"),
                 size: wgpu::Extent3d {
                     width,
@@ -916,7 +920,7 @@ impl WebView2Visual {
             });
 
             // VRAM へのアップロード
-            queue.unwrap().write_texture(
+            queue.write_texture(
                 wgpu::TexelCopyTextureInfo {
                     texture: &wgpu_texture,
                     mip_level: 0,

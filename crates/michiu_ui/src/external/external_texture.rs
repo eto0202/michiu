@@ -6,9 +6,8 @@ pub trait ExternalTexture: Send + Sync {
     /// this function returns the latest [`wgpu::TextureView`] that should be rendered in this frame.
     fn resolve_view(&self, device: &wgpu::Device, queue: &wgpu::Queue) -> wgpu::TextureView;
 
-    fn resolve_cpu(&self, _f: &mut dyn FnMut(CpuTextureView<'_>)) {
-        todo!()
-    }
+    // 未実装の場合は false
+    fn resolve_cpu(&self, _f: &mut dyn FnMut(CpuTextureView<'_>)) {}
 
     /// Retrieve the metadata that controls the rendering method.
     fn metadata(&self) -> ExternalTextureMetadata;

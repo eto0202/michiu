@@ -152,178 +152,6 @@ struct GlobalConfig {
     pub(crate) _padding: f32, // std140のアライメント（16バイト境界）に合わせるためのパディング
 }
 
-impl Renderer for WgpuRenderer {
-    #[expect(clippy::cast_precision_loss)]
-    fn resize(&mut self, p_width: u32, p_height: u32, scale_factor: f32) {
-        if p_width > 0 && p_height > 0 {
-            self.config.width = p_width;
-            self.config.height = p_height;
-
-            self.surface.configure(&self.device, &self.config);
-
-            let logical_width = p_width as f32 / scale_factor;
-            let logical_height = p_height as f32 / scale_factor;
-
-            // シェーダー側で位置を正しく計算できるよう、論理サイズを Uniform に再書き込み
-            let config_data = GlobalConfig {
-                screen_size: [logical_width, logical_height],
-                scale: scale_factor,
-                _padding: 0.0,
-            };
-            self.queue
-                .write_buffer(&self.config_buffer, 0, bytemuck::cast_slice(&[config_data]));
-        }
-    }
-
-    fn render(&mut self, cx: &mut Context, scale_factor: f32) {
-        let _context_guard = cx.bind_context();
-        // 破棄された要素のキャッシュを解放
-        for id in cx.external_visual_despawned_queue().drain(..) {
-            self.external_bind_groups.remove(&id);
-        }
-
-        // 前面と背面に分類されたバッチを Context から引き出す
-        cx.collect_render_data(&mut RendererView {
-            render_data: &mut self.render_data,
-            atlases: &mut self.atlases,
-            queue: &RenderQueue::Gpu(&self.queue),
-        });
-
-        if self.render_data.batches.is_empty() {
-            return;
-        }
-
-        let render_data = std::mem::take(&mut self.render_data);
-
-        // スワップチェーンから描画先フレームを獲得
-        // TODO: エラーハンドリング
-        let wgpu::CurrentSurfaceTexture::Success(surface_texture) =
-            self.surface.get_current_texture()
-        else {
-            return;
-        };
-
-        let view = surface_texture
-            .texture
-            .create_view(&wgpu::TextureViewDescriptor::default());
-
-        self.instance_staging.clear();
-        for (i, instance) in render_data.instances.iter().enumerate() {
-            let e = render_data.entity_ids[i];
-            let inst = cx.build_quad_instance_for_entity(e, instance);
-            self.instance_staging.push(inst);
-        }
-
-        // 容量を確定
-        self.ensure_instance_buffer_capacity(self.instance_staging.len());
-
-        // 外部テクスチャを事前にキャッシュ
-        self.update_external_texture_bind_groups(cx);
-
-        // VRAM インスタンスバッファへの一括転送
-        self.queue.write_buffer(
-            &self.instance_buffer,
-            0,
-            bytemuck::cast_slice(&self.instance_staging),
-        );
-
-        // 背面の描画実行
-        let mut encoder = self
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
-        {
-            let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Background Render Pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
-                        store: wgpu::StoreOp::Store,
-                    },
-                    depth_slice: None,
-                })],
-                depth_stencil_attachment: None,
-                ..Default::default()
-            });
-
-            rpass.set_pipeline(&self.pipeline);
-            rpass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-            rpass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-
-            // 背面用バッチの描画 (instance_offset は 0 から開始)
-            // let mut instance_offset = 0;
-            // 現在アクティブなパイプラインを記録
-            let mut current_pipeline = None;
-
-            #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-            for batch in &render_data.batches {
-                let offset = batch.instance_offset as u32;
-                let count = batch.instance_count as u32;
-                if count == 0 {
-                    continue;
-                }
-
-                // 次のバッチに必要なパイプラインを特定
-                // くり抜きバッチであれば punchout_pipeline (REPLACEブレンド)、
-                // 通常バッチであれば通常の pipeline (PMAブレンド) を設定。
-                let needed_pipeline = match batch.batch_type {
-                    BatchType::Normal => &self.pipeline,
-                    BatchType::Punchout => &self.punchout_pipeline,
-                };
-
-                // アクティブなパイプラインと異なる場合のみ、wgpu側にコマンドを送信する
-                if current_pipeline != Some(std::ptr::from_ref(needed_pipeline)) {
-                    rpass.set_pipeline(needed_pipeline);
-                    current_pipeline = Some(std::ptr::from_ref(needed_pipeline));
-                }
-
-                // 静止 ExternalTexture 描画時のバインディングの切り替え
-                self.bind_texture_for_batch(&mut rpass, batch, &render_data.entity_ids);
-
-                let clip = batch.scissor_rect;
-
-                // スケールを乗じて物理ピクセル座標を算出
-                let phys_x = (clip.x * scale_factor).round().max(0.0) as u32;
-                let phys_y = (clip.y * scale_factor).round().max(0.0) as u32;
-                let phys_w = (clip.width * scale_factor).round().max(0.0) as u32;
-                let phys_h = (clip.height * scale_factor).round().max(0.0) as u32;
-
-                // 現在のスワップチェーンテクスチャの境界サイズを取得
-                let target_w = self.config.width;
-                let target_h = self.config.height;
-
-                //  物理開始位置がすでに縮小後のバックバッファ外に押し出されている場合、
-                // 描画が不可能であるため、検証エラーを避けるためにこのバッチの描画をスキップ
-                if phys_x >= target_w || phys_y >= target_h {
-                    continue;
-                }
-
-                // 開始位置 + 幅/高さがレンダーターゲットをはみ出さないように厳密にクランプ
-                let clamped_w = phys_w.min(target_w - phys_x);
-                let clamped_h = phys_h.min(target_h - phys_y);
-
-                // wgpu の制約回避のため、クランプ後の幅・高さが 0 の場合も描画をスキップ
-                if clamped_w == 0 || clamped_h == 0 {
-                    continue;
-                }
-
-                // 完全に境界内に収まるように安全化された Scissor Rect を適用
-                rpass.set_scissor_rect(phys_x, phys_y, clamped_w, clamped_h);
-
-                rpass.draw_indexed(0..6, 0, offset..(offset + count));
-            }
-        }
-        self.queue.submit(Some(encoder.finish()));
-        self.queue.present(surface_texture);
-
-        // wgpuのデバイスを明示的にポーリングし、未解決のフェンスやリソースをフラッシュ
-        // let _ = self.device.poll(wgpu::PollType::Poll);
-
-        self.render_data = render_data;
-    }
-}
-
 impl WgpuRenderer {
     /// Initializes wgpu.
     ///
@@ -1045,4 +873,176 @@ pub struct RawWgpuRenderer<'a> {
     pub config_bind_group: &'a mut wgpu::BindGroup,
     pub config_bind_group_layout: &'a mut wgpu::BindGroupLayout,
     pub external_bind_groups: &'a mut FxHashMap<Entity, (wgpu::TextureView, wgpu::BindGroup)>,
+}
+
+impl Renderer for WgpuRenderer {
+    #[expect(clippy::cast_precision_loss)]
+    fn resize(&mut self, p_width: u32, p_height: u32, scale_factor: f32) {
+        if p_width > 0 && p_height > 0 {
+            self.config.width = p_width;
+            self.config.height = p_height;
+
+            self.surface.configure(&self.device, &self.config);
+
+            let logical_width = p_width as f32 / scale_factor;
+            let logical_height = p_height as f32 / scale_factor;
+
+            // シェーダー側で位置を正しく計算できるよう、論理サイズを Uniform に再書き込み
+            let config_data = GlobalConfig {
+                screen_size: [logical_width, logical_height],
+                scale: scale_factor,
+                _padding: 0.0,
+            };
+            self.queue
+                .write_buffer(&self.config_buffer, 0, bytemuck::cast_slice(&[config_data]));
+        }
+    }
+
+    fn render(&mut self, cx: &mut Context, scale_factor: f32) {
+        let _context_guard = cx.bind_context();
+        // 破棄された要素のキャッシュを解放
+        for e in cx.external_visual_despawned_queue().drain(..) {
+            self.external_bind_groups.remove(&e);
+        }
+
+        // 前面と背面に分類されたバッチを Context から引き出す
+        cx.collect_render_data(&mut RendererView {
+            render_data: &mut self.render_data,
+            atlases: &mut self.atlases,
+            queue: &RenderQueue::Gpu(&self.queue),
+        });
+
+        if self.render_data.batches.is_empty() {
+            return;
+        }
+
+        let render_data = std::mem::take(&mut self.render_data);
+
+        // スワップチェーンから描画先フレームを獲得
+        // TODO: エラーハンドリング
+        let wgpu::CurrentSurfaceTexture::Success(surface_texture) =
+            self.surface.get_current_texture()
+        else {
+            return;
+        };
+
+        let view = surface_texture
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
+
+        self.instance_staging.clear();
+        for (i, instance) in render_data.instances.iter().enumerate() {
+            let e = render_data.entity_ids[i];
+            let inst = cx.build_quad_instance_for_entity(e, instance);
+            self.instance_staging.push(inst);
+        }
+
+        // 容量を確定
+        self.ensure_instance_buffer_capacity(self.instance_staging.len());
+
+        // 外部テクスチャを事前にキャッシュ
+        self.update_external_texture_bind_groups(cx);
+
+        // VRAM インスタンスバッファへの一括転送
+        self.queue.write_buffer(
+            &self.instance_buffer,
+            0,
+            bytemuck::cast_slice(&self.instance_staging),
+        );
+
+        // 背面の描画実行
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+        {
+            let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Background Render Pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                        store: wgpu::StoreOp::Store,
+                    },
+                    depth_slice: None,
+                })],
+                depth_stencil_attachment: None,
+                ..Default::default()
+            });
+
+            rpass.set_pipeline(&self.pipeline);
+            rpass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+            rpass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+
+            // 背面用バッチの描画 (instance_offset は 0 から開始)
+            // let mut instance_offset = 0;
+            // 現在アクティブなパイプラインを記録
+            let mut current_pipeline = None;
+
+            #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            for batch in &render_data.batches {
+                let offset = batch.instance_offset as u32;
+                let count = batch.instance_count as u32;
+                if count == 0 {
+                    continue;
+                }
+
+                // 次のバッチに必要なパイプラインを特定
+                // くり抜きバッチであれば punchout_pipeline (REPLACEブレンド)、
+                // 通常バッチであれば通常の pipeline (PMAブレンド) を設定。
+                let needed_pipeline = match batch.batch_type {
+                    BatchType::Normal => &self.pipeline,
+                    BatchType::Punchout => &self.punchout_pipeline,
+                };
+
+                // アクティブなパイプラインと異なる場合のみ、wgpu側にコマンドを送信する
+                if current_pipeline != Some(std::ptr::from_ref(needed_pipeline)) {
+                    rpass.set_pipeline(needed_pipeline);
+                    current_pipeline = Some(std::ptr::from_ref(needed_pipeline));
+                }
+
+                // 静止 ExternalTexture 描画時のバインディングの切り替え
+                self.bind_texture_for_batch(&mut rpass, batch, &render_data.entity_ids);
+
+                let clip = batch.scissor_rect;
+
+                // スケールを乗じて物理ピクセル座標を算出
+                let phys_x = (clip.x * scale_factor).round().max(0.0) as u32;
+                let phys_y = (clip.y * scale_factor).round().max(0.0) as u32;
+                let phys_w = (clip.width * scale_factor).round().max(0.0) as u32;
+                let phys_h = (clip.height * scale_factor).round().max(0.0) as u32;
+
+                // 現在のスワップチェーンテクスチャの境界サイズを取得
+                let target_w = self.config.width;
+                let target_h = self.config.height;
+
+                //  物理開始位置がすでに縮小後のバックバッファ外に押し出されている場合、
+                // 描画が不可能であるため、検証エラーを避けるためにこのバッチの描画をスキップ
+                if phys_x >= target_w || phys_y >= target_h {
+                    continue;
+                }
+
+                // 開始位置 + 幅/高さがレンダーターゲットをはみ出さないように厳密にクランプ
+                let clamped_w = phys_w.min(target_w - phys_x);
+                let clamped_h = phys_h.min(target_h - phys_y);
+
+                // wgpu の制約回避のため、クランプ後の幅・高さが 0 の場合も描画をスキップ
+                if clamped_w == 0 || clamped_h == 0 {
+                    continue;
+                }
+
+                // 完全に境界内に収まるように安全化された Scissor Rect を適用
+                rpass.set_scissor_rect(phys_x, phys_y, clamped_w, clamped_h);
+
+                rpass.draw_indexed(0..6, 0, offset..(offset + count));
+            }
+        }
+        self.queue.submit(Some(encoder.finish()));
+        self.queue.present(surface_texture);
+
+        // wgpuのデバイスを明示的にポーリングし、未解決のフェンスやリソースをフラッシュ
+        // let _ = self.device.poll(wgpu::PollType::Poll);
+
+        self.render_data = render_data;
+    }
 }
