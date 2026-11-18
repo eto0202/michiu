@@ -156,7 +156,10 @@ pub use window_store::*;
 #[cfg(feature = "trace-lifecycle")]
 use crate::trace_lifecycle;
 use crate::{
-    Backdrop, BasicLayout, ComponentMask, ContextGuard, CursorIcon, Entity, ExternalTexture, ExternalVisual, FlexLayout, InteractionState, LayoutPoint, LayoutRect, LayoutSize, MichiuSoA, PropertyList, QuadInstance, ReadSignal, RendererView, TextEngine, VisualProperty, WriteSignal, a11y::A11yInferenceTag, bind_context, flush_trace, handle_on_click,
+    Backdrop, BasicLayout, ComponentMask, ContextGuard, CursorIcon, Entity, ExternalTexture,
+    ExternalVisual, FlexLayout, InteractionState, LayoutPoint, LayoutRect, LayoutSize, MichiuSoA,
+    PropertyList, QuadInstance, ReadSignal, RendererView, TextEngine, VisualProperty, WriteSignal,
+    a11y::A11yInferenceTag, bind_context, flush_trace, handle_on_click,
 };
 use std::{borrow::Cow, sync::Arc};
 use windows::Win32::Foundation::HWND;
@@ -645,6 +648,20 @@ impl Context {
     #[inline]
     pub fn try_clip_rect(&self, e: Entity) -> Option<LayoutRect> {
         self.outputs.out_clip_rects.find(e).copied()
+    }
+
+    /// Get the on-screen clipping boundary of the specified entity.
+    #[inline]
+    pub fn prev_clip_rect(&mut self, e: Entity) -> LayoutRect {
+        self.outputs
+            .out_clip_rects
+            .find_or_default(e, &mut self.debug)
+    }
+
+    /// Get the on-screen clipping boundary of the specified entity.
+    #[inline]
+    pub fn try_prev_clip_rect(&self, e: Entity) -> Option<LayoutRect> {
+        self.outputs.out_prev_clip_rects.find(e).copied()
     }
 
     #[inline]
@@ -1259,6 +1276,17 @@ impl Context {
         let is_focused = self.interaction_id(InteractionState::Focused) == Some(id);
         let is_pressed = self.interaction_id(InteractionState::Pressed) == Some(id);
         is_focused || is_pressed
+    }
+
+    #[inline]
+    pub fn has_active_transform(&self,e: Entity) -> bool {
+        self.renders
+            .rnd_active_transitions
+            .find(e)
+            .is_some_and(|list| {
+                list.iter()
+                    .any(|t| t.property_list == PropertyList::Transform)
+            })
     }
 
     #[inline]

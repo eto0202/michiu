@@ -1,3 +1,4 @@
+use crate::CompositionTargetLayer;
 use michiu_ui::{Context, Entity, ExternalTexture};
 use std::sync::Arc;
 use windows::Win32::{
@@ -6,8 +7,6 @@ use windows::Win32::{
         IDCompositionDesktopDevice, IDCompositionTarget, IDCompositionVisual2,
     },
 };
-
-use crate::CompositionTargetLayer;
 
 pub(crate) struct DCompWorkspace {
     pub(crate) target: IDCompositionTarget,

@@ -2,12 +2,18 @@ use crate::{
     AlignContent, AlignItems, AlignSelf, Backdrop, BaseVisualPropertiesSecondary, BorderAlignment,
     BorderStyle, BoxShadow, BoxSizing, Color, ComponentMask, ContentVisibility, CornerRadius,
     CursorIcon, Direction, Display, EdgeInsets, Entity, FlexDirection, FlexWrap, Focusable,
-    FontDate, FontFamily, FontStyle, FontWeight, IDENTITY_MATRIX, JustifyContent,
-    KeyframeAnimation, LayoutOverflow, Length, LetterSpacing, LinearGradient, MichiuSoA, ModTarget,
-    Modifier, Point, PointerEvents, Position, Rect, Size, TextAlign, Transition, UserSelect, Val,
-    VisualPropertiesSecondary,
+    FontDate, FontFamily, FontStyle, FontWeight, JustifyContent, KeyframeAnimation, LayoutOverflow,
+    Length, LetterSpacing, LinearGradient, MichiuSoA, ModTarget, Modifier, Point, PointerEvents,
+    Position, Rect, Size, TextAlign, Transition, UserSelect, Val, VisualPropertiesSecondary,
 };
 use std::sync::{Arc, LazyLock};
+
+pub(crate) const IDENTITY_MATRIX: [[f32; 4]; 4] = [
+    [1.0, 0.0, 0.0, 0.0],
+    [0.0, 1.0, 0.0, 0.0],
+    [0.0, 0.0, 1.0, 0.0],
+    [0.0, 0.0, 0.0, 1.0],
+];
 
 /// 要素がほぼ必ず持つ、基本のレイアウト情報。
 #[derive(Debug, Clone, Copy, PartialEq)]

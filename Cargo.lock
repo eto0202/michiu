@@ -1851,9 +1851,6 @@ dependencies = [
  "bytemuck",
  "michiu_ui",
  "rustc-hash 2.1.3",
- "slotmap",
- "smallvec",
- "wgpu",
  "windows",
  "windows-core",
  "windows-numerics",
@@ -1885,7 +1882,6 @@ dependencies = [
  "wgpu",
  "windows",
  "windows-core",
- "windows-numerics",
  "windows-result",
 ]
 

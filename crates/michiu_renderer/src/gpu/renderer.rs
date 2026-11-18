@@ -104,14 +104,13 @@
 //!
 //! For consumer applications, safe read access is provided through immutable getters such as [`d3d11_device(&self)`](MichiuRenderer::d3d11_device) and [`surface(&self)`](WgpuRenderer::surface).
 
+use crate::{Renderer, RendererUserConfig, Vertex};
 use michiu_ui::{
     Atlases, BatchType, Context, DrawBatch, Entity, LayoutSize, MichiuError, QuadInstance,
     RenderData, RenderQueue, RendererView,
+    wgpu::{self, util::DeviceExt},
 };
 use rustc_hash::FxHashMap;
-use wgpu::util::DeviceExt;
-
-use crate::{Renderer, RendererUserConfig, Vertex};
 
 pub struct WgpuRenderer {
     pub(crate) surface: wgpu::Surface<'static>,

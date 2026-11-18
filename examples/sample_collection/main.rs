@@ -240,7 +240,6 @@ fn redraw(app: &mut MichiuApp) {
     if let Some(_paint) = app.window.begin_paint() {
         app.renderer.draw(&mut app.context);
     }
-    app.context.flush_trace();
     let draw_elapsed = draw_start.elapsed();
 
     // アクセシビリティ機能を使う場合は必須。`draw` の前でもオッケー。

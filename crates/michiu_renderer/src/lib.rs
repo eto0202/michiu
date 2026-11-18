@@ -346,8 +346,8 @@ pub(crate) const INDICES: &[u16] = &[0, 1, 2, 2, 3, 0];
 
 #[derive(Debug, Clone)]
 pub struct RendererUserConfig {
-    pub memory_hints: wgpu::MemoryHints,
-    pub present_mode: wgpu::PresentMode,
+    pub memory_hints: michiu_ui::wgpu::MemoryHints,
+    pub present_mode: michiu_ui::wgpu::PresentMode,
     pub target_layer: CompositionTargetLayer,
     pub backend: RendererBackend,
 }
@@ -376,8 +376,8 @@ pub enum CompositionTargetLayer {
 impl Default for RendererUserConfig {
     fn default() -> Self {
         Self {
-            memory_hints: wgpu::MemoryHints::MemoryUsage,
-            present_mode: wgpu::PresentMode::Fifo,
+            memory_hints: michiu_ui::wgpu::MemoryHints::MemoryUsage,
+            present_mode: michiu_ui::wgpu::PresentMode::Fifo,
             target_layer: CompositionTargetLayer::default(),
             backend: RendererBackend::default(),
         }

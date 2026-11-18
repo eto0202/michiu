@@ -1032,9 +1032,8 @@ macro_rules! flush_trace {
 #[cfg(all(feature = "trace-error", not(feature = "snapshot")))]
 #[macro_export]
 macro_rules! flush_trace {
-    ($cx:expr, $r:expr) => {
+    ($cx:expr) => {
         let _: &$crate::Context = $cx;
-        let _: &$crate::MichiuRenderer = $r;
 
         if let Some(tx) = $cx.debug.dbg_tx.clone() {
             $cx.debug.frame += 1;
@@ -1048,8 +1047,8 @@ macro_rules! flush_trace {
 #[cfg(not(feature = "trace-error"))]
 #[macro_export]
 macro_rules! flush_trace {
-    ($cx:expr, $r:expr) => {
-        let _ = ($cx, $r);
+    ($cx:expr) => {
+        let _ = ($cx);
     };
 }
 

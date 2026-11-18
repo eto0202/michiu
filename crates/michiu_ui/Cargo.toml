@@ -30,7 +30,6 @@ slotmap = "1.1.1"
 smallvec = "1.16.5"
 taffy = "0.15.1"
 wgpu = { version = "30.0.2", default-features = false, features = ["dx12", "wgsl"] }
-windows-numerics = "0.3.1"
 notify = "8.2.2"
 windows-core = "0.62.2"
 rustc-hash = "2.1.3"
@@ -60,7 +59,7 @@ features = [
 [features]
 serde = ["dep:serde"]
 dhat-heap = ["dep:dhat"]
-default = ["trace-entity", "snapshot"]
+default = ["trace-error"]
 trace-error = []
 trace-lifecycle = ["trace-error"]
 trace-entity = ["trace-lifecycle"]

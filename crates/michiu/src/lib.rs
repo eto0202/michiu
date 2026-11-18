@@ -993,8 +993,6 @@ impl MichiuApp {
             self.renderer.draw(&mut self.context);
         }
 
-        self.context.flush_trace();
-
         if self.config.accessibility_support {
             self.context.update_accessibility();
         }

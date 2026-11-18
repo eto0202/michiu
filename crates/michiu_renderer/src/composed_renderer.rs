@@ -136,8 +136,7 @@ use crate::{
     },
 };
 use michiu_ui::{
-    Backdrop, Context, ExternalVisual, LayoutPoint, LayoutSize, ResultTraceExt,
-    VisualUpdateContext, flush_trace,
+    Backdrop, Context, ExternalVisual, LayoutPoint, LayoutSize, ResultTraceExt, VisualUpdateContext,
 };
 use windows::{
     System::DispatcherQueueController,
@@ -299,7 +298,7 @@ impl MichiuRenderer {
         // ダーティフラグをクリア
         cx.clear_dirty();
         // ログを送信
-        // flush_trace!(cx, self);
+        cx.flush_trace();
     }
 
     #[track_caller]
@@ -352,9 +351,8 @@ impl MichiuRenderer {
             });
 
             // DComp Visual のレイアウト（位置・クリップ・トランスフォーム）を同期
-            michiu_ui::sync_external_visual_layout_and_clip(
+            self.sync.sync_external_visual_layout_and_clip(
                 cx,
-                self.scale_factor(),
                 e,
                 &ex_visual,
                 metadata,
