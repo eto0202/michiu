@@ -135,9 +135,7 @@ use crate::{
         DCompWorkspace, PendingDcompRelease, PlatformContext, PromotedVisual, WindowSynchronizer,
     },
 };
-use michiu_ui::{
-    Backdrop, Context, ExternalVisual, LayoutPoint, LayoutSize, ResultTraceExt, VisualUpdateContext,
-};
+use michiu_ui::{Backdrop, Context, ExternalVisual, LayoutPoint, LayoutSize, VisualUpdateContext};
 use windows::{
     System::DispatcherQueueController,
     UI::Composition::Compositor,
@@ -381,21 +379,15 @@ impl MichiuRenderer {
     ///  Returns true if the event has been consumed.
     #[inline]
     pub fn dispatch_raw_input_to_external_visual(
+        &self,
         cx: &mut Context,
         msg: u32,
         wparam: WPARAM,
         lparam: LPARAM,
         window_phys_pos: LayoutPoint,
-        scale_factor: f32,
     ) -> bool {
-        michiu_ui::dispatch_raw_input_to_external_visual(
-            cx,
-            msg,
-            wparam,
-            lparam,
-            window_phys_pos,
-            scale_factor,
-        )
+        self.sync
+            .dispatch_raw_input_to_external_visual(cx, msg, wparam, lparam, window_phys_pos)
     }
 
     #[inline]

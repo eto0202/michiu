@@ -12,13 +12,15 @@ pub enum AtlasTypes {
     User,
 }
 impl AtlasTypes {
-    pub(crate) const fn to_format(self) -> AtlasFormat {
+    #[must_use]
+    pub const fn to_format(self) -> AtlasFormat {
         match self {
             AtlasTypes::Mask | AtlasTypes::User => AtlasFormat::R8,
             AtlasTypes::Color => AtlasFormat::Rgba8,
         }
     }
-    pub(crate) const fn to_wgpu(self) -> wgpu::TextureFormat {
+    #[must_use]
+    pub const fn to_wgpu(self) -> wgpu::TextureFormat {
         match self {
             AtlasTypes::Mask | AtlasTypes::User => wgpu::TextureFormat::R8Unorm,
             AtlasTypes::Color => wgpu::TextureFormat::Rgba8UnormSrgb,

@@ -666,16 +666,16 @@ impl Context {
 
     #[inline]
     pub fn target_backdrop(&mut self) -> Backdrop {
-        let root_id = self.topology.topo_active_entities.first().unwrap_or_trace(
+        let root = self.topology.topo_active_entities.first().unwrap_or_trace(
             None,
             &mut self.debug,
             || MichiuUiError::RootEntityNotFound,
         );
-        let visual_prop = self.renders.rnd_visual.find(*root_id).unwrap_or_trace(
-            Some(*root_id),
+        let visual_prop = self.renders.rnd_visual.find(*root).unwrap_or_trace(
+            Some(*root),
             &mut self.debug,
             || MichiuUiError::ComponentNotFound {
-                id: *root_id,
+                e: *root,
                 component: "rnd_visual",
             },
         );
@@ -720,6 +720,19 @@ impl Context {
             .unset(ComponentMask::COMP_EXTERNAL_TEXTURE_CONTENT);
         self.renders.rnd_active_external_visual.insert(e);
         self.contents.cont_external_textures.remove(e);
+    }
+
+    #[inline]
+    pub fn has_external_visual(&self, e: Entity) -> bool {
+        self.topology
+            .topo_active_masks
+            .find(e)
+            .is_some_and(ComponentMask::has_external_visual_content)
+    }
+
+    #[inline]
+    pub fn external_visual(&self, e: Entity) -> Option<Arc<dyn ExternalVisual>> {
+        self.contents.cont_external_visual.find(e).cloned()
     }
 
     #[inline]
@@ -870,7 +883,7 @@ impl Context {
             &self.topology.topo_parents,
         )
         .unwrap_or_trace(Some(entity), &mut self.debug, || {
-            MichiuUiError::EntityNotFound { id: entity }
+            MichiuUiError::EntityNotFound { e: entity }
         })
     }
 
@@ -903,7 +916,7 @@ impl Context {
             &self.topology.topo_parents,
         )
         .unwrap_or_trace(Some(entity), &mut self.debug, || {
-            MichiuUiError::EntityNotFound { id: entity }
+            MichiuUiError::EntityNotFound { e: entity }
         })
     }
 
@@ -1179,6 +1192,23 @@ impl Context {
             InteractionState::Pressed => self.events.evt_interaction_states.pressed = e,
             InteractionState::Dragged => self.events.evt_interaction_states.dragged = e,
         }
+    }
+
+    #[inline]
+    pub fn hovered_entity(&self) -> Option<Entity> {
+        self.events.evt_interaction_states.hovered
+    }
+    #[inline]
+    pub fn pressed_entity(&self) -> Option<Entity> {
+        self.events.evt_interaction_states.pressed
+    }
+    #[inline]
+    pub fn focused_entity(&self) -> Option<Entity> {
+        self.events.evt_interaction_states.focused
+    }
+    #[inline]
+    pub fn dragged_entity(&self) -> Option<Entity> {
+        self.events.evt_interaction_states.dragged
     }
 
     /// Call it in the corresponding event and add the user action to the queue ([`EventAction`]).

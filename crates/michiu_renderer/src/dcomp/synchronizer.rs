@@ -1,6 +1,7 @@
-use michiu_ui::{Context, Entity, ExternalVisualMetadata, LayoutSize};
-use windows::Win32::Graphics::DirectComposition::{
-    IDCompositionDesktopDevice, IDCompositionVisual2,
+use michiu_ui::{Context, Entity, ExternalVisualMetadata, LayoutPoint, LayoutSize};
+use windows::Win32::{
+    Foundation::{LPARAM, POINT, WPARAM},
+    Graphics::DirectComposition::{IDCompositionDesktopDevice, IDCompositionVisual2},
 };
 use windows_numerics::Matrix3x2;
 
@@ -152,5 +153,46 @@ impl WindowSynchronizer {
 
             let _ = ex_visual.SetClip(&rectangle_clip);
         }
+    }
+
+    /// Identifies the topmost `ExternalVisual` based on physical pixel coordinates and forwards the raw input.
+    /// Returns `true` if the event has been consumed.
+    pub fn dispatch_raw_input_to_external_visual(
+        &self,
+        cx: &mut Context,
+        msg: u32,
+        wparam: WPARAM,
+        lparam: LPARAM,
+        window_phys_pos: LayoutPoint,
+    ) -> bool {
+        let scale_factor = self.scale_factor;
+
+        let logical_pos = LayoutPoint::new(
+            window_phys_pos.x / scale_factor,
+            window_phys_pos.y / scale_factor,
+        );
+
+        // プレス中要素があればそちらを優先、なければヒット要素
+        let target = cx.pressed_entity().or_else(|| cx.hit_test(logical_pos));
+
+        let Some(e) = target else {
+            return false;
+        };
+        if !cx.has_external_visual(e) {
+            return false;
+        }
+        let Some(visual) = cx.external_visual(e) else {
+            return false;
+        };
+
+        let rect = cx.rect(e);
+
+        #[expect(clippy::cast_possible_truncation)]
+        let local_phys_pos = POINT {
+            x: (window_phys_pos.x - rect.x * scale_factor).round() as i32,
+            y: (window_phys_pos.y - rect.y * scale_factor).round() as i32,
+        };
+
+        visual.handle_raw_input(msg, wparam, lparam, local_phys_pos)
     }
 }

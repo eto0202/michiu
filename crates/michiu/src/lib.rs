@@ -718,15 +718,13 @@ impl MichiuApp {
                                 .inject_action(EventAction::PointerMove(logical_pos));
 
                             if self.config.external_visual_support {
-                                ext_consumed =
-                                    MichiuRenderer::dispatch_raw_input_to_external_visual(
-                                        &mut self.context,
-                                        raw.msg,
-                                        raw.wparam,
-                                        raw.lparam,
-                                        phys_pos,
-                                        self.renderer.scale_factor(),
-                                    );
+                                ext_consumed = self.renderer.dispatch_raw_input_to_external_visual(
+                                    &mut self.context,
+                                    raw.msg,
+                                    raw.wparam,
+                                    raw.lparam,
+                                    phys_pos,
+                                );
                             }
 
                             consumed = has_hovered || ext_consumed;
@@ -772,13 +770,12 @@ impl MichiuApp {
                         let (x, y) = raw.lparam.to_point_f32();
                         let phys_pos = LayoutPoint::new(x, y);
 
-                        ext_consumed = MichiuRenderer::dispatch_raw_input_to_external_visual(
+                        ext_consumed = self.renderer.dispatch_raw_input_to_external_visual(
                             &mut self.context,
                             raw.msg,
                             raw.wparam,
                             raw.lparam,
                             phys_pos,
-                            self.renderer.scale_factor(),
                         );
                     }
 
@@ -897,13 +894,12 @@ impl MichiuApp {
                             let _ = unsafe { ScreenToClient(self.handle.hwnd(), &raw mut pt) };
 
                             let phys_pos = LayoutPoint::new(pt.x as f32, pt.y as f32);
-                            ext_consumed = MichiuRenderer::dispatch_raw_input_to_external_visual(
+                            ext_consumed = self.renderer.dispatch_raw_input_to_external_visual(
                                 &mut self.context,
                                 raw.msg,
                                 raw.wparam,
                                 raw.lparam,
                                 phys_pos,
-                                self.renderer.scale_factor(),
                             );
                         }
 

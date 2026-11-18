@@ -9,7 +9,7 @@ pub(crate) fn logger(sub: TraceSubscription) {
             for record in batch.iter() {
                 let (frame, entity, time, loc, func) = (
                     record.frame,
-                    record.id,
+                    record.e,
                     record.time,
                     record.loc,
                     record.func,

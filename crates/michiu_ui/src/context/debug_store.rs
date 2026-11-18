@@ -282,9 +282,9 @@ impl MichiuInspector {
 
                 let mut storage = storage_clone.write();
                 for trace in shared_batch.iter() {
-                    if let Some(id) = trace.id {
+                    if let Some(e) = trace.e {
                         // trace 自体も clone せず Arc<MichiuTraceRecord> にする？
-                        storage.insert(id, trace.clone());
+                        storage.insert(e, trace.clone());
                     }
                 }
             }
@@ -320,8 +320,8 @@ impl MichiuInspector {
     #[track_caller]
     #[inline]
     #[must_use]
-    pub fn get(&self, id: Entity) -> Option<MichiuTraceRecord> {
-        self.storage.read().get(id).cloned()
+    pub fn get(&self, e: Entity) -> Option<MichiuTraceRecord> {
+        self.storage.read().get(e).cloned()
     }
 }
 
@@ -570,7 +570,7 @@ pub enum ModifierStage {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct SpawnTrace {
-    pub id: Entity,
+    pub e: Entity,
     pub parent: Option<Entity>,
     pub node_id: taffy::NodeId,
     pub add: Option<&'static str>,
@@ -845,7 +845,7 @@ pub enum MichiuInfo {
 #[cfg(feature = "trace-error")]
 #[derive(Clone)]
 pub struct MichiuTraceRecord {
-    pub id: Option<Entity>,
+    pub e: Option<Entity>,
     pub frame: u64,
     pub time: TimeStamp,
     pub func: &'static str,
@@ -893,9 +893,9 @@ macro_rules! current_fn {
 #[macro_export]
 #[doc(hidden)]
 macro_rules! _make_record {
-    ($id:expr, $debug:expr, $trace:expr) => {
+    ($e:expr, $debug:expr, $trace:expr) => {
         $crate::MichiuTraceRecord {
-            id: $id,
+            e: $e,
             frame: $debug.frame,
             time: $debug.since_boot(),
             func: $crate::current_fn!(),
@@ -914,17 +914,17 @@ macro_rules! _make_record {
 #[macro_export]
 macro_rules! trace_error {
     (None, $debug:expr, $trace_fn:expr) => {
-        let id: Option<$crate::Entity> = None;
-        $crate::trace_error!(id, $debug, $trace_fn);
+        let e: Option<$crate::Entity> = None;
+        $crate::trace_error!(e, $debug, $trace_fn);
     };
 
-    ($id:expr, $debug:expr, $trace_fn:expr) => {
+    ($e:expr, $debug:expr, $trace_fn:expr) => {
         let debug = &mut *$debug;
         let _: &DebugStore = debug;
         let _: &mut dyn FnMut() -> MichiuTrace = &mut $trace_fn;
 
         if debug.dbg_tx.is_some() {
-            let record = $crate::_make_record!($id, debug, $trace_fn());
+            let record = $crate::_make_record!($e, debug, $trace_fn());
             debug.dbg_trace_queue.push(record);
         }
     };
@@ -933,8 +933,8 @@ macro_rules! trace_error {
 #[cfg(not(feature = "trace-error"))]
 #[macro_export]
 macro_rules! trace_error {
-    ($id:expr, $debug:expr, $trace_fn:expr) => {
-        let _ = ($id, $debug);
+    ($e:expr, $debug:expr, $trace_fn:expr) => {
+        let _ = ($e, $debug);
     };
 }
 
@@ -945,17 +945,17 @@ macro_rules! trace_error {
 #[macro_export]
 macro_rules! trace_lifecycle {
     (None, $debug:expr, $trace_fn:expr) => {
-        let id: Option<$crate::Entity> = None;
-        $crate::trace_lifecycle!(id, $debug, $trace_fn);
+        let e: Option<$crate::Entity> = None;
+        $crate::trace_lifecycle!(e, $debug, $trace_fn);
     };
 
-    ($id:expr, $debug:expr, $trace_fn:expr) => {
+    ($e:expr, $debug:expr, $trace_fn:expr) => {
         let debug = &mut *$debug;
         let _: &$crate::DebugStore = debug;
         let _: &mut dyn FnMut() -> $crate::MichiuTrace = &mut $trace_fn;
 
         if debug.dbg_tx.is_some() {
-            let record = $crate::_make_record!($id, debug, $trace_fn());
+            let record = $crate::_make_record!($e, debug, $trace_fn());
             debug.dbg_trace_queue.push(record);
         }
     };
@@ -964,7 +964,7 @@ macro_rules! trace_lifecycle {
 #[cfg(not(feature = "trace-lifecycle"))]
 #[macro_export]
 macro_rules! trace_lifecycle {
-    ($id:expr, $debug:expr, $trace_fn:expr) => {
+    ($e:expr, $debug:expr, $trace_fn:expr) => {
         let _ = $debug;
     };
 }
@@ -976,17 +976,17 @@ macro_rules! trace_lifecycle {
 #[macro_export]
 macro_rules! trace_entity {
     (None, $debug:expr, $trace_fn:expr) => {
-        let id: Option<$crate::Entity> = None;
-        $crate::trace!(id, $debug, $trace_fn);
+        let e: Option<$crate::Entity> = None;
+        $crate::trace!(e, $debug, $trace_fn);
     };
 
-    ($id:expr, $debug:expr, $trace_fn:expr) => {
+    ($e:expr, $debug:expr, $trace_fn:expr) => {
         let debug = &mut *$debug;
         let _: &DebugStore = debug;
         let _: &mut dyn FnMut() -> MichiuTrace = &mut $trace_fn;
 
         if debug.dbg_tx.is_some() {
-            let record = $crate::_make_record!($id, debug, $trace_fn());
+            let record = $crate::_make_record!($e, debug, $trace_fn());
             debug.dbg_trace_queue.push(record);
         }
     };
@@ -995,8 +995,8 @@ macro_rules! trace_entity {
 #[cfg(not(feature = "trace-entity"))]
 #[macro_export]
 macro_rules! trace_entity {
-    ($id:expr, $debug:expr, $trace_fn:expr) => {
-        let _ = ($id, $debug);
+    ($e:expr, $debug:expr, $trace_fn:expr) => {
+        let _ = ($e, $debug);
     };
 }
 
@@ -1013,7 +1013,7 @@ macro_rules! flush_trace {
         if let Some(ref tx) = $cx.debug.dbg_tx.clone() {
             $cx.debug.frame += 1;
             let record = $crate::MichiuTraceRecord {
-                id: None,
+                e: None,
                 frame: $cx.debug.frame,
                 time: $cx.debug.since_boot(),
                 func: $crate::current_fn!(),
@@ -1238,7 +1238,7 @@ impl ContextSnapshot {
                     .sys_text_buffers
                     .borrow()
                     .iter()
-                    .map(|(id, rc_buf)| (id, (**rc_buf).clone()))
+                    .map(|(e, rc_buf)| (e, (**rc_buf).clone()))
                     .collect(),
             },
             reactive: ReactiveStoreSnapshot {
@@ -1341,12 +1341,12 @@ pub type MichiuUiResult<T> = std::result::Result<T, MichiuUiError>;
 #[derive(Error, Debug, Clone)]
 pub enum MichiuUiError {
     #[error(
-        "Entity {id:?} not found.\n\
+        "Entity {e:?} not found.\n\
             Possible causes:\n\
             - The entity was already despawned/destroyed (dangling ID).\n\
             - An uninitialized or dummy Entity was used."
     )]
-    EntityNotFound { id: Entity },
+    EntityNotFound { e: Entity },
 
     #[error(
         "Roor entity not found.\n\
@@ -1380,13 +1380,13 @@ pub enum MichiuUiError {
     TagNotFound { type_name: &'static str },
 
     #[error(
-        "Component '{component}' not found for Entity {id:?}.\n\
+        "Component '{component}' not found for Entity {e:?}.\n\
             Possible causes:\n\
             - The component was not registered during spawn.\n
             - The component was removed/detached from the entity.\n\
             - The entity does not possess this property."
     )]
-    ComponentNotFound { id: Entity, component: &'static str },
+    ComponentNotFound { e: Entity, component: &'static str },
 
     #[error(
         "Signal {0:?} not found.\n\
@@ -1524,25 +1524,25 @@ pub enum MichiuUiError {
 pub trait OptionTraceExt<T> {
     /// If a value exists, return it; if it is None, log a trace, immediately flush, and then raise a panic.
     #[track_caller]
-    fn unwrap_or_trace<F>(self, id: Option<Entity>, debug: &mut DebugStore, err: F) -> T
+    fn unwrap_or_trace<F>(self, e: Option<Entity>, debug: &mut DebugStore, err: F) -> T
     where
         F: FnOnce() -> MichiuUiError;
 
     /// If a value exists, return it; if it is None, log a trace and return the default value.
     #[track_caller]
-    fn unwrap_or_default_trace(self, id: Option<Entity>, debug: &mut DebugStore) -> T
+    fn unwrap_or_default_trace(self, e: Option<Entity>, debug: &mut DebugStore) -> T
     where
         T: Default + Debug + Send + Sync + 'static;
 
     /// If a value exists, return it; otherwise, log a trace and return the specified fallback value.
     #[track_caller]
-    fn unwrap_or_fallback_trace(self, id: Option<Entity>, fallback: T, debug: &mut DebugStore) -> T
+    fn unwrap_or_fallback_trace(self, e: Option<Entity>, fallback: T, debug: &mut DebugStore) -> T
     where
         T: Clone + Debug + Send + Sync + 'static;
 
     /// If a value exists, return it; if it is None, log a trace and generate a fallback value using a closure.
     #[track_caller]
-    fn unwrap_or_else_trace<F>(self, id: Option<Entity>, debug: &mut DebugStore, f: F) -> T
+    fn unwrap_or_else_trace<F>(self, e: Option<Entity>, debug: &mut DebugStore, f: F) -> T
     where
         T: Default + Clone + Debug + Send + Sync + 'static,
         F: FnOnce() -> T;
@@ -1552,7 +1552,7 @@ impl<T> OptionTraceExt<T> for Option<T> {
     #[expect(clippy::panic)]
     #[track_caller]
     #[inline]
-    fn unwrap_or_trace<F>(self, id: Option<Entity>, debug: &mut DebugStore, err: F) -> T
+    fn unwrap_or_trace<F>(self, e: Option<Entity>, debug: &mut DebugStore, err: F) -> T
     where
         F: FnOnce() -> MichiuUiError,
     {
@@ -1563,7 +1563,7 @@ impl<T> OptionTraceExt<T> for Option<T> {
 
             #[cfg(feature = "trace-error")]
             {
-                trace_error!(id, debug, || MichiuTrace::Error {
+                trace_error!(e, debug, || MichiuTrace::Error {
                     detail: error_detail.clone(),
                     add: None,
                 });
@@ -1580,13 +1580,13 @@ impl<T> OptionTraceExt<T> for Option<T> {
 
     #[track_caller]
     #[inline]
-    fn unwrap_or_default_trace(self, id: Option<Entity>, debug: &mut DebugStore) -> T
+    fn unwrap_or_default_trace(self, e: Option<Entity>, debug: &mut DebugStore) -> T
     where
         T: Default + Debug + Send + Sync + 'static,
     {
         #[cfg(not(feature = "trace-entity"))]
         {
-            let _ = (id, debug);
+            let _ = (e, debug);
             self.unwrap_or_default()
         }
 
@@ -1594,7 +1594,7 @@ impl<T> OptionTraceExt<T> for Option<T> {
         if let Some(val) = self {
             val
         } else {
-            trace_entity!(id, debug, || MichiuTrace::EntityInfo {
+            trace_entity!(e, debug, || MichiuTrace::EntityInfo {
                 detail: MichiuInfo::ValueNotFound,
                 fallback: Some(Arc::new(T::default())),
                 add: Some(std::any::type_name::<T>()),
@@ -1606,13 +1606,13 @@ impl<T> OptionTraceExt<T> for Option<T> {
 
     #[track_caller]
     #[inline]
-    fn unwrap_or_fallback_trace(self, id: Option<Entity>, fallback: T, debug: &mut DebugStore) -> T
+    fn unwrap_or_fallback_trace(self, e: Option<Entity>, fallback: T, debug: &mut DebugStore) -> T
     where
         T: Clone + Debug + Send + Sync + 'static,
     {
         #[cfg(not(feature = "trace-entity"))]
         {
-            let _ = (id, debug);
+            let _ = (e, debug);
             self.unwrap_or(fallback)
         }
 
@@ -1620,7 +1620,7 @@ impl<T> OptionTraceExt<T> for Option<T> {
         if let Some(val) = self {
             val
         } else {
-            trace_entity!(id, debug, || MichiuTrace::EntityInfo {
+            trace_entity!(e, debug, || MichiuTrace::EntityInfo {
                 detail: MichiuInfo::ValueNotFound,
                 fallback: Some(Arc::new(fallback.clone())),
                 add: Some(std::any::type_name::<T>()),
@@ -1632,14 +1632,14 @@ impl<T> OptionTraceExt<T> for Option<T> {
 
     #[track_caller]
     #[inline]
-    fn unwrap_or_else_trace<F>(self, id: Option<Entity>, debug: &mut DebugStore, f: F) -> T
+    fn unwrap_or_else_trace<F>(self, e: Option<Entity>, debug: &mut DebugStore, f: F) -> T
     where
         T: Default + Clone + Debug + Send + Sync + 'static,
         F: FnOnce() -> T,
     {
         #[cfg(not(feature = "trace-entity"))]
         {
-            let _ = (id, debug);
+            let _ = (e, debug);
             self.unwrap_or_else(f)
         }
 
@@ -1648,7 +1648,7 @@ impl<T> OptionTraceExt<T> for Option<T> {
             val
         } else {
             let val = f();
-            trace_entity!(id, debug, || MichiuTrace::EntityInfo {
+            trace_entity!(e, debug, || MichiuTrace::EntityInfo {
                 detail: MichiuInfo::ValueNotFound,
                 fallback: Some(Arc::new(val.clone())),
                 add: Some(std::any::type_name::<T>()),
@@ -1662,21 +1662,21 @@ impl<T> OptionTraceExt<T> for Option<T> {
 pub trait ResultTraceExt<T> {
     /// If a value exists, return it; if it is `Err`, log a trace, immediately flush, and then panic.
     #[track_caller]
-    fn unwrap_or_trace(self, id: Option<Entity>, debug: &mut DebugStore) -> T;
+    fn unwrap_or_trace(self, e: Option<Entity>, debug: &mut DebugStore) -> T;
 }
 
 impl<T> ResultTraceExt<T> for MichiuUiResult<T> {
     #[expect(clippy::panic)]
     #[track_caller]
     #[inline]
-    fn unwrap_or_trace(self, id: Option<Entity>, debug: &mut DebugStore) -> T {
+    fn unwrap_or_trace(self, e: Option<Entity>, debug: &mut DebugStore) -> T {
         match self {
             Ok(val) => val,
-            Err(e) => {
+            Err(err) => {
                 #[cfg(feature = "trace-error")]
                 {
-                    trace_error!(id, debug, || MichiuTrace::Error {
-                        detail: e.clone(),
+                    trace_error!(e, debug, || MichiuTrace::Error {
+                        detail: err.clone(),
                         add: None,
                     });
 
@@ -1686,7 +1686,7 @@ impl<T> ResultTraceExt<T> for MichiuUiResult<T> {
                     }
                 }
 
-                panic!("unwrap_or_trace: {e}");
+                panic!("unwrap_or_trace: {err}");
             }
         }
     }
@@ -1695,21 +1695,21 @@ impl<T> ResultTraceExt<T> for MichiuUiResult<T> {
 pub trait TaffyResultTraceExt<T> {
     /// If a value exists, return it; if it is `Err`, log a trace, immediately flush, and then panic.
     #[track_caller]
-    fn unwrap_or_trace(self, id: Option<Entity>, debug: &mut DebugStore) -> T;
+    fn unwrap_or_trace(self, e: Option<Entity>, debug: &mut DebugStore) -> T;
 }
 
 impl<T> TaffyResultTraceExt<T> for taffy::TaffyResult<T> {
     #[expect(clippy::panic)]
     #[track_caller]
     #[inline]
-    fn unwrap_or_trace(self, id: Option<Entity>, debug: &mut DebugStore) -> T {
+    fn unwrap_or_trace(self, e: Option<Entity>, debug: &mut DebugStore) -> T {
         match self {
             Ok(val) => val,
-            Err(e) => {
+            Err(err) => {
                 #[cfg(feature = "trace-error")]
                 {
-                    trace_error!(id, debug, || MichiuTrace::Error {
-                        detail: MichiuUiError::TaffyError { source: e.clone() },
+                    trace_error!(e, debug, || MichiuTrace::Error {
+                        detail: MichiuUiError::TaffyError { source: err.clone() },
                         add: None,
                     });
 
@@ -1719,7 +1719,7 @@ impl<T> TaffyResultTraceExt<T> for taffy::TaffyResult<T> {
                     }
                 }
 
-                panic!("unwrap_or_trace: {e}");
+                panic!("unwrap_or_trace: {err}");
             }
         }
     }
@@ -1728,21 +1728,21 @@ impl<T> TaffyResultTraceExt<T> for taffy::TaffyResult<T> {
 pub trait WindowsResultTraceExt<T> {
     /// If a value exists, return it; if it's `Err`, log a trace, immediately flush, and then panic.
     #[track_caller]
-    fn unwrap_or_trace(self, id: Option<Entity>, debug: &mut DebugStore) -> T;
+    fn unwrap_or_trace(self, e: Option<Entity>, debug: &mut DebugStore) -> T;
 }
 
 impl<T> WindowsResultTraceExt<T> for windows_core::Result<T> {
     #[expect(clippy::panic)]
     #[track_caller]
     #[inline]
-    fn unwrap_or_trace(self, id: Option<Entity>, debug: &mut DebugStore) -> T {
+    fn unwrap_or_trace(self, e: Option<Entity>, debug: &mut DebugStore) -> T {
         match self {
             Ok(val) => val,
-            Err(e) => {
+            Err(err) => {
                 #[cfg(feature = "trace-error")]
                 {
-                    trace_error!(id, debug, || MichiuTrace::Error {
-                        detail: MichiuUiError::WindowsApiError { source: e.clone() },
+                    trace_error!(e, debug, || MichiuTrace::Error {
+                        detail: MichiuUiError::WindowsApiError { source: err.clone() },
                         add: None,
                     });
 
@@ -1752,7 +1752,7 @@ impl<T> WindowsResultTraceExt<T> for windows_core::Result<T> {
                     }
                 }
 
-                panic!("unwrap_or_trace: {e}");
+                panic!("unwrap_or_trace: {err}");
             }
         }
     }
@@ -1766,7 +1766,7 @@ mod tests {
     #[cfg(feature = "trace-error")]
     fn create_dummy_record(debug: &DebugStore) -> MichiuTraceRecord {
         MichiuTraceRecord {
-            id: None,
+            e: None,
             frame: debug.frame,
             time: debug.since_boot(),
             func: "test_fn",
@@ -1952,9 +1952,9 @@ mod tests {
     //  - サブスクライバの `recv()` で送られたバッチが取得できること。
     //
     // `test_inspector_storage_and_get`
-    //  - `id: Some(entity)` を持つレコードを含むバッチを送信。
+    //  - `e: Some(entity)` を持つレコードを含むバッチを送信。
     //  - ワーカースレッドによる処理後、`inspector.get(entity)` で該当レコードが取得できること。
-    //  - `id: None` のレコードは storage に影響を与えないこと。
+    //  - `e: None` のレコードは storage に影響を与えないこと。
     //
     // `test_inspector_subscriber_disconnect`
     //  - サブスクライバを drop した後、再度バッチを送信。
@@ -2005,7 +2005,7 @@ mod tests {
     // `test_trace_error_macro_with_and_without_tx`
     //  - `dbg_tx: None` の場合：マクロを実行しても `dbg_trace_queue` が増加しないこと。
     //  - `dbg_tx: Some` の場合：マクロ実行によりキューにレコードが 1 件追加されること。
-    //  - レコードの `func`, `loc`, `frame`, `id` が意図した値であること。
+    //  - レコードの `func`, `loc`, `frame`, `e` が意図した値であること。
     //
     // `test_trace_lifecycle_and_trace_entity_macros`
     //  - 有効化された feature の下で、同様に `dbg_tx` の有無に応じてキューへ追加されること。
@@ -2278,7 +2278,7 @@ mod tests {
     #[test]
     fn test_michiu_error_display_formatting() {
         let err = MichiuUiError::ComponentNotFound {
-            id: slotmap::Key::null(),
+            e: slotmap::Key::null(),
             component: "Transform",
         };
         let msg = err.to_string();

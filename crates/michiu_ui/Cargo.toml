@@ -8,7 +8,7 @@ authors.workspace = true
 repository.workspace = true
 keywords.workspace = true
 categories.workspace = true
-description = "The michiu library handles layout and rendering."
+description = "The michiu library handles layout."
 readme = "README.md"
 
 [lints]

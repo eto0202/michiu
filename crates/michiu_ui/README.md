@@ -5,6 +5,7 @@ This crate handles UI rendering for the `michiu` crate.
 ## Crates.io
 
 - [michiu](https://crates.io/crates/michiu)
+- [michiu_renderer](ttps://crates.io/crates/michiu_renderer)
 - [michiu_window](https://crates.io/crates/michiu_window)
 - [michiu_guard](https://crates.io/crates/michiu_guard)
 

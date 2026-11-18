@@ -1852,6 +1852,7 @@ dependencies = [
  "michiu_ui",
  "rustc-hash 2.1.3",
  "thiserror",
+ "tiny-skia",
  "windows",
  "windows-core",
  "windows-numerics",
