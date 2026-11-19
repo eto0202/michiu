@@ -338,7 +338,7 @@ impl MichiuRenderer {
                 && !is_transitioning
                 && !is_size_changing;
 
-            // 各 Visual の状態更新フックを実行（WebView2 はここで Bounds 設定や自動キャプチャを行う）
+            // 各 Visual の状態更新フックを実行
             visual_entry.update(&VisualUpdateContext {
                 hwnd: self.hwnd,
                 rect,

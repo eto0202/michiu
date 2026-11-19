@@ -83,7 +83,7 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         client_rect.cast(),
         scale_factor,
         &RendererUserConfig {
-            backend: renderer::RendererBackend::Dx12,
+            backend: renderer::RendererBackend::Cpu,
             ..Default::default()
         },
     ))?;

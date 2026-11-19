@@ -473,7 +473,7 @@ pub struct QuadInstance {
     pub border_width: EdgeInsets,    // 16B
     pub border_color: Color,         // 16B
 
-    pub opacity_mode_sizing_border: [f32; 4], // 16B ([opacity, mode, sizing, 0.0])
+    pub opacity_mode_sizing_border: [f32; 4], // 16B ([opacity, mode, sizing, border])
 
     pub uv_min: [f32; 2], // 8B
     pub uv_max: [f32; 2], // 8B

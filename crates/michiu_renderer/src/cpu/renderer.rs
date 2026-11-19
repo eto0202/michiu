@@ -36,6 +36,11 @@ pub struct CpuRenderer {
     scratch_buf: Vec<u8>,
 }
 
+// shader.wgsl の定数に対応
+const MODE_DECORATION_THRESHOLD: f32 = -0.5;
+const MODE_ATLAS: f32 = 2.0;
+const MODE_EXTERNAL_TEXTURE: f32 = 4.0;
+
 impl CpuRenderer {
     #[inline]
     pub fn new(
@@ -138,9 +143,7 @@ impl CpuRenderer {
     #[inline]
     pub(crate) fn update_external_texture(&mut self, cx: &mut Context) {
         for (e, provider) in &cx.external_textures() {
-            provider.resolve_cpu(&mut |tex| {
-                todo!();
-            });
+            provider.resolve_cpu(&mut |tex| {});
         }
     }
 }
@@ -222,23 +225,13 @@ impl Renderer for CpuRenderer {
                 self.p_height,
             );
 
-            match batch.batch_type {
-                BatchType::Punchout => {
-                    let clear_paint = Paint {
-                        blend_mode: BlendMode::Clear,
-                        anti_alias: true,
-                        ..Default::default()
-                    };
+            let blend_mode = match batch.batch_type {
+                BatchType::Normal => BlendMode::SourceOver,
+                BatchType::Punchout => BlendMode::DestinationOut,
+            };
 
-                    for inst in instances {
-                        todo!();
-                    }
-                }
-                BatchType::Normal => {
-                    for inst in instances {
-                        todo!();
-                    }
-                }
+            for instance in instances {
+                draw_solid_rect(&mut self.pixmap, instance, scale_factor, blend_mode, mask);
             }
         }
 
@@ -248,6 +241,11 @@ impl Renderer for CpuRenderer {
     }
 }
 
+#[expect(
+    clippy::cast_precision_loss,
+    clippy::cast_sign_loss,
+    clippy::cast_possible_truncation
+)]
 fn prepare_scissor_mask(
     clip_mask: &mut Mask,
     clip: LayoutRect,
@@ -255,28 +253,121 @@ fn prepare_scissor_mask(
     p_width: u32,
     p_height: u32,
 ) -> Option<&Mask> {
-    let x0 = (clip.x * scale_factor).round().clamp(0.0, p_width as f32) as u32;
-    let y0 = (clip.y * scale_factor).round().clamp(0.0, p_height as f32) as u32;
-    let x1 = ((clip.x + clip.width) * scale_factor)
-        .round()
-        .clamp(0.0, p_width as f32) as u32;
+    let w = p_width as f32;
+    let h = p_height as f32;
+
+    let x0 = (clip.x * scale_factor).round().clamp(0.0, w) as u32;
+    let y0 = (clip.y * scale_factor).round().clamp(0.0, h) as u32;
+    let x1 = ((clip.x + clip.width) * scale_factor).round().clamp(0.0, w) as u32;
     let y1 = ((clip.y + clip.height) * scale_factor)
         .round()
-        .clamp(0.0, p_height as f32) as u32;
+        .clamp(0.0, h) as u32;
 
     if x0 == 0 && y0 == 0 && x1 >= p_width && y1 >= p_height {
         return None;
     }
 
     clip_mask.clear();
+
     if x0 < x1 && y0 < y1 {
         let w = p_width as usize;
         let data = clip_mask.data_mut();
+
         for y in y0 as usize..y1 as usize {
             let row_start = y * w + x0 as usize;
             let row_end = y * w + x1 as usize;
+
             data[row_start..row_end].fill(255);
         }
     }
     Some(clip_mask)
+}
+
+fn build_instance_transform(
+    instance: &QuadInstance,
+    scale_factor: f32,
+) -> Option<tiny_skia::Transform> {
+    let rect = instance.rect;
+    if rect.width <= 0.0 || rect.height <= 0.0 {
+        return None;
+    }
+
+    let m = instance.transform;
+    let sx = m[0][0];
+    let ky = m[0][1];
+    let kx = m[1][0];
+    let sy = m[1][1];
+    let m_tx = m[2][0];
+    let m_ty = m[2][1];
+
+    // 面積が 0 になる変換行列（未初期化ゼロ行列や scale(0,0)）は描画不可としてスキップ
+    let det = sx * sy - kx * ky;
+    if det.abs() <= f32::EPSILON {
+        return None;
+    }
+
+    let ox = instance.transform_origin[0] * rect.width;
+    let oy = instance.transform_origin[1] * rect.height;
+
+    let local_tx = ox - (sx * ox + kx * oy) + m_tx;
+    let local_ty = oy - (ky * ox + sy * oy) + m_ty;
+
+    Some(tiny_skia::Transform::from_row(
+        sx * scale_factor,
+        ky * scale_factor,
+        kx * scale_factor,
+        sy * scale_factor,
+        (rect.x + local_tx) * scale_factor,
+        (rect.y + local_ty) * scale_factor,
+    ))
+}
+
+fn draw_solid_rect(
+    pixmap: &mut Pixmap,
+    instance: &QuadInstance,
+    scale_factor: f32,
+    blend_mode: BlendMode,
+    mask: Option<&Mask>,
+) {
+    let opacity = instance.opacity_mode_sizing_border[0];
+    let mode = instance.opacity_mode_sizing_border[1];
+
+    // アトラス・外部テクスチャは一旦スキップ
+    if (mode - MODE_ATLAS).abs() < 0.1 || (mode - MODE_EXTERNAL_TEXTURE).abs() < 0.1 {
+        return;
+    }
+
+    let [r, g, b, a]: [f32; 4] = bytemuck::cast(instance.color);
+    let final_alpha = (a * opacity).clamp(0.0, 1.0);
+
+    // Normal 時で完全透明ならスキップ（Punchout は alpha > 0 の領域をくり抜くため同じ判定）
+    if final_alpha <= 0.0 {
+        return;
+    }
+
+    let Some(transform) = build_instance_transform(instance, scale_factor) else {
+        return;
+    };
+
+    let Some(local_rect) =
+        tiny_skia::Rect::from_xywh(0.0, 0.0, instance.rect.width, instance.rect.height)
+    else {
+        return;
+    };
+
+    let Some(color) = tiny_skia::Color::from_rgba(
+        r.clamp(0.0, 1.0),
+        g.clamp(0.0, 1.0),
+        b.clamp(0.0, 1.0),
+        final_alpha,
+    ) else {
+        return;
+    };
+
+    let mut paint = Paint::default();
+    paint.set_color(color);
+    paint.blend_mode = blend_mode;
+    paint.anti_alias = mode >= MODE_DECORATION_THRESHOLD;
+
+    pixmap.fill_rect(local_rect, &paint, transform, mask);
 }

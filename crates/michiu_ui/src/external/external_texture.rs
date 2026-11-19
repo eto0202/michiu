@@ -51,19 +51,15 @@ pub enum ExternalTextureCompositingMode {
 // CPU レンダリング用のピクセル表現
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum CpuTextureFormat {
-    // Premultiplied RGBA8
-    PremultipliedRgba8,
+    // RGBA8
+    Rgba8,
     // 完全不透明な RGBA8
     OpaqueRgba8,
-    // ストレート RGBA8
-    StraightRgba8,
     // BGRA8
     Bgra8,
 }
 
 pub struct CpuTextureView<'a> {
     pub data: &'a [u8],
-    pub width: u32,
-    pub height: u32,
     pub format: CpuTextureFormat,
 }
