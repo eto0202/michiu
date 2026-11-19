@@ -1,12 +1,13 @@
-use std::sync::Arc;
+#![expect(clippy::too_many_lines, clippy::many_single_char_names)]
 
 use crate::{MichiuRendererResult, Renderer, RendererUserConfig, dcomp::PlatformContext};
 use michiu_ui::{
-    Atlases, BatchType, Context, Entity, ExternalTexture, LayoutRect, LayoutSize, QuadInstance,
-    RenderData, RenderQueue, RendererView,
+    AtlasFormat, AtlasStorage, Atlases, BatchType, Context, Entity, ExternalTexture, LayoutRect,
+    LayoutSize, QuadInstance, RenderData, RenderQueue, RendererView, TextureAtlas,
 };
 use rustc_hash::FxHashMap;
-use tiny_skia::{BlendMode, Mask, Paint, Pixmap};
+use std::sync::Arc;
+use tiny_skia::{BlendMode, FilterQuality, Mask, Paint, Pattern, Pixmap, PixmapRef, SpreadMode};
 use windows::{
     Win32::Graphics::{
         Direct3D11::{ID3D11DeviceContext, ID3D11Texture2D},
@@ -40,6 +41,9 @@ pub struct CpuRenderer {
 const MODE_DECORATION_THRESHOLD: f32 = -0.5;
 const MODE_ATLAS: f32 = 2.0;
 const MODE_EXTERNAL_TEXTURE: f32 = 4.0;
+
+const ATLAS_COLOR_EMOJI: f32 = 0.5;
+const ATLAS_TEXT_MASK: f32 = 1.5;
 
 impl CpuRenderer {
     #[inline]
@@ -231,7 +235,15 @@ impl Renderer for CpuRenderer {
             };
 
             for instance in instances {
-                draw_solid_rect(&mut self.pixmap, instance, scale_factor, blend_mode, mask);
+                draw_instance(
+                    &mut self.pixmap,
+                    instance,
+                    &self.atlases,
+                    &mut self.scratch_buf,
+                    scale_factor,
+                    blend_mode,
+                    mask,
+                );
             }
         }
 
@@ -256,12 +268,12 @@ fn prepare_scissor_mask(
     let w = p_width as f32;
     let h = p_height as f32;
 
-    let x0 = (clip.x * scale_factor).round().clamp(0.0, w) as u32;
-    let y0 = (clip.y * scale_factor).round().clamp(0.0, h) as u32;
-    let x1 = ((clip.x + clip.width) * scale_factor).round().clamp(0.0, w) as u32;
-    let y1 = ((clip.y + clip.height) * scale_factor)
-        .round()
-        .clamp(0.0, h) as u32;
+    let round_clamp = |clip: f32, max: f32| (clip * scale_factor).round().clamp(0.0, max) as u32;
+
+    let x0 = round_clamp(clip.x, w);
+    let y0 = round_clamp(clip.y, h);
+    let x1 = round_clamp(clip.x + clip.width, w);
+    let y1 = round_clamp(clip.y + clip.height, h);
 
     if x0 == 0 && y0 == 0 && x1 >= p_width && y1 >= p_height {
         return None;
@@ -283,43 +295,202 @@ fn prepare_scissor_mask(
     Some(clip_mask)
 }
 
-fn build_instance_transform(
+fn draw_instance(
+    pixmap: &mut Pixmap,
     instance: &QuadInstance,
+    atlases: &Atlases,
+    scratch_buf: &mut Vec<u8>,
     scale_factor: f32,
-) -> Option<tiny_skia::Transform> {
-    let rect = instance.rect;
-    if rect.width <= 0.0 || rect.height <= 0.0 {
-        return None;
+    blend_mode: BlendMode,
+    mask: Option<&Mask>,
+) {
+    let mode = instance.opacity_mode_sizing_border[1];
+
+    if (mode - MODE_ATLAS).abs() < 0.1 {
+        draw_atlas_quad(
+            pixmap,
+            instance,
+            atlases,
+            scratch_buf,
+            scale_factor,
+            blend_mode,
+            mask,
+        );
+        return;
     }
 
-    let m = instance.transform;
-    let sx = m[0][0];
-    let ky = m[0][1];
-    let kx = m[1][0];
-    let sy = m[1][1];
-    let m_tx = m[2][0];
-    let m_ty = m[2][1];
-
-    // 面積が 0 になる変換行列（未初期化ゼロ行列や scale(0,0)）は描画不可としてスキップ
-    let det = sx * sy - kx * ky;
-    if det.abs() <= f32::EPSILON {
-        return None;
+    if (mode - MODE_EXTERNAL_TEXTURE).abs() < 0.1 {
+        return;
     }
 
-    let ox = instance.transform_origin[0] * rect.width;
-    let oy = instance.transform_origin[1] * rect.height;
+    draw_solid_rect(pixmap, instance, scale_factor, blend_mode, mask);
+}
 
-    let local_tx = ox - (sx * ox + kx * oy) + m_tx;
-    let local_ty = oy - (ky * ox + sy * oy) + m_ty;
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::cast_precision_loss
+)]
+fn draw_atlas_quad(
+    pixmap: &mut Pixmap,
+    instance: &QuadInstance,
+    atlases: &Atlases,
+    scratch_buf: &mut Vec<u8>,
+    scale_factor: f32,
+    blend_mode: BlendMode,
+    mask: Option<&Mask>,
+) {
+    let opacity = instance.opacity_mode_sizing_border[0].clamp(0.0, 1.0);
+    if opacity <= 0.0 {
+        return;
+    }
 
-    Some(tiny_skia::Transform::from_row(
-        sx * scale_factor,
-        ky * scale_factor,
-        kx * scale_factor,
-        sy * scale_factor,
-        (rect.x + local_tx) * scale_factor,
-        (rect.y + local_ty) * scale_factor,
-    ))
+    let Some(shape_transform) = build_instance_transform(instance, scale_factor) else {
+        return;
+    };
+    let Some(local_rect) =
+        tiny_skia::Rect::from_xywh(0.0, 0.0, instance.rect.width, instance.rect.height)
+    else {
+        return;
+    };
+
+    let atlas_type = instance.is_color_atlas_pad[0];
+    let atlas: &TextureAtlas = if atlas_type < ATLAS_COLOR_EMOJI {
+        &atlases.color_atlas
+    } else if atlas_type < ATLAS_TEXT_MASK {
+        &atlases.mask_atlas
+    } else {
+        &atlases.user_atlas
+    };
+
+    let AtlasStorage::Cpu { data } = &atlas.storage else {
+        return;
+    };
+
+    let atlas_size = atlas.size as f32;
+    let max_coord = atlas.size.cast_signed();
+
+    let uv_min_clamped = |i: usize| {
+        (instance.uv_min[i] * atlas_size)
+            .round()
+            .clamp(0.0, atlas_size) as i32
+    };
+    let uv_max_clamped = |i: usize| {
+        (instance.uv_max[i] * atlas_size)
+            .round()
+            .clamp(0.0, atlas_size) as i32
+    };
+
+    let tex_x0 = uv_min_clamped(0);
+    let tex_y0 = uv_min_clamped(1);
+
+    let tex_x1 = uv_max_clamped(0);
+    let tex_y1 = uv_max_clamped(1);
+
+    if tex_x1 <= tex_x0 || tex_y1 <= tex_y0 || tex_x1 > max_coord || tex_y1 > max_coord {
+        return;
+    }
+
+    let tex_w = (tex_x1 - tex_x0) as u32;
+    let tex_h = (tex_y1 - tex_y0) as u32;
+    let required_bytes = tex_w * tex_h * 4;
+    scratch_buf.resize(required_bytes as usize, 0);
+
+    let x0 = tex_x0 as usize;
+    let y0 = tex_y0 as usize;
+    let w = tex_w as usize;
+
+    let pattern_opacity = match atlas.atlas_types.to_format() {
+        AtlasFormat::Rgba8 => {
+            // color_atlas: Straight RGBA8 -> Premultiplied RGBA8
+            let src_stride = atlas.size as usize * 4;
+
+            for row in 0..tex_h as usize {
+                let src_row_start = (y0 + row) * src_stride + x0 * 4;
+                let dst_row_start = row * w * 4;
+
+                for col in 0..w {
+                    let s = src_row_start + col * 4;
+                    let d = dst_row_start + col * 4;
+                    let sa = data[s + 3];
+                    match sa {
+                        0 => {
+                            scratch_buf[d..d + 4].fill(0);
+                        }
+                        255 => {
+                            scratch_buf[d..d + 4].copy_from_slice(&data[s..s + 4]);
+                        }
+                        _ => {
+                            let a16 = u16::from(sa);
+                            scratch_buf[d] = ((u16::from(data[s]) * a16 + 127) / 255) as u8;
+                            scratch_buf[d + 1] = ((u16::from(data[s + 1]) * a16 + 127) / 255) as u8;
+                            scratch_buf[d + 2] = ((u16::from(data[s + 2]) * a16 + 127) / 255) as u8;
+                            scratch_buf[d + 3] = sa;
+                        }
+                    }
+                }
+            }
+            opacity
+        }
+        AtlasFormat::R8 => {
+            // mask_atlas / user_atlas: R8 マスク × instance.color (sRGB) -> Premultiplied RGBA8
+            let [r, g, b, a]: [f32; 4] = bytemuck::cast(instance.color);
+            let final_a = (a * opacity).clamp(0.0, 1.0);
+            if final_a <= 0.0 {
+                return;
+            }
+            let r_clamped = r.clamp(0.0, 1.0);
+            let g_clamped = g.clamp(0.0, 1.0);
+            let b_clamped = b.clamp(0.0, 1.0);
+
+            let src_stride = atlas.size as usize;
+
+            for row in 0..tex_h as usize {
+                let src_row_start = (y0 + row) * src_stride + x0;
+                let dst_row_start = row * w * 4;
+
+                for col in 0..w {
+                    let mask_val = data[src_row_start + col];
+                    let d = dst_row_start + col * 4;
+                    if mask_val == 0 {
+                        scratch_buf[d..d + 4].fill(0);
+                    } else {
+                        let cov = (f32::from(mask_val) / 255.0) * final_a;
+                        scratch_buf[d] = (r_clamped * cov * 255.0 + 0.5) as u8;
+                        scratch_buf[d + 1] = (g_clamped * cov * 255.0 + 0.5) as u8;
+                        scratch_buf[d + 2] = (b_clamped * cov * 255.0 + 0.5) as u8;
+                        scratch_buf[d + 3] = (cov * 255.0 + 0.5) as u8;
+                    }
+                }
+            }
+            1.0
+        }
+    };
+
+    let Some(sub_pixmap) = PixmapRef::from_bytes(scratch_buf, tex_w, tex_h) else {
+        return;
+    };
+
+    // テクセル空間 [0..tex_w, 0..tex_h] -> ローカル論理空間 [0..rect.width, 0..rect.height]
+    let pattern_transform = tiny_skia::Transform::from_scale(
+        instance.rect.width / tex_w as f32,
+        instance.rect.height / tex_h as f32,
+    );
+
+    let paint = Paint {
+        shader: Pattern::new(
+            sub_pixmap,
+            SpreadMode::Pad,
+            FilterQuality::Bilinear,
+            pattern_opacity,
+            pattern_transform,
+        ),
+        blend_mode,
+        anti_alias: false, // 無いほうが見やすいかも
+        ..Default::default()
+    };
+
+    pixmap.fill_rect(local_rect, &paint, shape_transform, mask);
 }
 
 fn draw_solid_rect(
@@ -370,4 +541,45 @@ fn draw_solid_rect(
     paint.anti_alias = mode >= MODE_DECORATION_THRESHOLD;
 
     pixmap.fill_rect(local_rect, &paint, transform, mask);
+}
+
+fn build_instance_transform(
+    instance: &QuadInstance,
+    scale_factor: f32,
+) -> Option<tiny_skia::Transform> {
+    let rect = instance.rect;
+    if rect.width <= 0.0 || rect.height <= 0.0 {
+        return None;
+    }
+
+    let m = instance.transform;
+    let sx = m[0][0];
+    let ky = m[0][1];
+    let kx = m[1][0];
+    let sy = m[1][1];
+    let m_tx = m[2][0];
+    let m_ty = m[2][1];
+
+    // 面積が 0 になる変換行列（未初期化ゼロ行列や scale(0,0)）は描画不可としてスキップ
+    let det = sx * sy - kx * ky;
+    if det.abs() <= f32::EPSILON {
+        return None;
+    }
+
+    let ox = instance.transform_origin[0] * rect.width;
+    let oy = instance.transform_origin[1] * rect.height;
+
+    let local_tx = ox - (sx * ox + kx * oy) + m_tx;
+    let local_ty = oy - (ky * ox + sy * oy) + m_ty;
+
+    let scaled = |val: f32| val * scale_factor;
+
+    Some(tiny_skia::Transform::from_row(
+        scaled(sx),
+        scaled(ky),
+        scaled(kx),
+        scaled(sy),
+        scaled(rect.x + local_tx),
+        scaled(rect.y + local_ty),
+    ))
 }
