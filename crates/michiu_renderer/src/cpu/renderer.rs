@@ -12,8 +12,8 @@ use michiu_ui::{
 use rustc_hash::FxHashMap;
 use std::sync::Arc;
 use tiny_skia::{
-    BlendMode, FillRule, FilterQuality, Mask, Paint, PathBuilder, Pattern, Pixmap, PixmapRef,
-    PremultipliedColorU8, SpreadMode,
+    BlendMode, FillRule, FilterQuality, GradientStop, Mask, Paint, PathBuilder, Pattern, Pixmap,
+    PixmapRef, PremultipliedColorU8, SpreadMode,
 };
 use windows::{
     Win32::Graphics::{
@@ -46,8 +46,10 @@ pub struct CpuRenderer {
 
 // shader.wgsl の定数に対応
 const MODE_DECORATION_THRESHOLD: f32 = -0.5;
+const MODE_LINEAR_GRADIENT: f32 = 1.0;
 const MODE_ATLAS: f32 = 2.0;
 const MODE_EXTERNAL_TEXTURE: f32 = 4.0;
+const MODE_FOUR_CORNER_GRADIENT: f32 = 5.0;
 
 const ATLAS_COLOR_EMOJI: f32 = 0.5;
 const ATLAS_TEXT_MASK: f32 = 1.5;
@@ -68,6 +70,23 @@ const ALIGN_START: u32 = 0;
 const ALIGN_END: u32 = 1;
 
 const INVALID_EDGE_DIST: f32 = 10000.0;
+
+#[repr(C)]
+#[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+struct RawLinearGradient {
+    colors: [[f32; 4]; 4],
+    stops: [f32; 4],
+    angle: f32,
+    stop_count: u32,
+    origin: [f32; 2],
+}
+
+#[derive(Copy, Clone, PartialEq, Eq)]
+enum SdfPassKind {
+    Full,
+    ShadowOnly,
+    StrokeOnly,
+}
 
 impl CpuRenderer {
     #[inline]
@@ -331,9 +350,20 @@ fn draw_instance(
     mask: Option<&Mask>,
 ) {
     let mode = instance.opacity_mode_sizing_border[1];
-    let has_stroke = has_border_or_outline(instance);
+    let shadow = has_shadow(instance);
+    let stroke = has_border_or_outline(instance);
 
     if (mode - MODE_ATLAS).abs() < 0.1 {
+        if shadow {
+            draw_sdf_quad(
+                pixmap,
+                instance,
+                scissor_rect,
+                scale_factor,
+                blend_mode,
+                SdfPassKind::ShadowOnly,
+            );
+        }
         draw_atlas_quad(
             pixmap,
             instance,
@@ -343,14 +373,14 @@ fn draw_instance(
             blend_mode,
             mask,
         );
-        if has_stroke {
+        if stroke {
             draw_sdf_quad(
                 pixmap,
                 instance,
                 scissor_rect,
                 scale_factor,
                 blend_mode,
-                true, // entity 本体は既に描画済みなので枠線/アウトラインのみ重ねる
+                SdfPassKind::StrokeOnly,
             );
         }
         return;
@@ -360,15 +390,19 @@ fn draw_instance(
         return;
     }
 
-    if has_stroke {
+    let is_four_corner = (mode - MODE_FOUR_CORNER_GRADIENT).abs() < 0.1;
+
+    if shadow || stroke || is_four_corner {
         draw_sdf_quad(
             pixmap,
             instance,
             scissor_rect,
             scale_factor,
             blend_mode,
-            false,
+            SdfPassKind::Full,
         );
+    } else if (mode - MODE_LINEAR_GRADIENT).abs() < 0.1 {
+        draw_linear_gradient_fast(pixmap, instance, scale_factor, blend_mode, mask);
     } else {
         draw_solid_rect(pixmap, instance, scale_factor, blend_mode, mask);
     }
@@ -999,13 +1033,26 @@ fn compute_outline_alpha(
 fn compute_sdf_margin(instance: &QuadInstance) -> f32 {
     let mut margin = 0.0_f32;
 
+    let s_color: [f32; 4] = bytemuck::cast(instance.shadow_color);
+
+    if s_color[3] > 0.0 {
+        let off_x = instance.shadow_params[0].abs();
+        let off_y = instance.shadow_params[1].abs();
+        let blur = instance.shadow_params[2].max(0.0);
+        let spread = instance.shadow_params[3].max(0.0);
+        // smoothstep(-blur, blur, ...) は dist >= blur で厳密に 0 になるため blur + 1.5 で十分
+        margin = spread + blur + off_x.max(off_y) + 1.5;
+    }
+
     let o_width: [f32; 4] = bytemuck::cast(instance.outline_width);
     let o_color: [f32; 4] = bytemuck::cast(instance.outline_color);
     let total_o_width = o_width[0] + o_width[1] + o_width[2] + o_width[3];
+
     if o_color[3] > 0.0 && total_o_width > 0.0 {
         let max_o_width = o_width[0].max(o_width[1]).max(o_width[2]).max(o_width[3]);
         let o_offset = instance.outline_offset_and_flags[0];
         let outline_margin = max_o_width + o_offset.max(0.0);
+
         margin = margin.max(outline_margin + 1.5);
     }
 
@@ -1050,7 +1097,7 @@ fn draw_sdf_quad(
     scissor_rect: LayoutRect,
     scale_factor: f32,
     blend_mode: BlendMode,
-    skip_entity: bool,
+    pass_kind: SdfPassKind,
 ) {
     let opacity = instance.opacity_mode_sizing_border[0].clamp(0.0, 1.0);
     if opacity <= 0.0 {
@@ -1090,8 +1137,8 @@ fn draw_sdf_quad(
     let pw = pw_u32 as f32;
     let ph = ph_u32 as f32;
 
-    let rect_clamped = |val: f32, max: f32| (val * scale_factor).round().clamp(0.0, max) as usize;
     // prepare_scissor_mask と同じ丸め規則でシザー矩形を適用
+    let rect_clamped = |val: f32, max: f32| (val * scale_factor).round().clamp(0.0, max) as usize;
     let sc_x0 = rect_clamped(scissor_rect.x, pw);
     let sc_y0 = rect_clamped(scissor_rect.y, ph);
     let sc_x1 = rect_clamped(scissor_rect.x + scissor_rect.width, pw);
@@ -1111,13 +1158,14 @@ fn draw_sdf_quad(
     let radii = |i: usize| raw_radii[i].min(max_radius).max(0.0);
     let clamped_radius = [radii(0), radii(1), radii(2), radii(3)];
 
-    let entity_pma = if skip_entity {
-        [0.0; 4]
-    } else {
-        to_pma_srgb(bytemuck::cast(instance.color), opacity)
-    };
+    let is_linear_grad = (mode - MODE_LINEAR_GRADIENT).abs() < 0.1;
+    let is_four_corner = (mode - MODE_FOUR_CORNER_GRADIENT).abs() < 0.1;
+    let grad: RawLinearGradient = bytemuck::cast(instance.gradient);
+
+    let solid_pma = to_pma_srgb(bytemuck::cast(instance.color), opacity);
     let border_pma = to_pma_srgb(bytemuck::cast(instance.border_color), opacity);
     let outline_pma = to_pma_srgb(bytemuck::cast(instance.outline_color), opacity);
+    let shadow_srgb: [f32; 4] = bytemuck::cast(instance.shadow_color);
 
     let stride = pw_u32 as usize;
     let pixels = pixmap.pixels_mut();
@@ -1140,56 +1188,118 @@ fn draw_sdf_quad(
                 1.0 - smoothstep(-0.5, 0.5, dist_to_box)
             };
 
-            let border_alpha = compute_border_alpha(
-                instance,
-                local_cx,
-                local_cy,
-                half_w,
-                half_h,
-                w_size,
-                h_size,
-                clamped_radius,
-                dist_to_box,
-                box_alpha,
-            );
-            let outline_alpha = compute_outline_alpha(
-                instance,
-                local_cx,
-                local_cy,
-                half_w,
-                half_h,
-                w_size,
-                h_size,
-                clamped_radius,
-            );
-
-            let mut base = if skip_entity {
-                let calc = |i: usize| border_pma[i] * border_alpha * box_alpha;
-                [calc(0), calc(1), calc(2), calc(3)]
-            } else {
-                let mut e = entity_pma;
-                if border_alpha > 0.0 {
-                    let inv_b = 1.0 - border_alpha;
-                    let mut calc = |i: usize| e[i] = e[i] * inv_b + border_pma[i] * border_alpha;
-                    calc(0);
-                    calc(1);
-                    calc(2);
-                    calc(3);
-                }
-                let calc = |i: usize| e[i] * box_alpha;
-                [calc(0), calc(1), calc(2), calc(3)]
+            let closure_compute_shadow_pma = || {
+                compute_shadow_pma(
+                    instance,
+                    shadow_srgb,
+                    local_cx,
+                    local_cy,
+                    half_w,
+                    half_h,
+                    clamped_radius,
+                    dist_to_box,
+                    opacity,
+                )
+            };
+            let closure_compute_border_alpha = || {
+                compute_border_alpha(
+                    instance,
+                    local_cx,
+                    local_cy,
+                    half_w,
+                    half_h,
+                    w_size,
+                    h_size,
+                    clamped_radius,
+                    dist_to_box,
+                    box_alpha,
+                )
+            };
+            let closure_compute_outline_alpha = || {
+                compute_outline_alpha(
+                    instance,
+                    local_cx,
+                    local_cy,
+                    half_w,
+                    half_h,
+                    w_size,
+                    h_size,
+                    clamped_radius,
+                )
             };
 
-            if outline_alpha > 0.0 {
-                let factor = outline_alpha * (1.0 - base[3]);
-                let mut calc = |i: usize| base[i] += outline_pma[i] * factor;
-                calc(0);
-                calc(1);
-                calc(2);
-                calc(3);
-            }
+            let out = match pass_kind {
+                SdfPassKind::ShadowOnly => closure_compute_shadow_pma(),
+                SdfPassKind::StrokeOnly => {
+                    let border_alpha = closure_compute_border_alpha();
+                    let outline_alpha = closure_compute_outline_alpha();
 
-            let sa = base[3].clamp(0.0, 1.0);
+                    let mut base = {
+                        let calc = |i: usize| border_pma[i] * border_alpha * box_alpha;
+                        [calc(0), calc(1), calc(2), calc(3)]
+                    };
+                    if outline_alpha > 0.0 {
+                        let factor = outline_alpha * (1.0 - base[3]);
+                        let mut calc = |i: usize| base[i] += outline_pma[i] * factor;
+                        calc(0);
+                        calc(1);
+                        calc(2);
+                        calc(3);
+                    }
+                    base
+                }
+                SdfPassKind::Full => {
+                    let shadow_out = closure_compute_shadow_pma();
+                    let border_alpha = closure_compute_border_alpha();
+                    let outline_alpha = closure_compute_outline_alpha();
+
+                    let mut entity_pma = if is_linear_grad {
+                        let c = sample_linear_gradient_srgb(
+                            &grad, local_pt.x, local_pt.y, w_size, h_size,
+                        );
+                        to_pma_srgb(c, opacity)
+                    } else if is_four_corner {
+                        let c = sample_four_corner_gradient_srgb(
+                            &grad, local_pt.x, local_pt.y, w_size, h_size,
+                        );
+                        to_pma_srgb(c, opacity)
+                    } else {
+                        solid_pma
+                    };
+
+                    if border_alpha > 0.0 {
+                        let inv_b = 1.0 - border_alpha;
+                        let mut calc = |i: usize| {
+                            entity_pma[i] = entity_pma[i] * inv_b + border_pma[i] * border_alpha;
+                        };
+                        calc(0);
+                        calc(1);
+                        calc(2);
+                        calc(3);
+                    }
+
+                    let mut base = {
+                        let calc = |i: usize| entity_pma[i] * box_alpha;
+                        [calc(0), calc(1), calc(2), calc(3)]
+                    };
+
+                    if outline_alpha > 0.0 {
+                        let factor = outline_alpha * (1.0 - base[3]);
+                        let mut calc = |i: usize| base[i] += outline_pma[i] * factor;
+                        calc(0);
+                        calc(1);
+                        calc(2);
+                        calc(3);
+                    }
+
+                    let inv_base_a = 1.0 - base[3];
+                    let calc = |i: usize| base[i] + shadow_out[i] * inv_base_a;
+
+                    [calc(0), calc(1), calc(2), calc(3)]
+                }
+            };
+
+            let sa = out[3].clamp(0.0, 1.0);
             if sa <= 0.0 {
                 continue;
             }
@@ -1209,13 +1319,12 @@ fn draw_sdf_quad(
                 _ => {
                     // SourceOver
                     if sa >= 1.0 {
-                        let calc = |i: usize| base[i].clamp(0.0, 1.0) * 255.0;
+                        let calc = |i: usize| out[i].clamp(0.0, 1.0) * 255.0;
                         (calc(0), calc(1), calc(2), 255.0)
                     } else {
                         let inv_a = 1.0 - sa;
-                        let calc = |i: usize, c: u8| {
-                            base[i].clamp(0.0, 1.0) * 255.0 + f32::from(c) * inv_a
-                        };
+                        let calc =
+                            |i: usize, c: u8| out[i].clamp(0.0, 1.0) * 255.0 + f32::from(c) * inv_a;
                         (
                             calc(0, dst.red()),
                             calc(1, dst.green()),
@@ -1237,4 +1346,220 @@ fn draw_sdf_quad(
             }
         }
     }
+}
+
+fn has_shadow(instance: &QuadInstance) -> bool {
+    let s_color: [f32; 4] = bytemuck::cast(instance.shadow_color);
+    s_color[3] > 0.0
+}
+
+fn draw_linear_gradient_fast(
+    pixmap: &mut Pixmap,
+    instance: &QuadInstance,
+    scale_factor: f32,
+    blend_mode: BlendMode,
+    mask: Option<&Mask>,
+) {
+    let opacity = instance.opacity_mode_sizing_border[0].clamp(0.0, 1.0);
+    if opacity <= 0.0 {
+        return;
+    }
+
+    let Some(transform) = build_instance_transform(instance, scale_factor) else {
+        return;
+    };
+
+    let grad: RawLinearGradient = bytemuck::cast(instance.gradient);
+    let count = (grad.stop_count as usize).min(4);
+    if count == 0 {
+        return;
+    }
+
+    let w = instance.rect.width;
+    let h = instance.rect.height;
+    let dx = grad.angle.sin();
+    let dy = -grad.angle.cos();
+    let grad_length = (w * dx).abs() + (h * dy).abs();
+
+    let mut paint = Paint {
+        blend_mode,
+        anti_alias: true,
+        ..Default::default()
+    };
+
+    if count == 1 || grad_length <= 1e-6 {
+        let c = grad.colors[0];
+
+        let Some(color) = tiny_skia::Color::from_rgba(
+            c[0].clamp(0.0, 1.0),
+            c[1].clamp(0.0, 1.0),
+            c[2].clamp(0.0, 1.0),
+            (c[3] * opacity).clamp(0.0, 1.0),
+        ) else {
+            return;
+        };
+        paint.set_color(color);
+        fill_instance_shape(pixmap, instance, &paint, transform, mask);
+        return;
+    }
+
+    let cx = grad.origin[0] * w;
+    let cy = grad.origin[1] * h;
+    let half_len = grad_length * 0.5;
+    let start = tiny_skia::Point::from_xy(cx - dx * half_len, cy - dy * half_len);
+    let end = tiny_skia::Point::from_xy(cx + dx * half_len, cy + dy * half_len);
+
+    let mut stops = Vec::with_capacity(count);
+    let mut prev_pos = 0.0_f32;
+    for i in 0..count {
+        let pos = grad.stops[i].clamp(prev_pos, 1.0);
+        prev_pos = pos;
+        let c = grad.colors[i];
+
+        let Some(color) = tiny_skia::Color::from_rgba(
+            c[0].clamp(0.0, 1.0),
+            c[1].clamp(0.0, 1.0),
+            c[2].clamp(0.0, 1.0),
+            (c[3] * opacity).clamp(0.0, 1.0),
+        ) else {
+            return;
+        };
+        stops.push(GradientStop::new(pos, color));
+    }
+
+    let Some(shader) = tiny_skia::LinearGradient::new(
+        start,
+        end,
+        stops,
+        SpreadMode::Pad,
+        tiny_skia::Transform::identity(),
+    ) else {
+        return;
+    };
+    paint.shader = shader;
+
+    fill_instance_shape(pixmap, instance, &paint, transform, mask);
+}
+
+#[inline]
+fn lerp_rgba(c0: [f32; 4], c1: [f32; 4], t: f32) -> [f32; 4] {
+    let inv = 1.0 - t;
+    let calc = |i: usize| c0[i] * inv + c1[i] * t;
+
+    [calc(0), calc(1), calc(2), calc(3)]
+}
+
+fn sample_linear_gradient_srgb(
+    grad: &RawLinearGradient,
+    local_x: f32,
+    local_y: f32,
+    w: f32,
+    h: f32,
+) -> [f32; 4] {
+    let count = (grad.stop_count as usize).min(4);
+    if count == 0 {
+        return [0.0; 4];
+    }
+    if count == 1 {
+        return grad.colors[0];
+    }
+
+    let gx = local_x - grad.origin[0] * w;
+    let gy = local_y - grad.origin[1] * h;
+
+    let dx = grad.angle.sin();
+    let dy = -grad.angle.cos();
+    let grad_length = (w * dx).abs() + (h * dy).abs();
+    if grad_length <= 1e-6 {
+        return grad.colors[0];
+    }
+
+    let proj = gx * dx + gy * dy;
+    let t = ((proj / grad_length) + 0.5).clamp(0.0, 1.0);
+
+    if t <= grad.stops[0] {
+        return grad.colors[0];
+    }
+
+    for i in 0..count - 1 {
+        let s0 = grad.stops[i];
+        let s1 = grad.stops[i + 1];
+        if t >= s0 && t <= s1 {
+            let factor = if s1 > s0 { (t - s0) / (s1 - s0) } else { 0.0 };
+            return lerp_rgba(grad.colors[i], grad.colors[i + 1], factor);
+        }
+    }
+
+    grad.colors[count - 1]
+}
+
+fn sample_four_corner_gradient_srgb(
+    grad: &RawLinearGradient,
+    local_x: f32,
+    local_y: f32,
+    w: f32,
+    h: f32,
+) -> [f32; 4] {
+    let uvx = (local_x / w).clamp(0.0, 1.0);
+    let uvy = (local_y / h).clamp(0.0, 1.0);
+
+    let ox = grad.origin[0].clamp(0.001, 0.999);
+    let oy = grad.origin[1].clamp(0.001, 0.999);
+
+    let u = if uvx < ox {
+        0.5 * (uvx / ox)
+    } else {
+        0.5 + 0.5 * ((uvx - ox) / (1.0 - ox))
+    };
+    let v = if uvy < oy {
+        0.5 * (uvy / oy)
+    } else {
+        0.5 + 0.5 * ((uvy - oy) / (1.0 - oy))
+    };
+
+    let top = lerp_rgba(grad.colors[0], grad.colors[1], u);
+    let bottom = lerp_rgba(grad.colors[2], grad.colors[3], u);
+    lerp_rgba(top, bottom, v)
+}
+
+#[expect(clippy::too_many_arguments)]
+fn compute_shadow_pma(
+    instance: &QuadInstance,
+    shadow_srgb: [f32; 4],
+    local_cx: f32,
+    local_cy: f32,
+    half_w: f32,
+    half_h: f32,
+    clamped_radius: [f32; 4],
+    dist_to_box: f32,
+    opacity: f32,
+) -> [f32; 4] {
+    if shadow_srgb[3] <= 0.0 {
+        return [0.0; 4];
+    }
+
+    let off_x = instance.shadow_params[0];
+    let off_y = instance.shadow_params[1];
+    let blur = instance.shadow_params[2];
+    let spread = instance.shadow_params[3];
+
+    let shadow_cx = local_cx - off_x;
+    let shadow_cy = local_cy - off_y;
+    let shadow_bw = half_w + spread;
+    let shadow_bh = half_h + spread;
+
+    let calc = |i: usize| clamped_radius[i] + spread;
+    let shadow_radius = [calc(0), calc(1), calc(2), calc(3)];
+
+    let dist_to_shadow = sd_rounded_box(shadow_cx, shadow_cy, shadow_bw, shadow_bh, shadow_radius);
+    let shadow_alpha = if blur > 0.0 {
+        1.0 - smoothstep(-blur, blur, dist_to_shadow)
+    } else if dist_to_shadow <= 0.0 {
+        1.0
+    } else {
+        0.0
+    };
+
+    let shadow_gate = smoothstep(-1.0, 0.0, dist_to_box);
+    to_pma_srgb(shadow_srgb, shadow_alpha * shadow_gate * opacity)
 }
