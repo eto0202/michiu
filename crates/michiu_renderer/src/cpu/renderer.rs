@@ -7,7 +7,10 @@ use michiu_ui::{
 };
 use rustc_hash::FxHashMap;
 use std::sync::Arc;
-use tiny_skia::{BlendMode, FilterQuality, Mask, Paint, Pattern, Pixmap, PixmapRef, SpreadMode};
+use tiny_skia::{
+    BlendMode, FillRule, FilterQuality, Mask, Paint, PathBuilder, Pattern, Pixmap, PixmapRef,
+    SpreadMode,
+};
 use windows::{
     Win32::Graphics::{
         Direct3D11::{ID3D11DeviceContext, ID3D11Texture2D},
@@ -44,6 +47,8 @@ const MODE_EXTERNAL_TEXTURE: f32 = 4.0;
 
 const ATLAS_COLOR_EMOJI: f32 = 0.5;
 const ATLAS_TEXT_MASK: f32 = 1.5;
+
+const KAPPA: f32 = 0.552_284_8;
 
 impl CpuRenderer {
     #[inline]
@@ -348,11 +353,6 @@ fn draw_atlas_quad(
     let Some(shape_transform) = build_instance_transform(instance, scale_factor) else {
         return;
     };
-    let Some(local_rect) =
-        tiny_skia::Rect::from_xywh(0.0, 0.0, instance.rect.width, instance.rect.height)
-    else {
-        return;
-    };
 
     let atlas_type = instance.is_color_atlas_pad[0];
     let atlas: &TextureAtlas = if atlas_type < ATLAS_COLOR_EMOJI {
@@ -490,7 +490,7 @@ fn draw_atlas_quad(
         ..Default::default()
     };
 
-    pixmap.fill_rect(local_rect, &paint, shape_transform, mask);
+    fill_instance_shape(pixmap, instance, &paint, shape_transform, mask);
 }
 
 fn draw_solid_rect(
@@ -520,12 +520,6 @@ fn draw_solid_rect(
         return;
     };
 
-    let Some(local_rect) =
-        tiny_skia::Rect::from_xywh(0.0, 0.0, instance.rect.width, instance.rect.height)
-    else {
-        return;
-    };
-
     let Some(color) = tiny_skia::Color::from_rgba(
         r.clamp(0.0, 1.0),
         g.clamp(0.0, 1.0),
@@ -540,7 +534,7 @@ fn draw_solid_rect(
     paint.blend_mode = blend_mode;
     paint.anti_alias = mode >= MODE_DECORATION_THRESHOLD;
 
-    pixmap.fill_rect(local_rect, &paint, transform, mask);
+    fill_instance_shape(pixmap, instance, &paint, transform, mask);
 }
 
 fn build_instance_transform(
@@ -582,4 +576,78 @@ fn build_instance_transform(
         scaled(rect.x + local_tx),
         scaled(rect.y + local_ty),
     ))
+}
+
+fn build_rounded_rect_path(width: f32, height: f32, radii: [f32; 4]) -> Option<tiny_skia::Path> {
+    let max_radius = (width.min(height) * 0.5).max(0.0);
+    let tl = radii[0].clamp(0.0, max_radius);
+    let tr = radii[1].clamp(0.0, max_radius);
+    let br = radii[2].clamp(0.0, max_radius);
+    let bl = radii[3].clamp(0.0, max_radius);
+
+    let mut pb = PathBuilder::new();
+    pb.move_to(tl, 0.0);
+
+    let kappa = |val: f32| val * KAPPA;
+
+    // Top edge -> Top-Right
+    pb.line_to(width - tr, 0.0);
+    if tr > 0.0 {
+        let k = kappa(tr);
+        pb.cubic_to(width - tr + k, 0.0, width, tr - k, width, tr);
+    }
+
+    // Right edge -> Bottom-Right
+    pb.line_to(width, height - br);
+    if br > 0.0 {
+        let k = kappa(br);
+        pb.cubic_to(
+            width,
+            height - br + k,
+            width - br + k,
+            height,
+            width - br,
+            height,
+        );
+    }
+
+    // Bottom edge -> Bottom-Left
+    pb.line_to(bl, height);
+    if bl > 0.0 {
+        let k = kappa(bl);
+        pb.cubic_to(bl - k, height, 0.0, height - bl + k, 0.0, height - bl);
+    }
+
+    // Left edge -> Top-Left
+    pb.line_to(0.0, tl);
+    if tl > 0.0 {
+        let k = kappa(tl);
+        pb.cubic_to(0.0, tl - k, tl - k, 0.0, tl, 0.0);
+    }
+
+    pb.close();
+    pb.finish()
+}
+
+fn fill_instance_shape(
+    pixmap: &mut Pixmap,
+    instance: &QuadInstance,
+    paint: &Paint<'_>,
+    transform: tiny_skia::Transform,
+    mask: Option<&Mask>,
+) {
+    let w = instance.rect.width;
+    let h = instance.rect.height;
+    let mode = instance.opacity_mode_sizing_border[1];
+    let radii: [f32; 4] = bytemuck::cast(instance.corner_radius);
+
+    let has_radius = mode >= MODE_DECORATION_THRESHOLD && radii.iter().any(|&r| r > 0.0);
+
+    if has_radius {
+        if let Some(path) = build_rounded_rect_path(w, h, radii) {
+            pixmap.fill_path(&path, paint, FillRule::Winding, transform, mask);
+        }
+    } else if let Some(local_rect) = tiny_skia::Rect::from_xywh(0.0, 0.0, w, h) {
+        pixmap.fill_rect(local_rect, paint, transform, mask);
+    }
 }
