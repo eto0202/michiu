@@ -1,4 +1,8 @@
-#![expect(clippy::too_many_lines, clippy::many_single_char_names)]
+#![expect(
+    clippy::too_many_lines,
+    clippy::many_single_char_names,
+    clippy::too_many_arguments
+)]
 
 use crate::{MichiuRendererResult, Renderer, RendererUserConfig, dcomp::PlatformContext};
 use michiu_ui::{
@@ -9,7 +13,7 @@ use rustc_hash::FxHashMap;
 use std::sync::Arc;
 use tiny_skia::{
     BlendMode, FillRule, FilterQuality, Mask, Paint, PathBuilder, Pattern, Pixmap, PixmapRef,
-    SpreadMode,
+    PremultipliedColorU8, SpreadMode,
 };
 use windows::{
     Win32::Graphics::{
@@ -49,6 +53,21 @@ const ATLAS_COLOR_EMOJI: f32 = 0.5;
 const ATLAS_TEXT_MASK: f32 = 1.5;
 
 const KAPPA: f32 = 0.552_284_8;
+
+const EDGE_TOP: usize = 0;
+const EDGE_RIGHT: usize = 1;
+const EDGE_BOTTOM: usize = 2;
+const EDGE_LEFT: usize = 3;
+
+// const STROKE_SOLID: u32 = 0;
+const STROKE_DOTTED: u32 = 1;
+const STROKE_DASHED: u32 = 2;
+const STROKE_DOUBLE: u32 = 3;
+
+const ALIGN_START: u32 = 0;
+const ALIGN_END: u32 = 1;
+
+const INVALID_EDGE_DIST: f32 = 10000.0;
 
 impl CpuRenderer {
     #[inline]
@@ -245,6 +264,7 @@ impl Renderer for CpuRenderer {
                     instance,
                     &self.atlases,
                     &mut self.scratch_buf,
+                    batch.scissor_rect,
                     scale_factor,
                     blend_mode,
                     mask,
@@ -305,11 +325,13 @@ fn draw_instance(
     instance: &QuadInstance,
     atlases: &Atlases,
     scratch_buf: &mut Vec<u8>,
+    scissor_rect: LayoutRect,
     scale_factor: f32,
     blend_mode: BlendMode,
     mask: Option<&Mask>,
 ) {
     let mode = instance.opacity_mode_sizing_border[1];
+    let has_stroke = has_border_or_outline(instance);
 
     if (mode - MODE_ATLAS).abs() < 0.1 {
         draw_atlas_quad(
@@ -321,6 +343,16 @@ fn draw_instance(
             blend_mode,
             mask,
         );
+        if has_stroke {
+            draw_sdf_quad(
+                pixmap,
+                instance,
+                scissor_rect,
+                scale_factor,
+                blend_mode,
+                true, // entity 本体は既に描画済みなので枠線/アウトラインのみ重ねる
+            );
+        }
         return;
     }
 
@@ -328,7 +360,18 @@ fn draw_instance(
         return;
     }
 
-    draw_solid_rect(pixmap, instance, scale_factor, blend_mode, mask);
+    if has_stroke {
+        draw_sdf_quad(
+            pixmap,
+            instance,
+            scissor_rect,
+            scale_factor,
+            blend_mode,
+            false,
+        );
+    } else {
+        draw_solid_rect(pixmap, instance, scale_factor, blend_mode, mask);
+    }
 }
 
 #[expect(
@@ -486,7 +529,7 @@ fn draw_atlas_quad(
             pattern_transform,
         ),
         blend_mode,
-        anti_alias: false, // 無いほうが見やすいかも
+        anti_alias: true,
         ..Default::default()
     };
 
@@ -649,5 +692,549 @@ fn fill_instance_shape(
         }
     } else if let Some(local_rect) = tiny_skia::Rect::from_xywh(0.0, 0.0, w, h) {
         pixmap.fill_rect(local_rect, paint, transform, mask);
+    }
+}
+
+fn has_border_or_outline(instance: &QuadInstance) -> bool {
+    let b_width: [f32; 4] = bytemuck::cast(instance.border_width);
+    let b_color: [f32; 4] = bytemuck::cast(instance.border_color);
+    let has_border = b_color[3] > 0.0 && (b_width[0] + b_width[1] + b_width[2] + b_width[3]) > 0.0;
+
+    let o_width: [f32; 4] = bytemuck::cast(instance.outline_width);
+    let o_color: [f32; 4] = bytemuck::cast(instance.outline_color);
+    let has_outline = o_color[3] > 0.0 && (o_width[0] + o_width[1] + o_width[2] + o_width[3]) > 0.0;
+
+    has_border || has_outline
+}
+
+#[inline]
+fn wgsl_fract(x: f32) -> f32 {
+    x - x.floor()
+}
+
+#[inline]
+fn smoothstep(edge0: f32, edge1: f32, x: f32) -> f32 {
+    let denom = edge1 - edge0;
+    if denom.abs() <= f32::EPSILON {
+        return if x >= edge1 { 1.0 } else { 0.0 };
+    }
+    let t = ((x - edge0) / denom).clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
+}
+
+#[inline]
+fn sd_rounded_box(px: f32, py: f32, bx: f32, by: f32, r: [f32; 4]) -> f32 {
+    let rad = if px >= 0.0 && py < 0.0 {
+        r[1] // top_right
+    } else if px >= 0.0 && py >= 0.0 {
+        r[2] // bottom_right
+    } else if px < 0.0 && py >= 0.0 {
+        r[3] // bottom_left
+    } else {
+        r[0] // top_left
+    };
+    let qx = px.abs() - bx + rad;
+    let qy = py.abs() - by + rad;
+    qx.max(qy).min(0.0) + qx.max(0.0).hypot(qy.max(0.0)) - rad
+}
+
+#[inline]
+fn select_closest_edge(
+    local_cx: f32,
+    local_cy: f32,
+    half_w: f32,
+    half_h: f32,
+    widths: [f32; 4],
+    skip_zero_width: bool,
+) -> usize {
+    let d_top = if !skip_zero_width || widths[EDGE_TOP] > 0.0 {
+        local_cy + half_h
+    } else {
+        INVALID_EDGE_DIST
+    };
+    let d_right = if !skip_zero_width || widths[EDGE_RIGHT] > 0.0 {
+        half_w - local_cx
+    } else {
+        INVALID_EDGE_DIST
+    };
+    let d_bottom = if !skip_zero_width || widths[EDGE_BOTTOM] > 0.0 {
+        half_h - local_cy
+    } else {
+        INVALID_EDGE_DIST
+    };
+    let d_left = if !skip_zero_width || widths[EDGE_LEFT] > 0.0 {
+        local_cx + half_w
+    } else {
+        INVALID_EDGE_DIST
+    };
+
+    let min_dist = d_top.min(d_bottom).min(d_left.min(d_right));
+    if (min_dist - d_right).abs() == 0.0 {
+        EDGE_RIGHT
+    } else if (min_dist - d_bottom).abs() == 0.0 {
+        EDGE_BOTTOM
+    } else if (min_dist - d_left).abs() == 0.0 {
+        EDGE_LEFT
+    } else {
+        EDGE_TOP
+    }
+}
+
+#[inline]
+fn compute_length_alpha(t: f32, len_limit: f32, alignment: u32, edge_fade: f32) -> f32 {
+    if len_limit >= 0.999 {
+        return 1.0;
+    }
+
+    match alignment {
+        ALIGN_START => 1.0 - smoothstep(len_limit - edge_fade, len_limit + edge_fade, t),
+        ALIGN_END => {
+            let lower_bound = 1.0 - len_limit;
+            smoothstep(lower_bound - edge_fade, lower_bound + edge_fade, t)
+        }
+        _ => {
+            let half_len = len_limit * 0.5;
+            let dist_from_center = (t - 0.5).abs();
+            1.0 - smoothstep(half_len - edge_fade, half_len + edge_fade, dist_from_center)
+        }
+    }
+}
+
+#[inline]
+fn compute_style_alpha(style: u32, w: f32, pos_edge: f32, thick_t: f32) -> f32 {
+    match style {
+        STROKE_DOTTED => {
+            let period = w * 2.2;
+            let cycle_t = wgsl_fract(pos_edge / period) * period - (period * 0.5);
+            let radial_dist = cycle_t.hypot((thick_t - 0.5) * w);
+            1.0 - smoothstep(w * 0.4 - 0.5, w * 0.4 + 0.5, radial_dist)
+        }
+        STROKE_DASHED => {
+            let period = w * 5.0;
+            let cycle_t = wgsl_fract(pos_edge / period) * period;
+            1.0 - smoothstep(w * 3.0 - 0.5, w * 3.0 + 0.5, cycle_t)
+        }
+        STROKE_DOUBLE => {
+            let is_double_void =
+                smoothstep(0.30, 0.33, thick_t) * (1.0 - smoothstep(0.67, 0.70, thick_t));
+            1.0 - is_double_void
+        }
+        _ => 1.0, // STROKE_SOLID
+    }
+}
+
+#[inline]
+fn compute_stroke_pattern_alpha(
+    local_cx: f32,
+    local_cy: f32,
+    half_w: f32,
+    half_h: f32,
+    w_size: f32,
+    h_size: f32,
+    edge_idx: usize,
+    w: f32,
+    flags: u32,
+    len_limit: f32,
+    thick_t: f32,
+) -> f32 {
+    let shift = edge_idx * 4;
+    let style = (flags >> shift) & 3;
+    let alignment = (flags >> (shift + 2)) & 3;
+
+    let (pos_edge, t) = if edge_idx == EDGE_TOP || edge_idx == EDGE_BOTTOM {
+        let pe = local_cx + half_w;
+        (pe, pe / (half_w * 2.0))
+    } else {
+        let pe = local_cy + half_h;
+        (pe, pe / (half_h * 2.0))
+    };
+
+    let edge_fade = 0.5 / w_size.max(h_size);
+    let length_alpha = compute_length_alpha(t, len_limit, alignment, edge_fade);
+    let style_alpha = compute_style_alpha(style, w, pos_edge, thick_t);
+
+    length_alpha * style_alpha
+}
+
+#[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+fn compute_border_alpha(
+    instance: &QuadInstance,
+    local_cx: f32,
+    local_cy: f32,
+    half_w: f32,
+    half_h: f32,
+    w_size: f32,
+    h_size: f32,
+    clamped_radius: [f32; 4],
+    dist_to_box: f32,
+    box_alpha: f32,
+) -> f32 {
+    let b_width: [f32; 4] = bytemuck::cast(instance.border_width);
+    let b_color: [f32; 4] = bytemuck::cast(instance.border_color);
+    let total_width = b_width[0] + b_width[1] + b_width[2] + b_width[3];
+    if b_color[3] <= 0.0 || total_width <= 0.0 {
+        return 0.0;
+    }
+
+    let shift_x = (b_width[EDGE_LEFT] - b_width[EDGE_RIGHT]) * 0.5;
+    let shift_y = (b_width[EDGE_TOP] - b_width[EDGE_BOTTOM]) * 0.5;
+    let inner_bw = half_w - f32::midpoint(b_width[EDGE_LEFT], b_width[EDGE_RIGHT]);
+    let inner_bh = half_h - f32::midpoint(b_width[EDGE_TOP], b_width[EDGE_BOTTOM]);
+
+    let calc = |i: usize| (clamped_radius[i] - b_width[i]).max(0.0);
+    let inner_radius = [calc(0), calc(1), calc(2), calc(3)];
+
+    let dist_to_inner = sd_rounded_box(
+        local_cx - shift_x,
+        local_cy - shift_y,
+        inner_bw,
+        inner_bh,
+        inner_radius,
+    );
+
+    let edge_idx = select_closest_edge(local_cx, local_cy, half_w, half_h, b_width, true);
+    let w = b_width[edge_idx];
+    let denom = -dist_to_box + dist_to_inner;
+    let thick_t = if denom.abs() > 1e-6 {
+        (-dist_to_box / denom).clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
+
+    let b_lengths: [f32; 4] = bytemuck::cast(instance.border_lengths);
+    let flags = instance.opacity_mode_sizing_border[3].max(0.0) as u32;
+
+    let pattern_alpha = compute_stroke_pattern_alpha(
+        local_cx,
+        local_cy,
+        half_w,
+        half_h,
+        w_size,
+        h_size,
+        edge_idx,
+        w,
+        flags,
+        b_lengths[edge_idx],
+        thick_t,
+    );
+
+    let dist_to_inner_clamped = dist_to_inner.min(dist_to_box + w);
+    let raw_alpha = box_alpha * smoothstep(-0.5, 0.5, dist_to_inner_clamped) * pattern_alpha;
+
+    raw_alpha * w.clamp(0.0, 1.0)
+}
+
+#[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+fn compute_outline_alpha(
+    instance: &QuadInstance,
+    local_cx: f32,
+    local_cy: f32,
+    half_w: f32,
+    half_h: f32,
+    w_size: f32,
+    h_size: f32,
+    clamped_radius: [f32; 4],
+) -> f32 {
+    let o_width: [f32; 4] = bytemuck::cast(instance.outline_width);
+    let o_color: [f32; 4] = bytemuck::cast(instance.outline_color);
+    let total_width = o_width[0] + o_width[1] + o_width[2] + o_width[3];
+    if o_color[3] <= 0.0 || total_width <= 0.0 {
+        return 0.0;
+    }
+
+    let edge_idx = select_closest_edge(local_cx, local_cy, half_w, half_h, o_width, false);
+    let o_w = o_width[edge_idx];
+    let o_offset = instance.outline_offset_and_flags[0];
+
+    let calc_i = |i: usize| clamped_radius[i] + o_offset;
+    let r_inner = [calc_i(0), calc_i(1), calc_i(2), calc_i(3)];
+
+    let calc_o = |i: usize| clamped_radius[i] + o_offset + o_w;
+    let r_outer = [calc_o(0), calc_o(1), calc_o(2), calc_o(3)];
+
+    let dist_to_inner = sd_rounded_box(
+        local_cx,
+        local_cy,
+        half_w + o_offset,
+        half_h + o_offset,
+        r_inner,
+    );
+    let dist_to_outer = sd_rounded_box(
+        local_cx,
+        local_cy,
+        half_w + o_offset + o_w,
+        half_h + o_offset + o_w,
+        r_outer,
+    );
+
+    let base_alpha =
+        smoothstep(-0.5, 0.5, dist_to_inner) * (1.0 - smoothstep(-0.5, 0.5, dist_to_outer));
+    let denom = dist_to_inner - dist_to_outer;
+    let thick_t = if denom.abs() > 1e-6 {
+        (dist_to_inner / denom).clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
+
+    let o_lengths: [f32; 4] = bytemuck::cast(instance.outline_lengths);
+    let flags = instance.outline_offset_and_flags[1].max(0.0) as u32;
+
+    let pattern_alpha = compute_stroke_pattern_alpha(
+        local_cx,
+        local_cy,
+        half_w,
+        half_h,
+        w_size,
+        h_size,
+        edge_idx,
+        o_w,
+        flags,
+        o_lengths[edge_idx],
+        thick_t,
+    );
+
+    base_alpha * pattern_alpha * o_w.clamp(0.0, 1.0)
+}
+
+fn compute_sdf_margin(instance: &QuadInstance) -> f32 {
+    let mut margin = 0.0_f32;
+
+    let o_width: [f32; 4] = bytemuck::cast(instance.outline_width);
+    let o_color: [f32; 4] = bytemuck::cast(instance.outline_color);
+    let total_o_width = o_width[0] + o_width[1] + o_width[2] + o_width[3];
+    if o_color[3] > 0.0 && total_o_width > 0.0 {
+        let max_o_width = o_width[0].max(o_width[1]).max(o_width[2]).max(o_width[3]);
+        let o_offset = instance.outline_offset_and_flags[0];
+        let outline_margin = max_o_width + o_offset.max(0.0);
+        margin = margin.max(outline_margin + 1.5);
+    }
+
+    margin
+}
+
+#[inline]
+fn to_pma_srgb(rgba: [f32; 4], opacity: f32) -> [f32; 4] {
+    let a = (rgba[3] * opacity).clamp(0.0, 1.0);
+    let clamped = |i: usize| rgba[i].clamp(0.0, 1.0) * a;
+    [clamped(0), clamped(1), clamped(2), a]
+}
+
+#[inline]
+fn floor_min<F>(corners: &mut [tiny_skia::Point; 4], f: F) -> f32
+where
+    F: Fn(&tiny_skia::Point) -> f32,
+{
+    corners.iter().map(f).fold(f32::INFINITY, f32::min).floor()
+}
+
+#[inline]
+fn ceil_max<F>(corners: &mut [tiny_skia::Point; 4], f: F) -> f32
+where
+    F: Fn(&tiny_skia::Point) -> f32,
+{
+    corners
+        .iter()
+        .map(f)
+        .fold(f32::NEG_INFINITY, f32::max)
+        .ceil()
+}
+
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::cast_precision_loss
+)]
+fn draw_sdf_quad(
+    pixmap: &mut Pixmap,
+    instance: &QuadInstance,
+    scissor_rect: LayoutRect,
+    scale_factor: f32,
+    blend_mode: BlendMode,
+    skip_entity: bool,
+) {
+    let opacity = instance.opacity_mode_sizing_border[0].clamp(0.0, 1.0);
+    if opacity <= 0.0 {
+        return;
+    }
+
+    let Some(shape_transform) = build_instance_transform(instance, scale_factor) else {
+        return;
+    };
+    let Some(inv_transform) = shape_transform.invert() else {
+        return;
+    };
+
+    let w_size = instance.rect.width;
+    let h_size = instance.rect.height;
+    let half_w = w_size * 0.5;
+    let half_h = h_size * 0.5;
+    let mode = instance.opacity_mode_sizing_border[1];
+
+    // 変換後4隅から物理バウンディングボックスを算出（AA 用に論理 1px 余裕を持たせる）
+    let margin = compute_sdf_margin(instance) + (1.0 / scale_factor.max(0.01));
+    let mut corners = [
+        tiny_skia::Point::from_xy(-margin, -margin),
+        tiny_skia::Point::from_xy(w_size + margin, -margin),
+        tiny_skia::Point::from_xy(w_size + margin, h_size + margin),
+        tiny_skia::Point::from_xy(-margin, h_size + margin),
+    ];
+    shape_transform.map_points(&mut corners);
+
+    let min_px = floor_min(&mut corners, |p| p.x);
+    let min_py = floor_min(&mut corners, |p| p.y);
+    let max_px = ceil_max(&mut corners, |p| p.x);
+    let max_py = ceil_max(&mut corners, |p| p.y);
+
+    let pw_u32 = pixmap.width();
+    let ph_u32 = pixmap.height();
+    let pw = pw_u32 as f32;
+    let ph = ph_u32 as f32;
+
+    let rect_clamped = |val: f32, max: f32| (val * scale_factor).round().clamp(0.0, max) as usize;
+    // prepare_scissor_mask と同じ丸め規則でシザー矩形を適用
+    let sc_x0 = rect_clamped(scissor_rect.x, pw);
+    let sc_y0 = rect_clamped(scissor_rect.y, ph);
+    let sc_x1 = rect_clamped(scissor_rect.x + scissor_rect.width, pw);
+    let sc_y1 = rect_clamped(scissor_rect.y + scissor_rect.height, ph);
+
+    let x0 = (min_px.max(0.0) as usize).max(sc_x0);
+    let y0 = (min_py.max(0.0) as usize).max(sc_y0);
+    let x1 = (max_px.max(0.0).min(pw) as usize).min(sc_x1);
+    let y1 = (max_py.max(0.0).min(ph) as usize).min(sc_y1);
+
+    if x0 >= x1 || y0 >= y1 {
+        return;
+    }
+
+    let raw_radii: [f32; 4] = bytemuck::cast(instance.corner_radius);
+    let max_radius = half_w.min(half_h);
+    let radii = |i: usize| raw_radii[i].min(max_radius).max(0.0);
+    let clamped_radius = [radii(0), radii(1), radii(2), radii(3)];
+
+    let entity_pma = if skip_entity {
+        [0.0; 4]
+    } else {
+        to_pma_srgb(bytemuck::cast(instance.color), opacity)
+    };
+    let border_pma = to_pma_srgb(bytemuck::cast(instance.border_color), opacity);
+    let outline_pma = to_pma_srgb(bytemuck::cast(instance.outline_color), opacity);
+
+    let stride = pw_u32 as usize;
+    let pixels = pixmap.pixels_mut();
+
+    for py in y0..y1 {
+        let row_offset = py * stride;
+        let fy = py as f32 + 0.5;
+
+        for px in x0..x1 {
+            let mut local_pt = tiny_skia::Point::from_xy(px as f32 + 0.5, fy);
+            inv_transform.map_point(&mut local_pt);
+
+            let local_cx = local_pt.x - half_w;
+            let local_cy = local_pt.y - half_h;
+
+            let dist_to_box = sd_rounded_box(local_cx, local_cy, half_w, half_h, clamped_radius);
+            let box_alpha = if mode < MODE_DECORATION_THRESHOLD {
+                1.0
+            } else {
+                1.0 - smoothstep(-0.5, 0.5, dist_to_box)
+            };
+
+            let border_alpha = compute_border_alpha(
+                instance,
+                local_cx,
+                local_cy,
+                half_w,
+                half_h,
+                w_size,
+                h_size,
+                clamped_radius,
+                dist_to_box,
+                box_alpha,
+            );
+            let outline_alpha = compute_outline_alpha(
+                instance,
+                local_cx,
+                local_cy,
+                half_w,
+                half_h,
+                w_size,
+                h_size,
+                clamped_radius,
+            );
+
+            let mut base = if skip_entity {
+                let calc = |i: usize| border_pma[i] * border_alpha * box_alpha;
+                [calc(0), calc(1), calc(2), calc(3)]
+            } else {
+                let mut e = entity_pma;
+                if border_alpha > 0.0 {
+                    let inv_b = 1.0 - border_alpha;
+                    let mut calc = |i: usize| e[i] = e[i] * inv_b + border_pma[i] * border_alpha;
+                    calc(0);
+                    calc(1);
+                    calc(2);
+                    calc(3);
+                }
+                let calc = |i: usize| e[i] * box_alpha;
+                [calc(0), calc(1), calc(2), calc(3)]
+            };
+
+            if outline_alpha > 0.0 {
+                let factor = outline_alpha * (1.0 - base[3]);
+                let mut calc = |i: usize| base[i] += outline_pma[i] * factor;
+                calc(0);
+                calc(1);
+                calc(2);
+                calc(3);
+            }
+
+            let sa = base[3].clamp(0.0, 1.0);
+            if sa <= 0.0 {
+                continue;
+            }
+
+            let dst = &mut pixels[row_offset + px];
+            let (nr, ng, nb, na) = match blend_mode {
+                BlendMode::DestinationOut => {
+                    let inv_a = 1.0 - sa;
+                    let calc = |c: u8| f32::from(c) * inv_a;
+                    (
+                        calc(dst.red()),
+                        calc(dst.green()),
+                        calc(dst.blue()),
+                        calc(dst.alpha()),
+                    )
+                }
+                _ => {
+                    // SourceOver
+                    if sa >= 1.0 {
+                        let calc = |i: usize| base[i].clamp(0.0, 1.0) * 255.0;
+                        (calc(0), calc(1), calc(2), 255.0)
+                    } else {
+                        let inv_a = 1.0 - sa;
+                        let calc = |i: usize, c: u8| {
+                            base[i].clamp(0.0, 1.0) * 255.0 + f32::from(c) * inv_a
+                        };
+                        (
+                            calc(0, dst.red()),
+                            calc(1, dst.green()),
+                            calc(2, dst.blue()),
+                            sa * 255.0 + f32::from(dst.alpha()) * inv_a,
+                        )
+                    }
+                }
+            };
+
+            let clamped = |v: f32| (v + 0.5).clamp(0.0, 255.0) as u8;
+
+            let out_a = clamped(na);
+            let out_r = (clamped(nr)).min(out_a);
+            let out_g = (clamped(ng)).min(out_a);
+            let out_b = (clamped(nb)).min(out_a);
+            if let Some(p) = PremultipliedColorU8::from_rgba(out_r, out_g, out_b, out_a) {
+                *dst = p;
+            }
+        }
     }
 }
