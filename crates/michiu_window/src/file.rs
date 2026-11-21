@@ -1,7 +1,8 @@
 #![expect(clippy::ref_as_ptr, clippy::inline_always)]
 
 use crate::{
-    MichiuAnyEvent, MichiuError, MichiuEvent, MichiuRawEvent, WindowId, dispatch_to_active_handler,
+    MichiuAnyEvent, MichiuEvent, MichiuRawEvent, MichiuWindowError, WindowId,
+    dispatch_to_active_handler,
 };
 use michiu_guard::Unvalidated;
 use std::path::PathBuf;
@@ -44,7 +45,7 @@ impl FileDialog {
     /// - If the operating system fails to instantiate or display the dialog.
     /// - If the selected file path contains invalid characters and cannot be converted.
     #[inline]
-    pub fn open_file_dialog(hwnd: Option<HWND>) -> crate::Result<Option<PathBuf>> {
+    pub fn open_file_dialog(hwnd: Option<HWND>) -> crate::MichiuWindowResult<Option<PathBuf>> {
         unsafe {
             let dialog: IFileOpenDialog = CoCreateInstance(&FileOpenDialog, None, CLSCTX_ALL)?;
 
@@ -61,7 +62,7 @@ impl FileDialog {
 
             let path_str = path
                 .to_string()
-                .map_err(|e| MichiuError::UnexpectedOsError(e.into()))?;
+                .map_err(|e| MichiuWindowError::UnexpectedOsError(e.into()))?;
 
             Ok(Some(PathBuf::from(path_str)))
         }
@@ -80,7 +81,7 @@ impl FileDialog {
     pub fn save_file_dialog(
         hwnd: Option<HWND>,
         options: &FileDialogOptions,
-    ) -> crate::Result<Option<PathBuf>> {
+    ) -> crate::MichiuWindowResult<Option<PathBuf>> {
         unsafe {
             let dialog: IFileSaveDialog = CoCreateInstance(&FileSaveDialog, None, CLSCTX_ALL)?;
 
@@ -138,7 +139,7 @@ impl FileDialog {
 
             let path_str = path
                 .to_string()
-                .map_err(|e| MichiuError::UnexpectedOsError(e.into()))?;
+                .map_err(|e| MichiuWindowError::UnexpectedOsError(e.into()))?;
 
             Ok(Some(PathBuf::from(path_str)))
         }
@@ -430,7 +431,7 @@ impl IDropTarget_Impl for FileDropTarget_Impl {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{CURRENT_HANDLER, HandlerGuard, HandlerPtr, Result};
+    use crate::{CURRENT_HANDLER, HandlerGuard, HandlerPtr, MichiuWindowResult};
     use michiu_guard::Validated;
     use std::os::windows::ffi::OsStrExt;
     use windows::Win32::{
@@ -662,8 +663,8 @@ mod tests {
                     assert_eq!(id, WindowId(dummy_hwnd.0 as isize));
                     match event {
                         MichiuEvent::FileDropped(unvalidated_files) => {
-                            let validated: Result<Validated<Vec<PathBuf>>> = unvalidated_files
-                                .validate_with(|files| {
+                            let validated: MichiuWindowResult<Validated<Vec<PathBuf>>> =
+                                unvalidated_files.validate_with(|files| {
                                     assert_eq!(files, expected_paths);
                                     Ok(files)
                                 });

@@ -3,7 +3,7 @@
 #![expect(clippy::panic)]
 
 use michiu_window::{
-    LogicalSize, MichiuComContext, MichiuError, MichiuWindow, MichiuWindowBuilder,
+    LogicalSize, MichiuComContext, MichiuWindow, MichiuWindowBuilder, MichiuWindowError,
 };
 use windows::Win32::System::DataExchange::{CloseClipboard, OpenClipboard};
 
@@ -66,7 +66,7 @@ fn test_integration_clipboard_lock_conflict_and_recovery() {
         );
 
         match set_res.unwrap_err() {
-            MichiuError::UnexpectedOsError(err) => {
+            MichiuWindowError::UnexpectedOsError(err) => {
                 // Windowsのエラーコード（GetLastWin32Error / E_FAIL など）が正常にラップされている
                 println!(
                     "Safely intercepted clipboard write conflict: {:?}",
@@ -86,7 +86,7 @@ fn test_integration_clipboard_lock_conflict_and_recovery() {
         );
         assert!(matches!(
             get_res.unwrap_err(),
-            MichiuError::UnexpectedOsError(_)
+            MichiuWindowError::UnexpectedOsError(_)
         ));
 
         // バックグラウンドスレッドの終了とロック解放を同期

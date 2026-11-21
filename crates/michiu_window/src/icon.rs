@@ -1,4 +1,4 @@
-use crate::error::{MichiuError, Result};
+use crate::error::{MichiuWindowError, MichiuWindowResult};
 use std::{os::windows::ffi::OsStrExt, path::Path, sync::Arc};
 use windows::{
     Win32::UI::WindowsAndMessaging::{
@@ -71,7 +71,7 @@ impl MichiuIcon {
     ///     Ok(())
     /// }
     /// ```
-    pub fn from_path(path: impl AsRef<Path>) -> Result<Self> {
+    pub fn from_path(path: impl AsRef<Path>) -> MichiuWindowResult<Self> {
         let path_wide: Vec<u16> = path
             .as_ref()
             .as_os_str()
@@ -89,7 +89,7 @@ impl MichiuIcon {
                 LR_LOADFROMFILE | LR_DEFAULTSIZE,
             )
         }
-        .map_err(|err| MichiuError::ResourceLoadFailed {
+        .map_err(|err| MichiuWindowError::ResourceLoadFailed {
             path: path.as_ref().to_string_lossy().into_owned().into(),
             source: err,
         })?;
@@ -132,9 +132,9 @@ impl MichiuIcon {
     ///     Ok(())
     /// }
     /// ```
-    pub fn from_bytes(bytes: &[u8]) -> Result<Self> {
+    pub fn from_bytes(bytes: &[u8]) -> MichiuWindowResult<Self> {
         if bytes.is_empty() {
-            return Err(MichiuError::ValidationError {
+            return Err(MichiuWindowError::ValidationError {
                 parameter: "bytes",
                 message: "Icon byte array cannot be empty.".into(),
             });
@@ -151,14 +151,14 @@ impl MichiuIcon {
             );
 
             let Ok(offset) = usize::try_from(offset) else {
-                return Err(MichiuError::ValidationError {
+                return Err(MichiuWindowError::ValidationError {
                     parameter: "bytes",
                     message: "Failed to parse image directory header from memory.".into(),
                 });
             };
 
             if offset == 0 || offset >= bytes.len() {
-                return Err(MichiuError::ValidationError {
+                return Err(MichiuWindowError::ValidationError {
                     parameter: "bytes",
                     message: "Failed to parse image directory header from memory.".into(),
                 });
@@ -174,7 +174,7 @@ impl MichiuIcon {
                 0,
                 LR_DEFAULTCOLOR,
             )
-            .map_err(MichiuError::UnexpectedOsError)?;
+            .map_err(MichiuWindowError::UnexpectedOsError)?;
 
             Ok(Self {
                 inner: Arc::new(IconInner {
@@ -350,7 +350,7 @@ mod tests {
 
         assert!(result.is_err());
         match result.unwrap_err() {
-            MichiuError::ResourceLoadFailed { path, .. } => {
+            MichiuWindowError::ResourceLoadFailed { path, .. } => {
                 assert!(path.contains("non_existent_and_fake_icon_file_12345.ico"));
             }
             other => panic!("Expected ResourceLoadFailed error, got: {other:?}"),
@@ -363,7 +363,7 @@ mod tests {
         let result = MichiuIcon::from_bytes(&[]);
         assert!(result.is_err());
         match result.unwrap_err() {
-            MichiuError::ValidationError { parameter, message } => {
+            MichiuWindowError::ValidationError { parameter, message } => {
                 assert_eq!(parameter, "bytes");
                 assert!(message.contains("cannot be empty"));
             }
@@ -379,7 +379,7 @@ mod tests {
 
         assert!(result.is_err());
         match result.unwrap_err() {
-            MichiuError::ValidationError { parameter, message } => {
+            MichiuWindowError::ValidationError { parameter, message } => {
                 assert_eq!(parameter, "bytes");
                 assert!(message.contains("Failed to parse image directory header"));
             }

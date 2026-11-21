@@ -2,7 +2,7 @@ use crate::{
     ActiveEntitiesVec, ActiveMasksSecondary, BaseBasicLayoutsSecondary, BasicLayoutsSecondary,
     CapacityConfig, ChildrenSecondary, ComponentMask, Context, DebugStore, DirtyLayoutEntitiesVec,
     DirtyRenderEntitiesVec, EntitiesSlot, Entity, EventStore, FlexLayoutsSecondary, LayoutPoint,
-    LayoutRect, LayoutStore, MichiuError, MichiuSoA, OptionTraceExt, ParentsSecondary, Pipeline,
+    LayoutRect, LayoutStore, MichiuSoA, MichiuUiError, OptionTraceExt, ParentsSecondary, Pipeline,
     PointerEvents, Position, Rect, RectsSecondary, RenderStore, SessionSpawnedVec,
     TaffyNodesSecondary, TaffyResultTraceExt, TaffyTreeEntity, TopologyStore, Val,
     define_sparse_secondary, handle_on_dnd_drag_interactive, handle_on_dnd_drag_passive,
@@ -334,7 +334,7 @@ impl DndStore {
             &cx.topology.topo_parents,
             &cx.topology.topo_flat_dfs_sequence,
         )
-        .unwrap_or_trace(None, &mut cx.debug, || MichiuError::RootEntityNotFound);
+        .unwrap_or_trace(None, &mut cx.debug, || MichiuUiError::RootEntityNotFound);
 
         // プレースホルダーをアタッチ先親の直下へ spawn して生成
         let placeholder_id = DndStore::spawn_dnd_placeholder(

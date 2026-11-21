@@ -5,6 +5,7 @@ This crate handles the windows for the `michiu` crate.
 ## Crates.io
 
 - [michiu](https://crates.io/crates/michiu)
+- [michiu_renderer](ttps://crates.io/crates/michiu_renderer)
 - [michiu_ui](https://crates.io/crates/michiu_ui)
 - [michiu_guard](https://crates.io/crates/michiu_guard)
 

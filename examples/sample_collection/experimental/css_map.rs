@@ -84,7 +84,7 @@ impl ExternalData for CssLoader {
 
     /// Load the CSS file.
     #[inline]
-    fn load(&self, _path: &Path, content: &str) -> ui::Result<Self::Output> {
+    fn load(&self, _path: &Path, content: &str) -> ui::MichiuUiResult<Self::Output> {
         Ok(parse_css_to_classes(content))
     }
 }

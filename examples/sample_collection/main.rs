@@ -6,6 +6,7 @@ use crate::{
 };
 use michiu::{
     prelude::*,
+    renderer::RendererUserConfig,
     ui::{CapacityConfig, ExternalDataSetBuilder},
 };
 use std::cell::{Cell, RefCell};
@@ -77,7 +78,15 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     // レンダラーを作成
     // Create a Renderer
     // `cargo add pollster`
-    let renderer = pollster::block_on(MichiuRenderer::new(hwnd, client_rect.cast(), scale_factor))?;
+    let renderer = pollster::block_on(MichiuRenderer::with_config(
+        hwnd,
+        client_rect.cast(),
+        scale_factor,
+        &RendererUserConfig {
+            backend: renderer::RendererBackend::Cpu,
+            ..Default::default()
+        },
+    ))?;
 
     let inspector = MichiuInspector::new(); // It's fine even if it's not there
     let _sub = inspector.subscribe(None);
@@ -238,7 +247,7 @@ fn redraw(app: &mut MichiuApp) {
     // これも必須
     // This is also required
     if let Some(_paint) = app.window.begin_paint() {
-        app.renderer.draw(&mut app.context);
+        app.renderer.draw_frame(&mut app.context).unwrap();
     }
     let draw_elapsed = draw_start.elapsed();
 

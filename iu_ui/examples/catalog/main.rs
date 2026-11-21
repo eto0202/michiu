@@ -1,7 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use crate::logger::logger;
-use michiu::{prelude::*, ui::CapacityConfig};
+use michiu::{prelude::*, renderer::RendererUserConfig, ui::CapacityConfig};
 
 mod app;
 mod component_type;
@@ -31,10 +31,14 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
 
     let client_rect = handle.client_rect();
 
-    let renderer = pollster::block_on(MichiuRenderer::new(
+    let renderer = pollster::block_on(MichiuRenderer::with_config(
         handle.hwnd(),
         client_rect.cast(),
         scale_factor,
+        &RendererUserConfig {
+            backend: renderer::RendererBackend::Cpu,
+            ..Default::default()
+        },
     ))?;
 
     let inspector = MichiuInspector::new();

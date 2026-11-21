@@ -3,7 +3,7 @@
 #![expect(clippy::cast_possible_wrap, clippy::cast_possible_truncation)]
 
 use super::*;
-use crate::error::MichiuError;
+use crate::error::MichiuWindowError;
 use michiu_guard::Validated;
 use std::sync::{
     Arc,
@@ -121,7 +121,7 @@ fn test_tray_builder_normal() {
 
     let builder = MichiuTrayBuilder::new().with_icon(icon);
 
-    let validated_result: Result<Validated<MichiuTrayBuilder>> =
+    let validated_result: MichiuWindowResult<Validated<MichiuTrayBuilder>> =
         builder.into_unvalidated().try_into();
     assert!(
         validated_result.is_ok(),
@@ -134,11 +134,12 @@ fn test_tray_builder_missing_icon_abnormal() {
     // アイコンがない場合は検証エラーになる
     let builder = MichiuTrayBuilder::new().with_tooltip("No Icon");
 
-    let result: Result<Validated<MichiuTrayBuilder>> = builder.into_unvalidated().try_into();
+    let result: MichiuWindowResult<Validated<MichiuTrayBuilder>> =
+        builder.into_unvalidated().try_into();
     assert!(result.is_err());
     assert!(matches!(
         result.unwrap_err(),
-        MichiuError::ValidationError {
+        MichiuWindowError::ValidationError {
             parameter: "icon",
             ..
         }
@@ -156,11 +157,12 @@ fn test_tray_builder_tooltip_overflow_abnormal() {
         .with_icon(icon)
         .with_tooltip(overflow_tooltip);
 
-    let result: Result<Validated<MichiuTrayBuilder>> = builder.into_unvalidated().try_into();
+    let result: MichiuWindowResult<Validated<MichiuTrayBuilder>> =
+        builder.into_unvalidated().try_into();
     assert!(result.is_err());
     assert!(matches!(
         result.unwrap_err(),
-        MichiuError::ValidationError {
+        MichiuWindowError::ValidationError {
             parameter: "tooltip",
             ..
         }
@@ -511,7 +513,7 @@ fn test_tray_show_balloon_limiii() {
         assert!(
             matches!(
                 result_title.unwrap_err(),
-                MichiuError::ValidationError {
+                MichiuWindowError::ValidationError {
                     parameter: "balloon_title",
                     ..
                 }
@@ -530,7 +532,7 @@ fn test_tray_show_balloon_limiii() {
         assert!(
             matches!(
                 result_text.unwrap_err(),
-                MichiuError::ValidationError {
+                MichiuWindowError::ValidationError {
                     parameter: "balloon_text",
                     ..
                 }

@@ -1,3 +1,5 @@
+#![expect(clippy::doc_markdown)]
+
 //! # Rendering Architecture and Composition Pipeline
 //!
 //! [`MichiuRenderer`] is a hybrid renderer that integrates wgpu (DirectX 12) with DirectComposition, Windows' hardware composition engine.
@@ -299,144 +301,24 @@
 //!
 //! For consumer applications, safe read access is provided through immutable getters such as [`d3d11_device(&self)`](MichiuRenderer::d3d11_device) and [`surface(&self)`](WgpuRenderer::surface).
 
+mod backend;
 mod composed_renderer;
-mod dcomp_workspace;
-mod platform;
-mod synchronizer;
-mod text;
-mod wgpu_renderer;
+mod cpu;
+mod dcomp;
+mod error;
+mod gpu;
 
+pub use backend::*;
 pub use composed_renderer::*;
-pub use dcomp_workspace::*;
-pub use text::*;
-pub use wgpu_renderer::*;
+pub use cpu::*;
+pub use error::*;
+pub use gpu::*;
 
-use crate::{Color, CornerRadius, EdgeInsets, Entity, LayoutRect, LinearGradientInner};
 use bytemuck::{Pod, Zeroable};
-use rustc_hash::FxHashMap;
 
-#[repr(C)]
-#[derive(Copy, Clone, Debug, PartialEq, Pod, Zeroable)]
-pub struct QuadInstance {
-    pub rect: LayoutRect,            // 16B
-    pub transform: [[f32; 4]; 3],    // 48B
-    pub color: Color,                // 16B.
-    pub corner_radius: CornerRadius, // 16B
-    pub border_width: EdgeInsets,    // 16B
-    pub border_color: Color,         // 16B
-
-    pub opacity_mode_sizing: [f32; 4], // 16B ([opacity, mode, sizing, 0.0])
-
-    pub uv_min: [f32; 2], // 8B
-    pub uv_max: [f32; 2], // 8B
-
-    pub gradient: LinearGradientInner, // 96B
-    pub transform_origin: [f32; 2],    // 8B
-    pub is_color_atlas_pad: [f32; 2],  // 8B (次が16B境界になるよう揃える)
-
-    pub shadow_color: Color,     // 16B.
-    pub shadow_params: [f32; 4], // 16B.
-
-    pub border_lengths: EdgeInsets, // 16B
-
-    pub outline_width: EdgeInsets,              // 16B.
-    pub outline_color: Color,                   // 16B
-    pub outline_lengths: EdgeInsets,            // 16B
-    pub outline_offset_and_flags: [f32; 4],     // 16B (flags: [offset, flags, 0.0, 0.0])
-    pub alpha_mode_y_flip_srgb_gamma: [f32; 4], // 16B ([alpha_mode, y_flip, srbg, gamma])
+pub mod prelude {
+    pub use crate::MichiuRenderer;
 }
-
-impl Default for QuadInstance {
-    fn default() -> Self {
-        Self {
-            rect: LayoutRect::ZERO,
-            transform: [[0.0; 4]; 3],
-            transform_origin: [0.5, 0.5],
-            color: Color::TRANSPARENT,
-            corner_radius: CornerRadius::ZERO,
-            border_width: EdgeInsets::ZERO,
-            border_color: Color::TRANSPARENT,
-            opacity_mode_sizing: [1.0, 0.0, 0.0, 0.0],
-            uv_min: [0.0; 2],
-            uv_max: [0.0; 2],
-            gradient: LinearGradientInner::default(),
-            is_color_atlas_pad: [0.0; 2],
-            shadow_color: Color::TRANSPARENT,
-            shadow_params: [0.0; 4],
-            border_lengths: EdgeInsets::ZERO,
-            outline_width: EdgeInsets::ZERO,
-            outline_color: Color::TRANSPARENT,
-            outline_lengths: EdgeInsets::ZERO,
-            outline_offset_and_flags: [0.0; 4],
-            alpha_mode_y_flip_srgb_gamma: [0.0; 4],
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum BatchType {
-    Normal,
-    Punchout,
-}
-
-/// 同じクリップ範囲で描画できるインスタンスの塊
-#[derive(Debug, Clone, PartialEq)]
-pub struct DrawBatch {
-    pub scissor_rect: LayoutRect,
-    // フラットバッファ上のインデックス範囲
-    pub instance_offset: usize,
-    pub instance_count: usize,
-    pub batch_type: BatchType,
-}
-
-#[derive(Debug)]
-pub(crate) struct RendererView<'a> {
-    pub(crate) render_data: &'a mut RenderData,
-    pub(crate) mask_atlas: &'a mut TextureAtlas,
-    pub(crate) color_atlas: &'a mut TextureAtlas,
-    pub(crate) user_atlas: &'a mut TextureAtlas,
-    pub(crate) text_cache: &'a mut FxHashMap<TextCacheKey, TextCacheValue>,
-    pub(crate) user_mask_cache: &'a mut FxHashMap<(u64, u32, u32), [f32; 4]>,
-    pub(crate) queue: &'a wgpu::Queue,
-}
-
-#[derive(Default, Debug, Clone, PartialEq)]
-pub struct RenderData {
-    pub batches: Vec<DrawBatch>,
-    // 1フレーム分の全インスタンス
-    pub instances: Vec<QuadInstance>,
-    pub entity_ids: Vec<Entity>,
-}
-
-impl RenderData {
-    #[inline]
-    #[must_use]
-    pub fn new() -> Self {
-        Self {
-            batches: Vec::new(),
-            instances: Vec::new(),
-            entity_ids: Vec::new(),
-        }
-    }
-    #[inline]
-    pub fn clear(&mut self) {
-        self.batches.clear();
-        self.instances.clear();
-        self.entity_ids.clear();
-    }
-    #[inline]
-    pub fn push(&mut self, id: Entity, instance: QuadInstance) {
-        self.instances.push(instance);
-        self.entity_ids.push(id);
-    }
-}
-
-pub(crate) const IDENTITY_MATRIX: [[f32; 4]; 4] = [
-    [1.0, 0.0, 0.0, 0.0],
-    [0.0, 1.0, 0.0, 0.0],
-    [0.0, 0.0, 1.0, 0.0],
-    [0.0, 0.0, 0.0, 1.0],
-];
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Pod, Zeroable)]
@@ -466,19 +348,29 @@ pub(crate) const INDICES: &[u16] = &[0, 1, 2, 2, 3, 0];
 
 #[derive(Debug, Clone)]
 pub struct RendererUserConfig {
-    pub memory_hints: wgpu::MemoryHints,
-    pub present_mode: wgpu::PresentMode,
+    pub memory_hints: michiu_ui::wgpu::MemoryHints,
+    pub present_mode: michiu_ui::wgpu::PresentMode,
     pub target_layer: CompositionTargetLayer,
+    pub backend: RendererBackend,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum RendererBackend {
+    #[default]
+    Auto,
+    Dx12,
+    Cpu,
 }
 
 /// Changes the topmost `target: IDCompositionTarget` held by `MichiuRenderer` (Default: Topmost).
 ///
-/// If you change this, the Target on the WinRT side must always use the opposite side.
+/// If you change this, the Target on the `WinRT` side must always use the opposite side.
 ///
 /// # Notes
 /// Do not allow this setting to be changed at runtime.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum CompositionTargetLayer {
+    #[default]
     Topmost,
     NonTopmost,
 }
@@ -486,9 +378,10 @@ pub enum CompositionTargetLayer {
 impl Default for RendererUserConfig {
     fn default() -> Self {
         Self {
-            memory_hints: wgpu::MemoryHints::MemoryUsage,
-            present_mode: wgpu::PresentMode::Fifo,
-            target_layer: CompositionTargetLayer::Topmost,
+            memory_hints: michiu_ui::wgpu::MemoryHints::MemoryUsage,
+            present_mode: michiu_ui::wgpu::PresentMode::Fifo,
+            target_layer: CompositionTargetLayer::default(),
+            backend: RendererBackend::default(),
         }
     }
 }

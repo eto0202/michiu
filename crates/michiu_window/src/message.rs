@@ -1,8 +1,8 @@
 use crate::{
     ElementState, FileDialog, FileDialogKinds, ImeContext, ImeStateUpdate, MichiuAnyEvent,
-    MichiuError, MichiuEvent, Modifiers, MouseButton, PhysicalPoint, PhysicalRect, PhysicalSize,
-    SetWindowCommand, WM_RUN_ON_UI_THREAD, WM_WINDOW_COMMAND, WheelDelta, WindowId, WindowState,
-    ZOrder,
+    MichiuEvent, MichiuWindowError, Modifiers, MouseButton, PhysicalPoint, PhysicalRect,
+    PhysicalSize, SetWindowCommand, WM_RUN_ON_UI_THREAD, WM_WINDOW_COMMAND, WheelDelta, WindowId,
+    WindowState, ZOrder,
     win32_ext::{LParamExt, WParamExt},
 };
 use michiu_guard::Unvalidated;
@@ -129,7 +129,7 @@ impl MichiuEventPump {
     ///
     /// # Errors
     /// Returns [`MichiuError::UnexpectedOsError`] if `GetMessageW` returns `-1`.
-    pub fn wait_event<F>(&mut self, mut f: F) -> crate::Result<bool>
+    pub fn wait_event<F>(&mut self, mut f: F) -> crate::MichiuWindowResult<bool>
     where
         F: FnMut(MichiuAnyEvent, WindowId, MichiuRawEvent),
     {
@@ -150,7 +150,7 @@ impl MichiuEventPump {
                 return Ok(false);
             } else if res.0 == -1 {
                 // GetMessageW がエラー (-1) を返した場合は、OSエラーを安全に早期リターン
-                return Err(MichiuError::UnexpectedOsError(
+                return Err(MichiuWindowError::UnexpectedOsError(
                     windows::core::Error::from_thread(),
                 ));
             }

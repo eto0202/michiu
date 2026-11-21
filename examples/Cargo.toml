@@ -21,7 +21,6 @@ tiff-reader = "0.11.1"
 strum = { version = "0.28.0", features = ["derive"] }
 image = "0.25.10"
 smallvec = "1.16.5"
-wgpu = { version = "30.0.2", default-features = false, features = ["dx12", "wgsl"] }
 dhat = { version = "0.3.3", optional = true }
 resvg = "0.50.0"
 lightningcss = { version = "1.0.0-alpha.72", default-features = false, features = ["bundler"] }
