@@ -700,9 +700,8 @@ impl MichiuApp {
                     let result = self
                         .renderer
                         .resize(width, height, self.renderer.scale_factor());
-                    #[cfg(debug_assertions)]
                     if let Err(e) = result {
-                        eprintln!("MichiuRendererError: {e}");
+                        debug_eprintln!("MichiuRendererError: {e}");
                     }
 
                     // 再描画要求
@@ -991,10 +990,9 @@ impl MichiuApp {
         self.renderer.update_composition_tree(&mut self.context);
 
         if let Some(_paint) = self.window.begin_paint() {
-            let result = self.renderer.draw(&mut self.context);
-            #[cfg(debug_assertions)]
+            let result = self.renderer.draw_frame(&mut self.context);
             if let Err(e) = result {
-                eprintln!("MichiuRendererError: {e}");
+                debug_eprintln!("MichiuRendererError: {e}");
             }
         }
 

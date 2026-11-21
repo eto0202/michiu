@@ -1,13 +1,36 @@
 use crate::{CpuRenderer, MichiuRendererResult, WgpuRenderer};
 use michiu_ui::Context;
 
+/// Abstraction over a rendering backend (such as [`WgpuRenderer`] or [`CpuRenderer`]).
+///
+/// Implementations manage their own backing swap chain or surface, texture atlases,
+/// and frame presentation for a DirectComposition visual.
 pub trait Renderer {
+    /// Resizes the renderer's backing surface or swap chain and updates DPI scaling state.
+    ///
+    /// `p_width` and `p_height` specify the new surface dimensions in physical pixels,
+    /// and `scale_factor` specifies the current display DPI scale factor.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if resizing the underlying surface, swap chain buffers,
+    /// or CPU backing buffers fails.
     fn resize(
         &mut self,
         p_width: u32,
         p_height: u32,
         scale_factor: f32,
     ) -> MichiuRendererResult<()>;
+
+    /// Collects render batches from [`Context`] and renders and presents a single frame.
+    ///
+    /// Note that callers using DirectComposition are still responsible for committing
+    /// the composition device if visual tree changes need to be flushed.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if acquiring a frame from the swap chain, uploading resources,
+    /// or presenting the rendered frame fails.
     fn render(&mut self, cx: &mut Context, scale_factor: f32) -> MichiuRendererResult<()>;
 }
 
@@ -32,6 +55,15 @@ impl ActiveBackend {
         }
     }
 
+    /// Resizes the active rendering backend by delegating to [`Renderer::resize`].
+    ///
+    /// `p_width` and `p_height` specify the new surface dimensions in physical pixels,
+    /// and `scale_factor` specifies the current display DPI scale factor.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the active backend fails to resize its underlying surface,
+    /// swap chain buffers, or CPU backing buffers.
     #[inline]
     pub fn resize(
         &mut self,
@@ -46,6 +78,13 @@ impl ActiveBackend {
         Ok(())
     }
 
+    /// Renders and presents a frame using the active rendering backend by delegating
+    /// to [`Renderer::render`].
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the active backend fails to acquire a swap chain frame,
+    /// upload resources from [`Context`], or present the rendered frame.
     #[inline]
     pub fn render(&mut self, cx: &mut Context, scale_factor: f32) -> MichiuRendererResult<()> {
         match self {

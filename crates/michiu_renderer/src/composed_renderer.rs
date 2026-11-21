@@ -275,9 +275,16 @@ impl MichiuRenderer {
         })
     }
 
-    /// Updates the overall settings and resizes wgpu when the window size changes.
+    /// Updates the synchronizer state, resizes the active rendering backend, and commits
+    /// the DirectComposition tree.
     ///
-    /// `new_physical_size`: (width, height)
+    /// `p_width` and `p_height` specify the new window dimensions in physical pixels,
+    /// and `scale_factor` specifies the current display DPI scale factor.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if [`ActiveBackend::resize`] fails or committing the
+    /// DirectComposition device fails.
     #[inline]
     pub fn resize(
         &mut self,
@@ -292,19 +299,40 @@ impl MichiuRenderer {
         Ok(())
     }
 
-    /// Drawing Triggers
-    #[track_caller]
+    /// Renders the current UI state from [`Context`] using the active backend and commits
+    /// the DirectComposition tree.
+    ///
+    /// Unlike [`Self::draw_frame`], this method does not clear dirty flags or flush trace
+    /// events on `cx`, allowing callers to inspect state or perform custom post-draw steps.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if [`ActiveBackend::render`] fails or committing the
+    /// DirectComposition device fails.
     #[inline]
     pub fn draw(&mut self, cx: &mut Context) -> MichiuRendererResult<()> {
         self.active_backend.render(cx, self.sync.scale_factor)?;
-
         self.platform.commit()?;
+        Ok(())
+    }
 
+    /// Executes a complete frame render by drawing [`Context`], committing DirectComposition,
+    /// clearing dirty flags, and flushing trace events.
+    ///
+    /// This is the standard per-frame entry point after layout and composition updates.
+    /// Delegates rendering and presentation to [`Self::draw`], then calls
+    /// `cx.clear_dirty()` and `cx.flush_trace()`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if [`Self::draw`] fails during rendering or DirectComposition commit.
+    #[inline]
+    pub fn draw_frame(&mut self, cx: &mut Context) -> MichiuRendererResult<()> {
+        self.draw(cx)?;
         // ダーティフラグをクリア
         cx.clear_dirty();
         // ログを送信
         cx.flush_trace();
-
         Ok(())
     }
 

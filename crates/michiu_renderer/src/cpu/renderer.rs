@@ -91,6 +91,19 @@ enum SdfPassKind {
 }
 
 impl CpuRenderer {
+    /// Initializes the CPU renderer backed by `tiny-skia` and a DirectComposition swap chain.
+    ///
+    /// Uses [`RendererUserConfig::default()`] and delegates to [`Self::with_config`].
+    /// The created composition swap chain is attached to `visual`, and becomes active once
+    /// the caller commits the DirectComposition device.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if initialization fails:
+    /// - **Platform / D3D11 / DXGI failure**: Failed to initialize `PlatformContext`, retrieve the
+    ///   D3D11 immediate context or DXGI factory, create the composition swap chain, or bind it to `visual`.
+    /// - [`MichiuRendererError::TinySkiaError`]: Failed to allocate the backing `tiny-skia` [`Pixmap`] or [`Mask`]
+    ///   (e.g., due to invalid dimensions or memory allocation failure).
     #[inline]
     pub fn new(
         visual: &IDCompositionVisual2,
@@ -100,6 +113,24 @@ impl CpuRenderer {
         Self::with_config(visual, size, scale_factor, &RendererUserConfig::default())
     }
 
+    /// Initializes the CPU renderer with the specified [`RendererUserConfig`].
+    ///
+    /// Creates a `BGRA8` premultiplied-alpha composition swap chain sized to `size * scale_factor`
+    /// (clamped to at least `1x1` physical pixels), attaches it to `visual` via
+    /// `IDCompositionVisual2::SetContent`, and allocates the `tiny-skia` rendering buffers and CPU atlases.
+    ///
+    /// Note that attaching the swap chain to `visual` is not visible until the DirectComposition
+    /// device is committed by the caller.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if initialization fails:
+    /// - **Platform / D3D11 / DXGI failure**: Failed to initialize `PlatformContext`, retrieve the
+    ///   D3D11 immediate context or DXGI factory, create the composition swap chain
+    ///   (`CreateSwapChainForComposition`), or attach it to [`IDCompositionVisual2`].
+    /// - [`MichiuRendererError::TinySkiaError`]: Failed to allocate the backing `tiny-skia` [`Pixmap`] or [`Mask`]
+    ///   for the clamped physical dimensions.
+    #[expect(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
     pub fn with_config(
         visual: &IDCompositionVisual2,
         size: LayoutSize,
@@ -110,8 +141,9 @@ impl CpuRenderer {
         let d3d11 = &platform.d3d11;
 
         // 0x0 だと Pixmap::new / CreateSwapChainForComposition が失敗するため 1 以上にクランプ
-        let p_width = ((size.width * scale_factor).round() as u32).max(1);
-        let p_height = ((size.height * scale_factor).round() as u32).max(1);
+        let rounded = |v: f32| ((v * scale_factor).round() as u32).max(1);
+        let p_width = rounded(size.width);
+        let p_height = rounded(size.height);
 
         let d3d11_context = unsafe { d3d11.GetImmediateContext()? };
         let dxgi_device: IDXGIDevice = d3d11.cast()?;
