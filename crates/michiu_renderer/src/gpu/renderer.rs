@@ -877,7 +877,12 @@ pub struct RawWgpuRenderer<'a> {
 
 impl Renderer for WgpuRenderer {
     #[expect(clippy::cast_precision_loss)]
-    fn resize(&mut self, p_width: u32, p_height: u32, scale_factor: f32) {
+    fn resize(
+        &mut self,
+        p_width: u32,
+        p_height: u32,
+        scale_factor: f32,
+    ) -> MichiuRendererResult<()> {
         if p_width > 0 && p_height > 0 {
             self.config.width = p_width;
             self.config.height = p_height;
@@ -896,9 +901,10 @@ impl Renderer for WgpuRenderer {
             self.queue
                 .write_buffer(&self.config_buffer, 0, bytemuck::cast_slice(&[config_data]));
         }
+        Ok(())
     }
 
-    fn render(&mut self, cx: &mut Context, scale_factor: f32) {
+    fn render(&mut self, cx: &mut Context, scale_factor: f32) -> MichiuRendererResult<()> {
         let _context_guard = cx.bind_context();
         // 破棄された要素のキャッシュを解放
         for e in cx.external_visual_despawned_queue().drain(..) {
@@ -913,7 +919,7 @@ impl Renderer for WgpuRenderer {
         });
 
         if self.render_data.batches.is_empty() {
-            return;
+            return Ok(());
         }
 
         let render_data = std::mem::take(&mut self.render_data);
@@ -923,7 +929,8 @@ impl Renderer for WgpuRenderer {
         let wgpu::CurrentSurfaceTexture::Success(surface_texture) =
             self.surface.get_current_texture()
         else {
-            return;
+            // 一旦全てエラーに
+            return Err(MichiuRendererError::GetCurrentTextureFailed);
         };
 
         let view = surface_texture
@@ -1007,10 +1014,11 @@ impl Renderer for WgpuRenderer {
                 let clip = batch.scissor_rect;
 
                 // スケールを乗じて物理ピクセル座標を算出
-                let phys_x = (clip.x * scale_factor).round().max(0.0) as u32;
-                let phys_y = (clip.y * scale_factor).round().max(0.0) as u32;
-                let phys_w = (clip.width * scale_factor).round().max(0.0) as u32;
-                let phys_h = (clip.height * scale_factor).round().max(0.0) as u32;
+                let rounded = |v: f32| (v * scale_factor).round().max(0.0) as u32;
+                let phys_x = rounded(clip.x);
+                let phys_y = rounded(clip.y);
+                let phys_w = rounded(clip.width);
+                let phys_h = rounded(clip.height);
 
                 // 現在のスワップチェーンテクスチャの境界サイズを取得
                 let target_w = self.config.width;
@@ -1044,5 +1052,7 @@ impl Renderer for WgpuRenderer {
         // let _ = self.device.poll(wgpu::PollType::Poll);
 
         self.render_data = render_data;
+
+        Ok(())
     }
 }

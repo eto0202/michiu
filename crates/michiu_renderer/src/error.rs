@@ -12,6 +12,9 @@ pub enum MichiuRendererError {
         source: windows_core::Error,
     },
 
+    #[error("tiny-skia Error: {msg}")]
+    TinySkiaError { msg: &'static str },
+
     #[error("Failded surface creation: {source}")]
     CreateSurfaceError {
         #[source]
@@ -48,9 +51,6 @@ pub enum MichiuRendererError {
     )]
     UninitializedDeviceManager,
 
-    #[error("Failed to initialize webview2: {source}")]
-    WebView2Error {
-        #[source]
-        source: windows_core::Error,
-    },
+    #[error("Failed to acquire the target frame for drawing")]
+    GetCurrentTextureFailed,
 }

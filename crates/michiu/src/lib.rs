@@ -697,8 +697,13 @@ impl MichiuApp {
                     let width = size.width.cast_unsigned();
                     let height = size.height.cast_unsigned();
                     // レンダラーのリサイズとレイアウト物理サイズの更新
-                    self.renderer
+                    let result = self
+                        .renderer
                         .resize(width, height, self.renderer.scale_factor());
+                    #[cfg(debug_assertions)]
+                    if let Err(e) = result {
+                        eprintln!("MichiuRendererError: {e}");
+                    }
 
                     // 再描画要求
                     needs_redraw = true;

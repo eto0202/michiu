@@ -1,9 +1,14 @@
-use crate::{CpuRenderer, WgpuRenderer};
+use crate::{CpuRenderer, MichiuRendererResult, WgpuRenderer};
 use michiu_ui::Context;
 
 pub trait Renderer {
-    fn resize(&mut self, p_width: u32, p_height: u32, scale_factor: f32);
-    fn render(&mut self, cx: &mut Context, scale_factor: f32);
+    fn resize(
+        &mut self,
+        p_width: u32,
+        p_height: u32,
+        scale_factor: f32,
+    ) -> MichiuRendererResult<()>;
+    fn render(&mut self, cx: &mut Context, scale_factor: f32) -> MichiuRendererResult<()>;
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -28,19 +33,26 @@ impl ActiveBackend {
     }
 
     #[inline]
-    pub fn resize(&mut self, p_width: u32, p_height: u32, scale_factor: f32) {
+    pub fn resize(
+        &mut self,
+        p_width: u32,
+        p_height: u32,
+        scale_factor: f32,
+    ) -> MichiuRendererResult<()> {
         match self {
-            Self::Gpu(r) => r.resize(p_width, p_height, scale_factor),
-            Self::Cpu(r) => r.resize(p_width, p_height, scale_factor),
+            Self::Gpu(r) => r.resize(p_width, p_height, scale_factor)?,
+            Self::Cpu(r) => r.resize(p_width, p_height, scale_factor)?,
         }
+        Ok(())
     }
 
     #[inline]
-    pub fn render(&mut self, cx: &mut Context, scale_factor: f32) {
+    pub fn render(&mut self, cx: &mut Context, scale_factor: f32) -> MichiuRendererResult<()> {
         match self {
-            Self::Gpu(r) => r.render(cx, scale_factor),
-            Self::Cpu(r) => r.render(cx, scale_factor),
+            Self::Gpu(r) => r.render(cx, scale_factor)?,
+            Self::Cpu(r) => r.render(cx, scale_factor)?,
         }
+        Ok(())
     }
 
     #[inline]

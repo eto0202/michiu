@@ -279,17 +279,24 @@ impl MichiuRenderer {
     ///
     /// `new_physical_size`: (width, height)
     #[inline]
-    pub fn resize(&mut self, p_width: u32, p_height: u32, scale_factor: f32) {
+    pub fn resize(
+        &mut self,
+        p_width: u32,
+        p_height: u32,
+        scale_factor: f32,
+    ) -> MichiuRendererResult<()> {
         self.sync.resize(p_width, p_height, scale_factor);
-        self.active_backend.resize(p_width, p_height, scale_factor);
-        let _ = self.platform.commit();
+        self.active_backend
+            .resize(p_width, p_height, scale_factor)?;
+        self.platform.commit()?;
+        Ok(())
     }
 
     /// Drawing Triggers
     #[track_caller]
     #[inline]
     pub fn draw(&mut self, cx: &mut Context) -> MichiuRendererResult<()> {
-        self.active_backend.render(cx, self.sync.scale_factor);
+        self.active_backend.render(cx, self.sync.scale_factor)?;
 
         self.platform.commit()?;
 

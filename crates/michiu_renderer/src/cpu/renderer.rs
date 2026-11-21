@@ -4,7 +4,9 @@
     clippy::too_many_arguments
 )]
 
-use crate::{MichiuRendererResult, Renderer, RendererUserConfig, dcomp::PlatformContext};
+use crate::{
+    MichiuRendererError, MichiuRendererResult, Renderer, RendererUserConfig, dcomp::PlatformContext,
+};
 use michiu_ui::{
     AtlasFormat, AtlasStorage, Atlases, BatchType, Context, CpuTextureFormat, Entity,
     ExternalTextureAlphaMode, LayoutRect, LayoutSize, QuadInstance, RenderData, RenderQueue,
@@ -139,8 +141,12 @@ impl CpuRenderer {
         // DComp の Visual にアタッチ（呼び出し元の platform.commit() で確定）
         unsafe { visual.SetContent(&swap_chain)? };
 
-        let pixmap = Pixmap::new(p_width, p_height).expect("non-zero dimensions");
-        let clip_mask = Mask::new(p_width, p_height).expect("non-zero dimensions");
+        let pixmap = Pixmap::new(p_width, p_height).ok_or(MichiuRendererError::TinySkiaError {
+            msg: "non-zero dimensions",
+        })?;
+        let clip_mask = Mask::new(p_width, p_height).ok_or(MichiuRendererError::TinySkiaError {
+            msg: "non-zero dimensions",
+        })?;
         let bgra_staging = vec![0u8; (p_width * p_height * 4) as usize];
 
         Ok(Self {
@@ -233,31 +239,41 @@ impl CpuRenderer {
 }
 
 impl Renderer for CpuRenderer {
-    fn resize(&mut self, p_width: u32, p_height: u32, _scale_factor: f32) {
+    fn resize(
+        &mut self,
+        p_width: u32,
+        p_height: u32,
+        _scale_factor: f32,
+    ) -> MichiuRendererResult<()> {
         let w = p_width.max(1);
         let h = p_height.max(1);
         if self.p_width == w && self.p_height == h {
-            return;
+            return Ok(());
         }
 
         self.p_width = w;
         self.p_height = h;
-        self.pixmap = Pixmap::new(w, h).expect("non-zero dimensions");
-        self.clip_mask = Mask::new(w, h).expect("non-zero dimensions");
+        self.pixmap = Pixmap::new(w, h).ok_or(MichiuRendererError::TinySkiaError {
+            msg: "non-zero dimensions",
+        })?;
+        self.clip_mask = Mask::new(w, h).ok_or(MichiuRendererError::TinySkiaError {
+            msg: "non-zero dimensions",
+        })?;
         self.bgra_staging.resize((w * h * 4) as usize, 0);
 
         unsafe {
-            let _ = self.swap_chain.ResizeBuffers(
+            self.swap_chain.ResizeBuffers(
                 2,
                 w,
                 h,
                 DXGI_FORMAT_B8G8R8A8_UNORM,
                 DXGI_SWAP_CHAIN_FLAG::default(),
-            );
+            )?;
         }
+        Ok(())
     }
 
-    fn render(&mut self, cx: &mut Context, scale_factor: f32) {
+    fn render(&mut self, cx: &mut Context, scale_factor: f32) -> MichiuRendererResult<()> {
         let _context_guard = cx.bind_context();
 
         // 破棄された要素のキャッシュを解放
@@ -275,7 +291,7 @@ impl Renderer for CpuRenderer {
         if self.render_data.batches.is_empty() {
             self.pixmap.fill(tiny_skia::Color::TRANSPARENT);
             let _ = self.present();
-            return;
+            return Ok(());
         }
 
         let render_data = std::mem::take(&mut self.render_data);
@@ -334,6 +350,8 @@ impl Renderer for CpuRenderer {
         let _ = self.present();
 
         self.render_data = render_data;
+
+        Ok(())
     }
 }
 
