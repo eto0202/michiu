@@ -1,7 +1,7 @@
 use michiu::ui::{
     Color, ExternalTexture, ExternalTextureAlphaMode, ExternalTextureCompositingMode,
     ExternalTextureMetadata, ExternalVisual, ExternalVisualMetadata, LayoutRect, LayoutSize,
-    MichiuTaskSender, MichiuUiError, StaticExternalTexture, VisualUpdateContext,
+    MichiuTaskSender, MichiuUiError, StaticExternalTexture, VisualUpdateContext, wgpu,
 };
 use std::{
     borrow::Cow,

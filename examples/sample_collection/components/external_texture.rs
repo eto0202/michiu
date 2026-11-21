@@ -3,8 +3,8 @@ use image::{DynamicImage, ImageBuffer, ImageReader};
 use michiu::{
     prelude::*,
     ui::{
-        ExternalTexture, ExternalTextureAlphaMode, ExternalTextureCompositingMode,
-        ExternalTextureMetadata, UserSelect,
+        CpuTextureFormat, CpuTextureView, ExternalTexture, ExternalTextureAlphaMode,
+        ExternalTextureCompositingMode, ExternalTextureMetadata, UserSelect, wgpu,
     },
 };
 use std::{
@@ -121,6 +121,7 @@ pub struct ImageExternalTexture {
     decode_worker: Arc<Mutex<Option<thread::JoinHandle<image::RgbaImage>>>>,
     // 初回描画時に作成するGPUテクスチャビューのキャッシュ
     cached_view: Arc<OnceLock<wgpu::TextureView>>,
+    cached_cpu_image: Arc<OnceLock<image::RgbaImage>>,
     metadata: ExternalTextureMetadata,
     file_name: String,
 }
@@ -152,6 +153,7 @@ impl ImageExternalTexture {
         Ok(Self {
             decode_worker: Arc::new(Mutex::new(Some(handle))),
             cached_view: Arc::new(OnceLock::new()),
+            cached_cpu_image: Arc::new(OnceLock::new()),
             metadata,
             file_name,
         })
@@ -192,6 +194,7 @@ impl ImageExternalTexture {
         Ok(Self {
             decode_worker: Arc::new(Mutex::new(Some(handle))),
             cached_view: Arc::new(OnceLock::new()),
+            cached_cpu_image: Arc::new(OnceLock::new()),
             metadata,
             file_name,
         })
@@ -256,6 +259,22 @@ impl ExternalTexture for ImageExternalTexture {
                 texture.create_view(&wgpu::TextureViewDescriptor::default())
             })
             .clone()
+    }
+
+    fn resolve_cpu(&self, f: &mut dyn FnMut(ui::CpuTextureView<'_>)) {
+        let rgba_image = self.cached_cpu_image.get_or_init(|| {
+            let mut worker = self.decode_worker.lock().unwrap();
+            worker
+                .take()
+                .expect("Worker handle already taken")
+                .join()
+                .expect("Image decoding thread panicked")
+        });
+
+        f(CpuTextureView {
+            data: rgba_image.as_raw(),
+            format: CpuTextureFormat::Rgba8,
+        });
     }
 
     fn metadata(&self) -> ExternalTextureMetadata {

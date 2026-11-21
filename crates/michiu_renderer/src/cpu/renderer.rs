@@ -6,11 +6,11 @@
 
 use crate::{MichiuRendererResult, Renderer, RendererUserConfig, dcomp::PlatformContext};
 use michiu_ui::{
-    AtlasFormat, AtlasStorage, Atlases, BatchType, Context, Entity, ExternalTexture, LayoutRect,
-    LayoutSize, QuadInstance, RenderData, RenderQueue, RendererView, TextureAtlas,
+    AtlasFormat, AtlasStorage, Atlases, BatchType, Context, CpuTextureFormat, Entity,
+    ExternalTextureAlphaMode, LayoutRect, LayoutSize, QuadInstance, RenderData, RenderQueue,
+    RendererView, TextureAtlas,
 };
 use rustc_hash::FxHashMap;
-use std::sync::Arc;
 use tiny_skia::{
     BlendMode, FillRule, FilterQuality, GradientStop, Mask, Paint, PathBuilder, Pattern, Pixmap,
     PixmapRef, PremultipliedColorU8, SpreadMode,
@@ -40,7 +40,7 @@ pub struct CpuRenderer {
     instance_staging: Vec<QuadInstance>,
     atlases: Atlases,
     render_data: RenderData,
-    external_textures: FxHashMap<Entity, Arc<dyn ExternalTexture>>,
+    external_textures: FxHashMap<Entity, Pixmap>,
     scratch_buf: Vec<u8>,
 }
 
@@ -102,9 +102,9 @@ impl CpuRenderer {
         visual: &IDCompositionVisual2,
         size: LayoutSize,
         scale_factor: f32,
-        _user_config: &RendererUserConfig,
+        user_config: &RendererUserConfig,
     ) -> MichiuRendererResult<Self> {
-        let platform = PlatformContext::new()?;
+        let platform = PlatformContext::new(user_config.backend)?;
         let d3d11 = &platform.d3d11;
 
         // 0x0 だと Pixmap::new / CreateSwapChainForComposition が失敗するため 1 以上にクランプ
@@ -133,7 +133,8 @@ impl CpuRenderer {
             Flags: 0,
         };
 
-        let swap_chain = unsafe { factory.CreateSwapChainForComposition(d3d11, &desc, None)? };
+        let swap_chain =
+            unsafe { factory.CreateSwapChainForComposition(d3d11, &raw const desc, None)? };
 
         // DComp の Visual にアタッチ（呼び出し元の platform.commit() で確定）
         unsafe { visual.SetContent(&swap_chain)? };
@@ -187,10 +188,46 @@ impl CpuRenderer {
         Ok(())
     }
 
+    #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     #[inline]
     pub(crate) fn update_external_texture(&mut self, cx: &mut Context) {
         for (e, provider) in &cx.external_textures() {
-            provider.resolve_cpu(&mut |tex| {});
+            let meta = provider.metadata();
+            let tex_w = meta.size.width.round() as u32;
+            let tex_h = meta.size.height.round() as u32;
+            if tex_w == 0 || tex_h == 0 {
+                continue;
+            }
+
+            let expected_len = tex_w as usize * tex_h as usize * 4;
+
+            provider.resolve_cpu(&mut |tex| {
+                if tex.data.len() < expected_len {
+                    return;
+                }
+                let need_realloc = self
+                    .external_textures
+                    .get(e)
+                    .is_none_or(|p| p.width() != tex_w || p.height() != tex_h);
+
+                if need_realloc {
+                    let Some(pixmap) = Pixmap::new(tex_w, tex_h) else {
+                        return;
+                    };
+                    self.external_textures.insert(*e, pixmap);
+                }
+
+                let Some(pixmap) = self.external_textures.get_mut(e) else {
+                    return;
+                };
+
+                write_cpu_texture_to_pixmap(
+                    &tex.data[..expected_len],
+                    tex.format,
+                    meta.alpha_mode,
+                    pixmap.data_mut(),
+                );
+            });
         }
     }
 }
@@ -262,6 +299,7 @@ impl Renderer for CpuRenderer {
             let start = batch.instance_offset;
             let end = start + batch.instance_count;
             let instances = &self.instance_staging[start..end];
+            let entity_ids = &render_data.entity_ids[start..end];
 
             // シザー矩形から Mask を準備
             let mask = prepare_scissor_mask(
@@ -277,11 +315,13 @@ impl Renderer for CpuRenderer {
                 BatchType::Punchout => BlendMode::DestinationOut,
             };
 
-            for instance in instances {
+            for (instance, &entity) in instances.iter().zip(entity_ids.iter()) {
                 draw_instance(
                     &mut self.pixmap,
                     instance,
+                    entity,
                     &self.atlases,
+                    &self.external_textures,
                     &mut self.scratch_buf,
                     batch.scissor_rect,
                     scale_factor,
@@ -342,7 +382,9 @@ fn prepare_scissor_mask(
 fn draw_instance(
     pixmap: &mut Pixmap,
     instance: &QuadInstance,
+    entity: Entity,
     atlases: &Atlases,
+    external_textures: &FxHashMap<Entity, Pixmap>,
     scratch_buf: &mut Vec<u8>,
     scissor_rect: LayoutRect,
     scale_factor: f32,
@@ -353,17 +395,15 @@ fn draw_instance(
     let shadow = has_shadow(instance);
     let stroke = has_border_or_outline(instance);
 
+    let closure_draw_sdf_quad = |p: &mut Pixmap, kind: SdfPassKind| {
+        draw_sdf_quad(p, instance, scissor_rect, scale_factor, blend_mode, kind);
+    };
+
     if (mode - MODE_ATLAS).abs() < 0.1 {
         if shadow {
-            draw_sdf_quad(
-                pixmap,
-                instance,
-                scissor_rect,
-                scale_factor,
-                blend_mode,
-                SdfPassKind::ShadowOnly,
-            );
+            closure_draw_sdf_quad(pixmap, SdfPassKind::ShadowOnly);
         }
+
         draw_atlas_quad(
             pixmap,
             instance,
@@ -373,34 +413,37 @@ fn draw_instance(
             blend_mode,
             mask,
         );
+
         if stroke {
-            draw_sdf_quad(
-                pixmap,
-                instance,
-                scissor_rect,
-                scale_factor,
-                blend_mode,
-                SdfPassKind::StrokeOnly,
-            );
+            closure_draw_sdf_quad(pixmap, SdfPassKind::StrokeOnly);
         }
         return;
     }
 
     if (mode - MODE_EXTERNAL_TEXTURE).abs() < 0.1 {
+        if shadow {
+            closure_draw_sdf_quad(pixmap, SdfPassKind::ShadowOnly);
+        }
+        if let Some(tex_pixmap) = external_textures.get(&entity) {
+            draw_external_texture_quad(
+                pixmap,
+                instance,
+                tex_pixmap,
+                scale_factor,
+                blend_mode,
+                mask,
+            );
+        }
+        if stroke {
+            closure_draw_sdf_quad(pixmap, SdfPassKind::StrokeOnly);
+        }
         return;
     }
 
     let is_four_corner = (mode - MODE_FOUR_CORNER_GRADIENT).abs() < 0.1;
 
     if shadow || stroke || is_four_corner {
-        draw_sdf_quad(
-            pixmap,
-            instance,
-            scissor_rect,
-            scale_factor,
-            blend_mode,
-            SdfPassKind::Full,
-        );
+        closure_draw_sdf_quad(pixmap, SdfPassKind::Full);
     } else if (mode - MODE_LINEAR_GRADIENT).abs() < 0.1 {
         draw_linear_gradient_fast(pixmap, instance, scale_factor, blend_mode, mask);
     } else {
@@ -1562,4 +1605,147 @@ fn compute_shadow_pma(
 
     let shadow_gate = smoothstep(-1.0, 0.0, dist_to_box);
     to_pma_srgb(shadow_srgb, shadow_alpha * shadow_gate * opacity)
+}
+
+#[expect(clippy::cast_possible_truncation)]
+fn write_cpu_texture_to_pixmap(
+    src: &[u8],
+    format: CpuTextureFormat,
+    alpha_mode: ExternalTextureAlphaMode,
+    dst: &mut [u8],
+) {
+    let zip = dst
+        .as_chunks_mut::<4>()
+        .0
+        .iter_mut()
+        .zip(src.as_chunks::<4>().0);
+
+    match (format, alpha_mode) {
+        (CpuTextureFormat::OpaqueRgba8, _) => {
+            for (d, s) in zip {
+                d[0] = s[0];
+                d[1] = s[1];
+                d[2] = s[2];
+                d[3] = 255;
+            }
+        }
+        (CpuTextureFormat::Rgba8, ExternalTextureAlphaMode::Premultiplied) => {
+            for (d, s) in zip {
+                let a = s[3];
+                d[0] = s[0].min(a);
+                d[1] = s[1].min(a);
+                d[2] = s[2].min(a);
+                d[3] = a;
+            }
+        }
+        (CpuTextureFormat::Rgba8, ExternalTextureAlphaMode::Straight) => {
+            for (d, s) in zip {
+                let sa = s[3];
+                match sa {
+                    0 => *d = [0, 0, 0, 0],
+                    255 => *d = *s,
+                    _ => {
+                        let a16 = u16::from(sa);
+                        let calc = |i: usize| ((u16::from(s[i]) * a16 + 127) / 255) as u8;
+                        d[0] = calc(0);
+                        d[1] = calc(1);
+                        d[2] = calc(2);
+                        d[3] = sa;
+                    }
+                }
+            }
+        }
+        (CpuTextureFormat::Bgra8, ExternalTextureAlphaMode::Premultiplied) => {
+            for (d, s) in zip {
+                let a = s[3];
+                d[0] = s[2].min(a);
+                d[1] = s[1].min(a);
+                d[2] = s[0].min(a);
+                d[3] = a;
+            }
+        }
+        (CpuTextureFormat::Bgra8, ExternalTextureAlphaMode::Straight) => {
+            for (d, s) in zip {
+                let sa = s[3];
+                match sa {
+                    0 => *d = [0, 0, 0, 0],
+                    255 => *d = [s[2], s[1], s[0], 255],
+                    _ => {
+                        let a16 = u16::from(sa);
+                        let calc = |i: usize| ((u16::from(s[i]) * a16 + 127) / 255) as u8;
+                        d[0] = calc(2);
+                        d[1] = calc(1);
+                        d[2] = calc(0);
+                        d[3] = sa;
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[expect(clippy::cast_precision_loss)]
+fn draw_external_texture_quad(
+    pixmap: &mut Pixmap,
+    instance: &QuadInstance,
+    tex_pixmap: &Pixmap,
+    scale_factor: f32,
+    blend_mode: BlendMode,
+    mask: Option<&Mask>,
+) {
+    let raw_opacity = instance.opacity_mode_sizing_border[0].clamp(0.0, 1.0);
+    if raw_opacity <= 0.0 {
+        return;
+    }
+
+    let opacity_gamma = instance.alpha_mode_y_flip_srgb_gamma[3];
+    let opacity = if opacity_gamma > 0.0 && (opacity_gamma - 1.0).abs() > 1e-4 {
+        raw_opacity.powf(opacity_gamma).clamp(0.0, 1.0)
+    } else {
+        raw_opacity
+    };
+
+    let Some(shape_transform) = build_instance_transform(instance, scale_factor) else {
+        return;
+    };
+
+    let w = instance.rect.width;
+    let h = instance.rect.height;
+    let tex_w = tex_pixmap.width() as f32;
+    let tex_h = tex_pixmap.height() as f32;
+
+    let u0 = instance.uv_min[0];
+    let v0 = instance.uv_min[1];
+    let du = instance.uv_max[0] - u0;
+    let dv = instance.uv_max[1] - v0;
+    if du.abs() <= 1e-6 || dv.abs() <= 1e-6 {
+        return;
+    }
+
+    let sx = w / (du * tex_w);
+    let tx = -u0 * w / du;
+
+    let y_flip = instance.alpha_mode_y_flip_srgb_gamma[1];
+    let (sy, ty) = if y_flip < 0.0 {
+        (-h / (dv * tex_h), (1.0 - v0) * h / dv)
+    } else {
+        (h / (dv * tex_h), -v0 * h / dv)
+    };
+
+    let pattern_transform = tiny_skia::Transform::from_row(sx, 0.0, 0.0, sy, tx, ty);
+
+    let mut paint = Paint {
+        blend_mode,
+        anti_alias: true,
+        ..Default::default()
+    };
+    paint.shader = Pattern::new(
+        tex_pixmap.as_ref(),
+        SpreadMode::Pad,
+        FilterQuality::Bilinear,
+        opacity,
+        pattern_transform,
+    );
+
+    fill_instance_shape(pixmap, instance, &paint, shape_transform, mask);
 }

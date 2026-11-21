@@ -204,7 +204,7 @@ impl MichiuRenderer {
         user_config: &RendererUserConfig,
     ) -> MichiuRendererResult<Self> {
         let sync = WindowSynchronizer::new(window_size, scale_factor);
-        let platform = PlatformContext::new()?;
+        let platform = PlatformContext::new(user_config.backend)?;
         let workspace = DCompWorkspace::new(hwnd, &platform.dcomp, user_config.target_layer)?;
 
         let active_backend = match user_config.backend {

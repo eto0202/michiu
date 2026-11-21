@@ -1,4 +1,4 @@
-use crate::{MichiuRendererError, MichiuRendererResult};
+use crate::{MichiuRendererError, MichiuRendererResult, RendererBackend};
 use std::sync::OnceLock;
 use windows::{
     System::DispatcherQueueController,
@@ -6,7 +6,7 @@ use windows::{
     Win32::{
         Foundation::HMODULE,
         Graphics::{
-            Direct3D::{D3D_DRIVER_TYPE_HARDWARE, D3D_DRIVER_TYPE_WARP},
+            Direct3D::{D3D_DRIVER_TYPE, D3D_DRIVER_TYPE_HARDWARE, D3D_DRIVER_TYPE_WARP},
             Direct3D11::{
                 D3D11_CREATE_DEVICE_BGRA_SUPPORT, D3D11_SDK_VERSION, D3D11CreateDevice,
                 ID3D11Device,
@@ -38,14 +38,14 @@ unsafe impl Sync for PlatformContext {}
 
 impl PlatformContext {
     #[inline]
-    pub(crate) fn new() -> MichiuRendererResult<&'static Self> {
+    pub(crate) fn new(backend: RendererBackend) -> MichiuRendererResult<&'static Self> {
         static INSTANCE: OnceLock<PlatformContext> = OnceLock::new();
 
         if let Some(manager) = INSTANCE.get() {
             return Ok(manager);
         }
 
-        let manager = Self::try_create_devices()?;
+        let manager = Self::try_create_devices(backend)?;
 
         // 完全に成功した場合にのみ OnceLock に実体をセットする。
         // 複数スレッドで同時に成功した場合、最初に完了した方がセットされ、
@@ -59,30 +59,19 @@ impl PlatformContext {
     }
 
     #[inline]
-    fn try_create_devices() -> MichiuRendererResult<Self> {
+    fn try_create_devices(backend: RendererBackend) -> MichiuRendererResult<Self> {
         let controller = Self::create_dispatcher_queue()?;
 
         // D3D11 デバイスを作成
         let mut d3d11_device: Option<ID3D11Device> = None;
-        unsafe {
-            let flags = D3D11_CREATE_DEVICE_BGRA_SUPPORT;
-            let res = D3D11CreateDevice(
-                None,
-                D3D_DRIVER_TYPE_HARDWARE,
-                HMODULE::default(),
-                flags,
-                None,
-                D3D11_SDK_VERSION,
-                Some(&raw mut d3d11_device),
-                None,
-                None,
-            );
-            if res.is_err() {
+
+        let mut d3d11_create_device = |drivertype: D3D_DRIVER_TYPE| -> MichiuRendererResult<()> {
+            unsafe {
                 D3D11CreateDevice(
                     None,
-                    D3D_DRIVER_TYPE_WARP, // ソフトウェアフォールバック
+                    drivertype,
                     HMODULE::default(),
-                    flags,
+                    D3D11_CREATE_DEVICE_BGRA_SUPPORT,
                     None,
                     D3D11_SDK_VERSION,
                     Some(&raw mut d3d11_device),
@@ -90,7 +79,20 @@ impl PlatformContext {
                     None,
                 )?;
             }
+            Ok(())
+        };
+
+        match backend {
+            RendererBackend::Dx12 => d3d11_create_device(D3D_DRIVER_TYPE_HARDWARE)?,
+            RendererBackend::Cpu => d3d11_create_device(D3D_DRIVER_TYPE_WARP)?,
+            RendererBackend::Auto => {
+                let res = d3d11_create_device(D3D_DRIVER_TYPE_HARDWARE);
+                if res.is_err() {
+                    d3d11_create_device(D3D_DRIVER_TYPE_WARP)?;
+                }
+            }
         }
+
         let d3d11 = d3d11_device.ok_or(MichiuRendererError::D3d11DeviceCreationFailed)?;
 
         // WinRT の Compositor を作成 (STAスレッドと DispatcherQueue が必要)

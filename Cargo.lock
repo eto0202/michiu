@@ -3073,7 +3073,6 @@ dependencies = [
  "strum",
  "tiff-reader",
  "webview2-com",
- "wgpu",
  "windows",
  "windows-core",
 ]
