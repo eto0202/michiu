@@ -407,7 +407,7 @@ impl MichiuWidget for SimpleButtonGroup {
         "WAI-ARIA Button Group / WCAG 2.2 AA (Target Size >= 24px, Focus Ring >= 3:1)"
     }
 
-    fn build(&self, theme: &dyn MichiuTheme) -> Entity {
+    fn build(&self, theme: impl MichiuTheme) -> Entity {
         let (font_size, padding, r) = self.metrics();
 
         let (s3, s4, s5, s7, _s8, s9, s10, s11, text) = match self.intent {

@@ -1301,9 +1301,9 @@ impl Context {
     }
 
     #[inline]
-    pub fn is_entity_interactive(&self, id: Entity) -> bool {
-        let is_focused = self.interacted_entity(InteractionState::Focused) == Some(id);
-        let is_pressed = self.interacted_entity(InteractionState::Pressed) == Some(id);
+    pub fn is_entity_interactive(&self, e: Entity) -> bool {
+        let is_focused = self.interacted_entity(InteractionState::Focused) == Some(e);
+        let is_pressed = self.interacted_entity(InteractionState::Pressed) == Some(e);
         is_focused || is_pressed
     }
 
@@ -1319,10 +1319,10 @@ impl Context {
     }
 
     #[inline]
-    pub fn is_entity_transitioning(&self, id: Entity) -> bool {
+    pub fn is_entity_transitioning(&self, e: Entity) -> bool {
         self.renders
             .rnd_active_transitions
-            .find(id)
+            .find(e)
             .is_some_and(|list| {
                 list.iter().any(|t| {
                     t.property_list == PropertyList::Width
@@ -1334,7 +1334,7 @@ impl Context {
             || self
                 .renders
                 .rnd_active_animations
-                .find(id)
+                .find(e)
                 .is_some_and(|list| {
                     list.iter().any(|a| {
                         a.property == PropertyList::Width

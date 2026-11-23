@@ -540,7 +540,7 @@ impl MichiuWidget for SimpleText {
     ///
     /// Additional styling or event handlers (such as `.on_click(...)`) can be chained
     /// onto the returned `Entity` to overwrite defaults.
-    fn build(&self, theme: &dyn MichiuTheme) -> Entity {
+    fn build(&self, theme: impl MichiuTheme) -> Entity {
         let (font_size, line) = self.metrics();
 
         let text_color = if let Some(intent) = self.intent {

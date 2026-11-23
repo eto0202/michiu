@@ -9,7 +9,10 @@ use michiu::{
 };
 use std::{
     path::Path,
-    sync::{Arc, Mutex, OnceLock},
+    sync::{
+        Arc, Mutex, OnceLock,
+        atomic::{AtomicU64, Ordering},
+    },
     thread,
 };
 use tiff_reader::TiffFile;
@@ -115,6 +118,8 @@ fn image_list() -> Entity {
     ])
 }
 
+static NEXT_TEXTURE_VERSION: AtomicU64 = AtomicU64::new(1);
+
 #[derive(Debug, Clone)]
 pub struct ImageExternalTexture {
     // バックグラウンドスレッドのハンドル
@@ -124,6 +129,7 @@ pub struct ImageExternalTexture {
     cached_cpu_image: Arc<OnceLock<image::RgbaImage>>,
     metadata: ExternalTextureMetadata,
     file_name: String,
+    cpu_version: u64,
 }
 
 impl ImageExternalTexture {
@@ -156,6 +162,7 @@ impl ImageExternalTexture {
             cached_cpu_image: Arc::new(OnceLock::new()),
             metadata,
             file_name,
+            cpu_version: NEXT_TEXTURE_VERSION.fetch_add(1, Ordering::Relaxed),
         })
     }
 
@@ -197,6 +204,7 @@ impl ImageExternalTexture {
             cached_cpu_image: Arc::new(OnceLock::new()),
             metadata,
             file_name,
+            cpu_version: NEXT_TEXTURE_VERSION.fetch_add(1, Ordering::Relaxed),
         })
     }
 
@@ -275,6 +283,20 @@ impl ExternalTexture for ImageExternalTexture {
             data: rgba_image.as_raw(),
             format: CpuTextureFormat::Rgba8,
         });
+    }
+
+    fn cpu_version(&self) -> Option<u64> {
+        if let Some(handle) = self.decode_worker.lock().ok().as_ref() {
+            if self.cached_cpu_image.get().is_some()
+                || handle.as_ref().is_some_and(|h| h.is_finished())
+            {
+                Some(self.cpu_version)
+            } else {
+                None
+            }
+        } else {
+            None
+        }
     }
 
     fn metadata(&self) -> ExternalTextureMetadata {

@@ -503,18 +503,15 @@ impl WgpuRenderer {
                 entry_point: Some("fs_main"),
                 targets: &[Some(wgpu::ColorTargetState {
                     format: config.format,
-                    // ブレンドせず、出力色（アルファ=0.0）で完全に上書きする
                     blend: Some(wgpu::BlendState {
                         color: wgpu::BlendComponent {
                             src_factor: wgpu::BlendFactor::Zero,
-                            // アルファが 0.0 に消去される場所ではカラーも同時に 0.0 になるように
-                            // OneMinusSrcAlpha で元の背景色を減算します。
                             dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
                             operation: wgpu::BlendOperation::Add,
                         },
                         alpha: wgpu::BlendComponent {
                             src_factor: wgpu::BlendFactor::Zero,
-                            dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha, // アルファは SDF マスク分だけ消去
+                            dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
                             operation: wgpu::BlendOperation::Add,
                         },
                     }),
@@ -909,6 +906,10 @@ impl Renderer for WgpuRenderer {
         // 破棄された要素のキャッシュを解放
         for e in cx.external_visual_despawned_queue().drain(..) {
             self.external_bind_groups.remove(&e);
+        }
+
+        if !cx.has_dirty() && !cx.window_is_resized() {
+            return Ok(());
         }
 
         // 前面と背面に分類されたバッチを Context から引き出す

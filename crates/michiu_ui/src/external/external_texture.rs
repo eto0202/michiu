@@ -8,6 +8,11 @@ pub trait ExternalTexture: Send + Sync {
 
     fn resolve_cpu(&self, _f: &mut dyn FnMut(CpuTextureView<'_>)) {}
 
+    /// 静的画像など不変なら Some(固定値)、動的更新時はインクリメント、未管理なら None
+    fn cpu_version(&self) -> Option<u64> {
+        None
+    }
+
     /// Retrieve the metadata that controls the rendering method.
     fn metadata(&self) -> ExternalTextureMetadata;
 }

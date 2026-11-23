@@ -674,14 +674,16 @@ impl Pipeline {
         });
 
         // ウィンドウサイズの変更検知
-        let window_resized = !(cx.window.win_last_size.replace(window_size) != Some(window_size));
+        let window_resized = cx.window.win_last_size.replace(window_size) != Some(window_size);
+        cx.window.win_is_resized = window_resized;
+
         let no_dirty_entities = cx.layouts.lay_dirty_entities.is_empty();
         let no_structure_dirty = !cx.topology.topo_is_structure_dirty;
         let not_empty_output_rect = !cx.outputs.out_rects.is_empty();
 
         // 構造変更がなく、スタイル変更（レイアウト変更要求）もなく、ウィンドウサイズも変わっていないなら、
         // すべてスキップして早期リターン。
-        if no_dirty_entities && no_structure_dirty && window_resized && not_empty_output_rect {
+        if no_dirty_entities && no_structure_dirty && !window_resized && not_empty_output_rect {
             #[cfg(feature = "trace-lifecycle")]
             trace_lifecycle!(None, &mut cx.debug, || MichiuTrace::Layout {
                 stage: LayoutStage::EarlyReturn(DirtyReason {

@@ -69,18 +69,18 @@
 //! Finalizes pixel output, presents composition changes, and flushes diagnostics.
 //!
 //! ```rust,ignore
-//! pub(crate) fn draw(&mut self, cx: &mut Context) {
+//! pub(crate) fn draw_frame(&mut self, cx: &mut Context) -> MichiuRendererResult<()> {
 //!     // 1. Render foreground UI via wgpu
-//!     self.wgpu_renderer.render(cx, self.scale_factor);
+//!     self.draw(cx)?;
 //!
 //!     // 2. Commit atomic DirectComposition state to DWM
-//!     self.platform.commit().unwrap_or_trace(None, &mut cx.debug);
+//!     self.platform.commit()?;
 //!
 //!     // 3. Clear dirty flags across the Context upon successful GPU submission
 //!     cx.clear_dirty();
 //!
 //!     // 4. Frame terminus: Flush profiling traces
-//!     flush_trace!(cx, self);
+//!     cx.flush_trace();
 //! }
 //! ```
 //!
@@ -103,7 +103,8 @@
 //! | **`sync`** | `WindowSynchronizer` | Window state synchronization (`window_size`, `scale_factor`, `resize_cooldown_frames`) |
 //! | **`platform`** | `PlatformContext` | Immutable graphics runtime and WinRT foundations: <br>• **`d3d11` / `dcomp`**: Core D3D11 & DirectComposition devices <br>• **`compositor` / `controller`**: WinRT Compositor and DispatcherQueue lifecycle <br>• **`wic`**: WIC imaging factory for texture loading |
 //! | **`workspace`** | `DCompWorkspace` | Visual tree and lifecycle management: <br>• **`target` / `root_visual`**: Root composition target and tree container <br>• **`wgpu_visual`**: Visual hosting the wgpu swapchain surface <br>• **`promoted_visuals`**: Active external visuals attached to the tree <br>• **`pending_releases`**: Deferred destruction queue preventing frame flickers during updates |
-//! | **`wgpu_renderer`** | [`WgpuRenderer`] | Subsystem driving instanced UI rendering and punch-out operations |
+//! | **`active_backend`** | [`WgpuRenderer`], [`CpuRenderer`] | Subsystem driving instanced UI rendering and punch-out operations |
+//! | **`current_backend`** | [`CurrentBackend`] | Current Backend in Use |
 //! | **`current_backdrop`** | `Backdrop` | Active system material configuration |
 //!
 //! ---

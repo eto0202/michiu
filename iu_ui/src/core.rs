@@ -9,7 +9,19 @@ pub trait MichiuWidget {
     fn a11y_spec(&self) -> &'static str;
 
     /// Builds an `Entity` given the current theme (Light/Dark).
-    fn build(&self, theme: &dyn MichiuTheme) -> Entity;
+    fn build(&self, theme: impl MichiuTheme) -> Entity;
+}
+
+impl<T: MichiuWidget + ?Sized> MichiuWidget for &T {
+    fn name(&self) -> &'static str {
+        (**self).name()
+    }
+    fn a11y_spec(&self) -> &'static str {
+        (**self).a11y_spec()
+    }
+    fn build(&self, theme: impl MichiuTheme) -> Entity {
+        (**self).build(theme)
+    }
 }
 
 /// A dual-scale accessible theme trait providing 24 calibrated colors (12 Accent + 12 Gray)
@@ -540,5 +552,14 @@ impl From<Color> for Oklch {
 impl From<Oklch> for Color {
     fn from(value: Oklch) -> Self {
         oklch(value.0, value.1, value.2)
+    }
+}
+
+impl<T: MichiuTheme + ?Sized> MichiuTheme for &T {
+    fn is_dark(&self) -> bool {
+        (**self).is_dark()
+    }
+    fn accent(&self) -> Oklch {
+        (**self).accent()
     }
 }

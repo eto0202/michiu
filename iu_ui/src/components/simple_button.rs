@@ -383,7 +383,7 @@ impl MichiuWidget for SimpleButton {
     ///
     /// Additional styling or event handlers (such as `.on_click(...)`) can be chained
     /// onto the returned `Entity` to overwrite defaults.
-    fn build(&self, theme: &dyn MichiuTheme) -> Entity {
+    fn build(&self, theme: impl MichiuTheme) -> Entity {
         let (font_size, padding, r) = self.metrics();
 
         let (s3, s4, s5, s7, _s8, s9, s10, s11) = match self.intent {

@@ -19,6 +19,10 @@ impl ExternalTexture for StaticExternalTexture {
 
     fn resolve_cpu(&self, _f: &mut dyn FnMut(CpuTextureView<'_>)) {}
 
+    fn cpu_version(&self) -> Option<u64> {
+        None
+    }
+
     fn metadata(&self) -> ExternalTextureMetadata {
         self.metadata
     }
