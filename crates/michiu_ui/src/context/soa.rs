@@ -9,7 +9,7 @@ pub trait MichiuSoA {
 
     /// # Errors
     ///
-    /// Returns [`MichiuError::ComponentNotFound`] If `Entity` is not found.
+    /// Returns [`MichiuUiError::ComponentNotFound`] If `Entity` is not found.
     #[inline]
     fn require(&self, e: Entity) -> MichiuUiResult<&Self::Item> {
         self.find(e)
@@ -21,7 +21,7 @@ pub trait MichiuSoA {
 
     /// # Errors
     ///
-    /// Returns [`MichiuError::ComponentNotFound`] If `Entity` is not found.
+    /// Returns [`MichiuUiError::ComponentNotFound`] If `Entity` is not found.
     #[inline]
     fn require_mut(&mut self, e: Entity) -> MichiuUiResult<&mut Self::Item> {
         let component = std::any::type_name::<Self>();

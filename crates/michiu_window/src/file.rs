@@ -40,7 +40,7 @@ impl FileDialog {
     ///
     /// # Errors
     ///
-    /// Returns [`MichiuError`]:
+    /// Returns [`MichiuWindowError`]:
     /// - If `CoInitializeEx` has not been called on the calling thread (`CO_E_NOTINITIALIZED`).
     /// - If the operating system fails to instantiate or display the dialog.
     /// - If the selected file path contains invalid characters and cannot be converted.
@@ -72,7 +72,7 @@ impl FileDialog {
     ///
     /// # Errors
     ///
-    /// Returns [`MichiuError`]:
+    /// Returns [`MichiuWindowError`]:
     /// - If `CoInitializeEx` has not been called on the calling thread (`CO_E_NOTINITIALIZED`).
     /// - If the specified filter string (`FileFilter`) is empty or malformed (`E_INVALIDARG`).
     /// - If `IFileSaveDialog` creation fails due to insufficient memory or system limitations.

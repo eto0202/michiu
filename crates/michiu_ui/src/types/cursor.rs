@@ -55,7 +55,7 @@ impl CursorIcon {
     ///
     /// # Errors
     ///
-    /// Returns [`MichiuError::WindowsApiError`]:
+    /// Returns [`MichiuUiError::WindowsApiError`]:
     /// - If failed to load the cursor via `LoadCursorW` (e.g., resource not found or system error).
     pub fn to_hcursor(self) -> crate::MichiuUiResult<HCURSOR> {
         use windows::Win32::UI::WindowsAndMessaging::{
@@ -123,7 +123,7 @@ impl CursorIcon {
     ///
     /// # Errors
     ///
-    /// Returns [`MichiuError::CursorCreationFailed`]:
+    /// Returns [`MichiuUiError::CursorCreationFailed`]:
     /// - If the length of `rgba_pixels` does not match the expected size (`width * height * 4`).
     /// - If the underlying Windows API fails to allocate resources or create the icon (e.g. `CreateDIBSection`, `CreateIconIndirect`).
     /// # Arguments

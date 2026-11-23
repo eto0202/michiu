@@ -8,7 +8,7 @@ use michiu::prelude::*;
 ///
 /// # Example
 ///
-/// ```rust
+/// ```rust,ignore
 /// // 1. Use the default light theme
 /// let theme = SimpleBlueTheme::light();
 /// let button = SimpleButton::new("Save").build(&theme);

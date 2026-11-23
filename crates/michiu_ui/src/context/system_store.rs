@@ -38,7 +38,7 @@ impl MichiuTaskSender {
     ///
     /// # Errors
     ///
-    /// Returns [`MichiuError::SendError`] If the receiver has already terminated or dropped the connection.
+    /// Returns [`MichiuUiError::SendError`] If the receiver has already terminated or dropped the connection.
     pub fn send<F>(&self, f: F) -> Result<(), MichiuUiError>
     where
         F: FnOnce(&mut Context) + Send + 'static,

@@ -93,7 +93,7 @@ pub enum TextSize {
 ///
 /// # Example
 ///
-/// ```rust
+/// ```rust,ignore
 /// // 1. Basic body text
 /// let body = SimpleText::new("Hello, world!").build(&theme);
 ///

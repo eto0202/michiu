@@ -412,7 +412,7 @@ impl Validate for MichiuWindowBuilder<'_> {
     ///    - `WS_EX_TOOLWINDOW` and `WS_EX_APPWINDOW` are mutually exclusive.
     ///
     /// # Errors
-    /// Returns [`MichiuError::ValidationError`] detailing the specific conflicting parameter on failure.
+    /// Returns [`MichiuWindowError::ValidationError`] detailing the specific conflicting parameter on failure.
     ///
     /// # Examples
     ///

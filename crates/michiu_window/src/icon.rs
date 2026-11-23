@@ -14,7 +14,7 @@ use windows::{
 /// with `LR_LOADFROMFILE | LR_DEFAULTSIZE`.
 ///
 /// # Errors
-/// Returns [`MichiuError::ResourceLoadFailed`] if the file does not exist, is inaccessible,
+/// Returns [`MichiuWindowError::ResourceLoadFailed`] if the file does not exist, is inaccessible,
 /// or if the OS fails to decode the image format.
 ///
 /// # Examples
@@ -58,7 +58,7 @@ impl MichiuIcon {
     /// with `LR_LOADFROMFILE | LR_DEFAULTSIZE`.
     ///
     /// # Errors
-    /// Returns [`MichiuError::ResourceLoadFailed`] if the file does not exist, is inaccessible,
+    /// Returns [`MichiuWindowError::ResourceLoadFailed`] if the file does not exist, is inaccessible,
     /// or if the OS fails to decode the image format.
     ///
     /// # Examples
@@ -111,7 +111,7 @@ impl MichiuIcon {
     /// the icon using `CreateIconFromResourceEx`.
     ///
     /// # Errors
-    /// Returns [`MichiuError::ValidationError`] if the byte array is empty, or if parsing the image directory
+    /// Returns [`MichiuWindowError::ValidationError`] if the byte array is empty, or if parsing the image directory
     /// header fails due to malformed data.
     ///
     /// # Examples

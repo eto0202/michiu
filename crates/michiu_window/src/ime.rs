@@ -44,7 +44,7 @@ impl ImeContext {
     /// Attempts to acquire the IME context (HIMC) for the specified window handle.
     ///
     /// # Errors
-    /// Returns [`MichiuError::ImeContextAcquisitionFailed`] if the window handle is invalid
+    /// Returns [`MichiuWindowError::ImeContextAcquisitionFailed`] if the window handle is invalid
     /// or if the OS fails to allocate an IME context for this window.
     ///
     /// # Examples
@@ -122,7 +122,7 @@ impl ImeContext {
     /// Returns `Ok(None)` if there is no active composition string.
     ///
     /// # Errors
-    /// Returns [`MichiuError::ImeStringQueryFailed`] if querying the OS buffer fails.
+    /// Returns [`MichiuWindowError::ImeStringQueryFailed`] if querying the OS buffer fails.
     #[inline]
     pub fn get_composition_string(&self) -> crate::MichiuWindowResult<Option<String>> {
         self.get_string(GCS_COMPSTR)
@@ -133,7 +133,7 @@ impl ImeContext {
     /// Returns `Ok(None)` if there is no result string currently available.
     ///
     /// # Errors
-    /// Returns [`MichiuError::ImeStringQueryFailed`] if querying the OS buffer fails.
+    /// Returns [`MichiuWindowError::ImeStringQueryFailed`] if querying the OS buffer fails.
     #[inline]
     pub fn get_result_string(&self) -> crate::MichiuWindowResult<Option<String>> {
         self.get_string(GCS_RESULTSTR)

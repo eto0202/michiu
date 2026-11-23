@@ -45,16 +45,16 @@ impl<L: ExternalData> DataWatcher<L> {
     /// # Errors
     ///
     /// Returns an error if monitoring setup fails:
-    /// - [`MichiuError::CanonicalizeFailed`]:
+    /// - [`MichiuUiError::CanonicalizeFailed`]:
     ///     - The `path` does not exist.
     ///     - A component in the `path` prefix is not a directory.
-    /// - [`MichiuError::ReadStringFailed`]:
+    /// - [`MichiuUiError::ReadStringFailed`]:
     ///     - Failed to read the file (e.g., lack of permissions or the path is a directory).
     ///     - The file content is not valid UTF-8.
     /// - [`ExternalData::load`] fails to parse or construct the initial data.
-    /// - [`MichiuError::WatcherInitFailed`]:
+    /// - [`MichiuUiError::WatcherInitFailed`]:
     ///     - Failed to initialize the OS file-watching backend (e.g., system resource exhaustion).
-    /// - [`MichiuError::WatchTargetFailed`]:
+    /// - [`MichiuUiError::WatchTargetFailed`]:
     ///     - Permission denied to access or monitor the target path.
     ///     - The OS limit for monitored files has been exceeded.
     ///     - The target path does not exist, or another OS I/O error occurred.
@@ -177,7 +177,7 @@ pub trait ExternalData: Send + Sync + 'static {
     /// # Errors
     ///
     /// Returns an error if:
-    /// - [`MichiuError::ReadStringFailed`]:
+    /// - [`MichiuUiError::ReadStringFailed`]:
     ///     - Failed to read the file (e.g., lack of permissions or the path is a directory).
     ///     - The file content is not valid UTF-8.
     /// - [`Self::load`] fails to parse or construct the data.
@@ -278,16 +278,16 @@ impl<L: ExternalData> ExternalDataSetBuilder<L> {
     /// # Errors
     ///
     /// Returns an error if monitoring setup fails:
-    /// - [`MichiuError::CanonicalizeFailed`]:
+    /// - [`MichiuUiError::CanonicalizeFailed`]:
     ///     - The `path` does not exist.
     ///     - A component in the `path` prefix is not a directory.
-    /// - [`MichiuError::ReadStringFailed`]:
+    /// - [`MichiuUiError::ReadStringFailed`]:
     ///     - Failed to read the file (e.g., lack of permissions or the path is a directory).
     ///     - The file content is not valid UTF-8.
     /// - [`ExternalData::load`] fails to parse or construct the initial data.
-    /// - [`MichiuError::WatcherInitFailed`]:
+    /// - [`MichiuUiError::WatcherInitFailed`]:
     ///     - Failed to initialize the OS file-watching backend (e.g., system resource exhaustion).
-    /// - [`MichiuError::WatchTargetFailed`]:
+    /// - [`MichiuUiError::WatchTargetFailed`]:
     ///     - Permission denied to access or monitor the target path.
     ///     - The OS limit for monitored files has been exceeded.
     ///     - The target path does not exist, or another OS I/O error occurred.

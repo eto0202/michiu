@@ -46,7 +46,7 @@ impl MichiuComContext {
     /// operations, IME, or OLE file drag-and-drop ([`crate::builder::MichiuWindowBuilder::with_drag_and_drop`]).
     ///
     /// # Errors
-    /// Returns [`MichiuError::ComInitializationFailed`] if the underlying `OleInitialize` fails.
+    /// Returns [`MichiuWindowError::ComInitializationFailed`] if the underlying `OleInitialize` fails.
     ///
     /// # Examples
     ///
@@ -78,7 +78,7 @@ impl MichiuComContext {
     /// Useful for background worker threads that handle high-performance, non-GUI COM interfaces.
     ///
     /// # Errors
-    /// Returns [`MichiuError::ComInitializationFailed`] if `CoInitializeEx` fails.
+    /// Returns [`MichiuWindowError::ComInitializationFailed`] if `CoInitializeEx` fails.
     #[inline]
     pub fn new_com_multi() -> MichiuWindowResult<Self> {
         unsafe {
@@ -98,7 +98,7 @@ impl MichiuComContext {
     /// Initializes the Windows Runtime (`WinRT`) on the current thread under the Single-Threaded Apartment model.
     ///
     /// # Errors
-    /// Returns [`MichiuError::ComInitializationFailed`] if `RoInitialize` fails.
+    /// Returns [`MichiuWindowError::ComInitializationFailed`] if `RoInitialize` fails.
     #[inline]
     pub fn new_ro_single() -> MichiuWindowResult<Self> {
         unsafe {
@@ -118,7 +118,7 @@ impl MichiuComContext {
     /// Initializes the Windows Runtime (`WinRT`) on the current thread under the Multi-Threaded Apartment model.
     ///
     /// # Errors
-    /// Returns [`MichiuError::ComInitializationFailed`] if `RoInitialize` fails.
+    /// Returns [`MichiuWindowError::ComInitializationFailed`] if `RoInitialize` fails.
     #[inline]
     pub fn new_ro_multi() -> MichiuWindowResult<Self> {
         unsafe {
@@ -140,7 +140,7 @@ impl MichiuComContext {
     ///
     /// # Errors
     ///
-    /// Returns [`MichiuError::ComInitializationFailed`] if `RoInitialize` and `OleInitialize` fails.
+    /// Returns [`MichiuWindowError::ComInitializationFailed`] if `RoInitialize` and `OleInitialize` fails.
     #[inline]
     pub fn new_winrt_ole_combo() -> MichiuWindowResult<Self> {
         unsafe {

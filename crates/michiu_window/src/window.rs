@@ -122,7 +122,7 @@ impl MichiuWindow {
     /// Instantiates a new Win32 window based on the validated configuration parameters.
     ///
     /// # Errors
-    /// Returns [`MichiuError::WindowCreationFailed`] if class registration fails or `CreateWindowExW`
+    /// Returns [`MichiuWindowError::WindowCreationFailed`] if class registration fails or `CreateWindowExW`
     /// returns a null handle.
     ///
     /// # Examples
@@ -333,7 +333,7 @@ impl MichiuWindow {
     ///
     /// # Errors
     ///
-    /// Return [`MichiuError::SubclassSetupFailed`]:
+    /// Return [`MichiuWindowError::SubclassSetupFailed`]:
     /// - The `hwnd` is invalid or points to an already destroyed window.
     /// - Attempting to subclass a window created on a different thread (cross-thread subclassing is not supported by Win32).
     /// - An internal memory allocation fails in `comctl32`.
@@ -444,7 +444,7 @@ impl MichiuWindow {
     ///
     /// # Errors
     ///
-    /// Returns [`MichiuError::SubclassSetupFailed`] if the operating system fails to register
+    /// Returns [`MichiuWindowError::SubclassSetupFailed`] if the operating system fails to register
     /// the subclass procedure via `SetWindowSubclass`. Typical causes include:
     /// - The window handle (`self.hwnd`) is invalid or has already been destroyed.
     /// - The system ran out of memory while allocating internal subclass tracking structures.
@@ -733,7 +733,7 @@ impl MichiuWindow {
     ///
     /// # Errors
     ///
-    /// Returns [`MichiuError`]:
+    /// Returns [`MichiuWindowError`]:
     /// - If `CoInitializeEx` has not been called on the calling thread (`CO_E_NOTINITIALIZED`).
     /// - If the operating system fails to instantiate or display the dialog.
     /// - If the selected file path contains invalid characters and cannot be converted.
@@ -750,7 +750,7 @@ impl MichiuWindow {
     ///
     /// # Errors
     ///
-    /// Returns [`MichiuError`]:
+    /// Returns [`MichiuWindowError`]:
     /// - If `CoInitializeEx` has not been called on the calling thread (`CO_E_NOTINITIALIZED`).
     /// - If the specified filter string (`FileFilter`) is empty or malformed (`E_INVALIDARG`).
     /// - If `IFileSaveDialog` creation fails due to insufficient memory or system limitations.
@@ -826,7 +826,7 @@ impl MichiuWindow {
 
     /// # Errors
     ///
-    /// Returns [`MichiuError::UnexpectedOsError`] if `DwmFlush` fails.
+    /// Returns [`MichiuWindowError::UnexpectedOsError`] if `DwmFlush` fails.
     ///
     /// This typically happens when the Desktop Window Manager (DWM) is temporarily unavailable (e.g., screen lock, UAC prompt, RDP session)
     /// or when the GPU driver restarts.

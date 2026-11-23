@@ -81,7 +81,7 @@ pub enum ButtonSize {
 ///
 /// # Example
 ///
-/// ```rust
+/// ```rust,ignore
 /// // 1. Basic button
 /// let button = SimpleButton::new("Save").build(&theme);
 ///

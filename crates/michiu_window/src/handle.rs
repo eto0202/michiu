@@ -112,7 +112,7 @@ impl WindowHandle {
     /// Assures that the current thread is the UI thread.
     ///
     /// # Errors
-    /// Returns [`MichiuError::ThreadMismatch`] if called from a foreign thread.
+    /// Returns [`MichiuWindowError::ThreadMismatch`] if called from a foreign thread.
     #[inline]
     pub fn assert_ui_thread(&self) -> MichiuWindowResult<()> {
         let current_tid = unsafe { GetCurrentThreadId() };
@@ -482,7 +482,7 @@ impl WindowHandle {
     ///
     /// # Errors
     ///
-    /// Returns [`MichiuError`]:
+    /// Returns [`MichiuWindowError`]:
     /// - If `CoInitializeEx` has not been called on the calling thread (`CO_E_NOTINITIALIZED`).
     /// - If the operating system fails to instantiate or display the dialog.
     /// - If the selected file path contains invalid characters and cannot be converted.
@@ -511,7 +511,7 @@ impl WindowHandle {
     ///
     /// # Errors
     ///
-    /// Returns [`MichiuError`]:
+    /// Returns [`MichiuWindowError`]:
     /// - If `CoInitializeEx` has not been called on the calling thread (`CO_E_NOTINITIALIZED`).
     /// - If the specified filter string (`FileFilter`) is empty or malformed (`E_INVALIDARG`).
     /// - If `IFileSaveDialog` creation fails due to insufficient memory or system limitations.
@@ -663,7 +663,7 @@ impl WindowHandle {
     /// to the UI thread asynchronously.
     ///
     /// Once the window is destroyed, all cloned `WindowHandle` instances referencing this window
-    /// will fail validation (returning [`MichiuError::InvalidHandleState`]), preventing zombie access.
+    /// will fail validation (returning [`MichiuWindowError::InvalidHandleState`]), preventing zombie access.
     ///
     /// # Examples
     ///
@@ -735,7 +735,7 @@ impl WindowHandle {
     ///
     /// # Errors
     ///
-    /// Returns [`MichiuError::UnexpectedOsError`] if `DwmFlush` fails.
+    /// Returns [`MichiuWindowError::UnexpectedOsError`] if `DwmFlush` fails.
     ///
     /// This typically happens when the Desktop Window Manager (DWM) is temporarily unavailable (e.g., screen lock, UAC prompt, RDP session)
     /// or when the GPU driver restarts.
@@ -823,8 +823,8 @@ impl Validate for WindowHandle {
     /// 2. If the window's owner Process ID (PID) matches the current process's PID (detects recycled HWNDs).
     ///
     /// # Errors
-    /// Returns [`MichiuError::InvalidHandleState`] if the window was already destroyed,
-    /// or [`MichiuError::ValidationError`] if the handle was recycled by another process.
+    /// Returns [`MichiuWindowError::InvalidHandleState`] if the window was already destroyed,
+    /// or [`MichiuWindowError::ValidationError`] if the handle was recycled by another process.
     ///
     /// # Examples
     ///

@@ -128,7 +128,7 @@ impl MichiuEventPump {
     /// Pause the thread until a message arrives, process one message, and then resume.
     ///
     /// # Errors
-    /// Returns [`MichiuError::UnexpectedOsError`] if `GetMessageW` returns `-1`.
+    /// Returns [`MichiuWindowError::UnexpectedOsError`] if `GetMessageW` returns `-1`.
     pub fn wait_event<F>(&mut self, mut f: F) -> crate::MichiuWindowResult<bool>
     where
         F: FnMut(MichiuAnyEvent, WindowId, MichiuRawEvent),

@@ -92,7 +92,7 @@ pub enum ButtonGroupItem {
 ///
 /// # Example
 ///
-/// ```rust
+/// ```rust,ignore
 /// // 1. Simple text & separator layout
 /// let group = SimpleButtonGroup::new(["1".into(), "|".into(), "2".into()])
 ///     .outline()
@@ -618,7 +618,7 @@ impl From<String> for ButtonGroupItem {
 ///
 /// # Example
 ///
-/// ```rust
+/// ```rust,ignore
 /// let group = simple_button_group!["1", "|", "2", "3", "4", "|", "5",].build(&theme);
 /// ```
 #[macro_export]

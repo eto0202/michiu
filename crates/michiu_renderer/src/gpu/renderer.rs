@@ -164,9 +164,9 @@ impl WgpuRenderer {
     /// # Errors
     ///
     /// Returns an error if the initialization pipeline fails:
-    /// - [`MichiuError::CreateSurfaceError`]: Failed to create a surface from `visual` (e.g., invalid pointer or DirectComposition inconsistency).
-    /// - [`MichiuError::RequestAdapterError`]: When a GPU (adapter) that meets the requirements cannot be found.
-    /// - [`MichiuError::RequestDeviceError`]: When creating a logical device or queue fails (e.g., insufficient VRAM or driver crash).
+    /// - [`MichiuRendererError::CreateSurfaceError`]: Failed to create a surface from `visual` (e.g., invalid pointer or DirectComposition inconsistency).
+    /// - [`MichiuRendererError::RequestAdapterError`]: When a GPU (adapter) that meets the requirements cannot be found.
+    /// - [`MichiuRendererError::RequestDeviceError`]: When creating a logical device or queue fails (e.g., insufficient VRAM or driver crash).
     #[inline]
     pub async unsafe fn new(
         visual: *mut std::ffi::c_void, // wgpu ビジュアル (前面)
@@ -188,9 +188,9 @@ impl WgpuRenderer {
     /// # Errors
     ///
     /// Returns an error if the initialization pipeline fails:
-    /// - [`MichiuError::CreateSurfaceError`]: Failed to create a surface from `visual` (e.g., invalid pointer or DirectComposition inconsistency).
-    /// - [`MichiuError::RequestAdapterError`]: When a GPU (adapter) that meets the requirements cannot be found.
-    /// - [`MichiuError::RequestDeviceError`]: When creating a logical device or queue fails (e.g., insufficient VRAM or driver crash).
+    /// - [`MichiuRendererError::CreateSurfaceError`]: Failed to create a surface from `visual` (e.g., invalid pointer or DirectComposition inconsistency).
+    /// - [`MichiuRendererError::RequestAdapterError`]: When a GPU (adapter) that meets the requirements cannot be found.
+    /// - [`MichiuRendererError::RequestDeviceError`]: When creating a logical device or queue fails (e.g., insufficient VRAM or driver crash).
     pub async unsafe fn with_config(
         visual: *mut std::ffi::c_void, // wgpu ビジュアル (前面)
         size: LayoutSize,

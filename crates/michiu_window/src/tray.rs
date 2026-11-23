@@ -108,8 +108,8 @@ impl MichiuTray {
     /// Builds and registers a new system tray icon with the OS using the validated builder parameters.
     ///
     /// # Errors
-    /// Returns [`MichiuError::TrayWindowCreationFailed`] if the internal dummy window allocation fails,
-    /// or [`MichiuError::TrayIconOperationFailed`] if registering with the OS shell fails.
+    /// Returns [`MichiuWindowError::TrayWindowCreationFailed`] if the internal dummy window allocation fails,
+    /// or [`MichiuWindowError::TrayIconOperationFailed`] if registering with the OS shell fails.
     ///
     /// # Examples
     ///
@@ -201,8 +201,8 @@ impl MichiuTray {
     /// * `text` - Up to 255 UTF-16 code units.
     ///
     /// # Errors
-    /// Returns [`MichiuError::ValidationError`] if title or text lengths exceed OS limits,
-    /// or [`MichiuError::TrayIconOperationFailed`] if sending the modify signal to the OS fails.
+    /// Returns [`MichiuWindowError::ValidationError`] if title or text lengths exceed OS limits,
+    /// or [`MichiuWindowError::TrayIconOperationFailed`] if sending the modify signal to the OS fails.
     ///
     /// # Examples
     ///
@@ -707,7 +707,7 @@ impl Validate for MichiuTrayBuilder {
     /// 2. Tooltip length must be under 128 UTF-16 code units.
     ///
     /// # Errors
-    /// Returns [`MichiuError::ValidationError`] on failure.
+    /// Returns [`MichiuWindowError::ValidationError`] on failure.
     #[inline]
     fn validate(self) -> MichiuWindowResult<Self> {
         // アイコンの存在検証
