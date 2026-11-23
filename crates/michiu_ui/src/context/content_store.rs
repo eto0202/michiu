@@ -1,7 +1,7 @@
 use crate::{
-    ActiveMasksSecondary, CapacityConfig, Entity, ExternalMask, ExternalTexture, ExternalVisual,
-    InputContents, LayoutRect, MichiuString, TextLayoutSize, TextSpan, VisualPropertiesSecondary,
-    define_sparse_secondary, soa::MichiuSoA,
+    ActiveInteractionStates, ActiveMasksSecondary, CapacityConfig, CaretBlinkState, Entity,
+    ExternalMask, ExternalTexture, ExternalVisual, InputContents, LayoutRect, MichiuString,
+    TextLayoutSize, TextSpan, VisualPropertiesSecondary, define_sparse_secondary, soa::MichiuSoA,
 };
 use slotmap::SparseSecondaryMap;
 use std::sync::Arc;
@@ -283,6 +283,50 @@ impl ContentStore {
         self.cont_external_visual.remove(id);
         self.cont_external_masks.remove(id);
         self.cont_cut_text = None;
+    }
+
+    #[inline]
+    pub(crate) fn last_caret_visible(
+        e: Entity,
+        cont_input_contents: &InputContentsSparse,
+    ) -> Option<CaretBlinkState> {
+        cont_input_contents.find(e)?.last_caret_visible
+    }
+
+    #[inline]
+    pub(crate) fn current_caret_visible(
+        e: Entity,
+        cont_input_contents: &InputContentsSparse,
+    ) -> Option<CaretBlinkState> {
+        let state = cont_input_contents.find(e)?.caret_blink_state();
+        Some(state)
+    }
+
+    #[inline]
+    pub(crate) fn clear_caret_visible(e: Entity, cont_input_contents: &mut InputContentsSparse) {
+        if let Some(c) = cont_input_contents.find_mut(e) {
+            c.last_caret_visible = None;
+        }
+    }
+
+    #[inline]
+    pub(crate) fn sync_caret_visible(
+        evt_interaction_states: &ActiveInteractionStates,
+        cont_input_contents: &mut InputContentsSparse,
+    ) -> bool {
+        let Some(e) = evt_interaction_states.focused else {
+            return false;
+        };
+        let Some(c) = cont_input_contents.find_mut(e) else {
+            return false;
+        };
+        let cur = Some(c.caret_blink_state());
+        let last = c.last_caret_visible;
+        if cur != last {
+            c.last_caret_visible = cur;
+            return true;
+        }
+        false
     }
 
     #[inline]

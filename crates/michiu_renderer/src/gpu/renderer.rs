@@ -908,7 +908,7 @@ impl Renderer for WgpuRenderer {
             self.external_bind_groups.remove(&e);
         }
 
-        if !cx.has_dirty() && !cx.window_is_resized() {
+        if !cx.has_dirty() && !cx.window_is_resized() && !cx.sync_caret_visible() {
             return Ok(());
         }
 

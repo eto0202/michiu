@@ -1,8 +1,8 @@
 use crate::{
-    ActiveMasksSecondary, BasicLayoutsSecondary, ComponentMask, ContentVisibility, Context,
-    Display, EntitiesSlot, Entity, LayoutSize, MichiuSoA, OutputStore, ParentsSecondary, Pipeline,
-    RectsSecondary, SystemStore, TextEditStore, VisualPropertiesSecondary, handle_on_blur,
-    handle_on_focus,
+    ActiveMasksSecondary, BasicLayoutsSecondary, ComponentMask, ContentStore, ContentVisibility,
+    Context, Display, EntitiesSlot, Entity, LayoutSize, MichiuSoA, OutputStore, ParentsSecondary,
+    Pipeline, RectsSecondary, SystemStore, TextEditStore, VisualPropertiesSecondary,
+    handle_on_blur, handle_on_focus,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]
@@ -154,7 +154,7 @@ impl FocusStore {
 
     #[inline]
     pub(crate) fn handle_remove_focus(cx: &mut Context) {
-        let Some(old_focus_id) = cx.events.evt_interaction_states.focused else {
+        let Some(old_focus_e) = cx.events.evt_interaction_states.focused else {
             return;
         };
 
@@ -162,11 +162,11 @@ impl FocusStore {
         // コールバック内で再フォーカスされても上書きしないため
         cx.events.evt_interaction_states.focused = None;
 
-        FocusStore::set_focused_by_trigger(cx, old_focus_id, false, ActiveFocusTrigger::Mouse);
+        FocusStore::set_focused_by_trigger(cx, old_focus_e, false, ActiveFocusTrigger::Mouse);
 
         // 古いフォーカス要素の選択範囲とハイライト矩形をクリア
         TextEditStore::clear_selection_highlight_rect(
-            old_focus_id,
+            old_focus_e,
             &mut cx.topology.topo_active_masks,
             &mut cx.contents.cont_input_contents,
             &mut cx.contents.cont_text_spans,
@@ -179,7 +179,10 @@ impl FocusStore {
         // IME をデフォルトの有効化状態に戻す
         SystemStore::reset_ime_default_state(cx.window.win_default_himc.as_ref());
 
-        handle_on_blur(cx, old_focus_id);
+        // キャレットの表示状態を初期化
+        ContentStore::clear_caret_visible(old_focus_e, &mut cx.contents.cont_input_contents);
+
+        handle_on_blur(cx, old_focus_e);
     }
 
     /// 対象の要素がキーボードフォーカス可能であるかを検証

@@ -324,18 +324,16 @@ impl Renderer for CpuRenderer {
             self.external_textures.remove(&e);
         }
 
-        if !cx.has_dirty() && !cx.window_is_resized() {
+        if !cx.has_dirty() && !cx.window_is_resized() && !cx.sync_caret_visible() {
             return Ok(());
         }
 
-        let t0 = std::time::Instant::now();
         // 前面と背面に分類されたバッチを Context から引き出す
         cx.collect_render_data(&mut RendererView {
             render_data: &mut self.render_data,
             atlases: &mut self.atlases,
             queue: &RenderQueue::Cpu,
         });
-        let t_collect = t0.elapsed();
 
         if self.render_data.batches.is_empty() {
             self.pixmap.fill(tiny_skia::Color::TRANSPARENT);
@@ -345,7 +343,6 @@ impl Renderer for CpuRenderer {
 
         let render_data = std::mem::take(&mut self.render_data);
 
-        let t1 = std::time::Instant::now();
         self.instance_staging.clear();
         for (i, instance) in render_data.instances.iter().enumerate() {
             let e = render_data.entity_ids[i];
@@ -354,17 +351,8 @@ impl Renderer for CpuRenderer {
         }
 
         self.update_external_texture(cx);
-        let t_ext = t1.elapsed();
 
-        let t2 = std::time::Instant::now();
         self.pixmap.fill(tiny_skia::Color::TRANSPARENT);
-
-        let mut t_mask = std::time::Duration::ZERO;
-        let mut t_atlas = std::time::Duration::ZERO;
-        let mut t_ext_draw = std::time::Duration::ZERO;
-        let mut t_sdf = std::time::Duration::ZERO;
-        let mut t_fast = std::time::Duration::ZERO;
-        let mut sdf_count = 0usize;
 
         for batch in &render_data.batches {
             if batch.instance_count == 0 {
@@ -376,7 +364,6 @@ impl Renderer for CpuRenderer {
             let instances = &self.instance_staging[start..end];
             let entity_ids = &render_data.entity_ids[start..end];
 
-            let tm = std::time::Instant::now();
             // シザー矩形から Mask を準備
             let mask = prepare_scissor_mask(
                 &mut self.clip_mask,
@@ -385,7 +372,6 @@ impl Renderer for CpuRenderer {
                 self.p_width,
                 self.p_height,
             );
-            t_mask += tm.elapsed();
 
             let blend_mode = match batch.batch_type {
                 BatchType::Normal => BlendMode::SourceOver,
@@ -393,11 +379,6 @@ impl Renderer for CpuRenderer {
             };
 
             for (instance, &entity) in instances.iter().zip(entity_ids.iter()) {
-                let ti = std::time::Instant::now();
-                let mode = instance.opacity_mode_sizing_border[1];
-                let shadow = has_shadow(instance);
-                let stroke = has_border_or_outline(instance);
-
                 draw_instance(
                     &mut self.pixmap,
                     instance,
@@ -410,52 +391,10 @@ impl Renderer for CpuRenderer {
                     blend_mode,
                     mask,
                 );
-
-                let dt = ti.elapsed();
-                if (mode - MODE_ATLAS).abs() < 0.1 {
-                    t_atlas += dt;
-                } else if (mode - MODE_EXTERNAL_TEXTURE).abs() < 0.1 {
-                    t_ext_draw += dt;
-                } else if shadow || stroke || (mode - MODE_FOUR_CORNER_GRADIENT).abs() < 0.1 {
-                    t_sdf += dt;
-                    sdf_count += 1;
-                } else {
-                    t_fast += dt;
-                }
             }
         }
-        let t_draw_total = t2.elapsed();
-
-        let t3 = std::time::Instant::now();
         let _ = self.present();
-        let t_present = t3.elapsed();
-
-        let log = false;
-
-        #[expect(clippy::print_stderr)]
-        if log {
-            eprintln!(
-                "[CPU {}x{} batches:{} inst:{} sdf:{}]\n\
-                  collect:{:.2?} | ext_upd:{:.2?} | mask:{:.2?} | fast:{:.2?} | atlas:{:.2?} | ext_draw:{:.2?} | sdf:{:.2?} (total_draw:{:.2?}) | present:{:.2?}",
-                self.p_width,
-                self.p_height,
-                render_data.batches.len(),
-                self.instance_staging.len(),
-                sdf_count,
-                t_collect,
-                t_ext,
-                t_mask,
-                t_fast,
-                t_atlas,
-                t_ext_draw,
-                t_sdf,
-                t_draw_total,
-                t_present,
-            );
-        }
-
         self.render_data = render_data;
-
         Ok(())
     }
 }

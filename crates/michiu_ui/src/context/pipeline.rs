@@ -2923,7 +2923,7 @@ impl Pipeline {
         // キャレットがあるなら入力コンポーネントもあるはず
         let contents = cont_input_contents.at(id);
 
-        if !contents.should_show_caret() {
+        if !contents.caret_blink_state().is_visible() {
             return;
         }
 

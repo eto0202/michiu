@@ -156,10 +156,11 @@ pub use window_store::*;
 #[cfg(feature = "trace-lifecycle")]
 use crate::trace_lifecycle;
 use crate::{
-    Backdrop, BasicLayout, ComponentMask, ContextGuard, CursorIcon, Entity, ExternalTexture,
-    ExternalVisual, FlexLayout, InteractionState, LayoutPoint, LayoutRect, LayoutSize, MichiuSoA,
-    PropertyList, QuadInstance, ReadSignal, RendererView, TextEngine, VisualProperty, WriteSignal,
-    a11y::A11yInferenceTag, bind_context, flush_trace, handle_on_click,
+    Backdrop, BasicLayout, CaretBlinkState, ComponentMask, ContextGuard, CursorIcon, Entity,
+    ExternalTexture, ExternalVisual, FlexLayout, InteractionState, LayoutPoint, LayoutRect,
+    LayoutSize, MichiuSoA, PropertyList, QuadInstance, ReadSignal, RendererView, TextEngine,
+    VisualProperty, WriteSignal, a11y::A11yInferenceTag, bind_context, flush_trace,
+    handle_on_click,
 };
 use std::{borrow::Cow, sync::Arc};
 use windows::Win32::Foundation::HWND;
@@ -1019,6 +1020,52 @@ impl Context {
             &self.renders.rnd_visual,
             &self.renders.rnd_base_visual,
         )
+    }
+
+    #[inline]
+    pub fn has_transitions(&self) -> bool {
+        RenderStore::has_transitions(&self.renders.rnd_active_transitions)
+    }
+
+    #[inline]
+    pub fn has_animations(&self) -> bool {
+        RenderStore::has_animations(&self.renders.rnd_active_animations)
+    }
+
+    #[inline]
+    pub fn has_blinking_caret(&self) -> bool {
+        RenderStore::has_blinking_caret(
+            &self.events.evt_interaction_states,
+            &self.contents.cont_input_contents,
+        )
+    }
+
+    #[inline]
+    pub fn last_caret_visible(&self, e: Entity) -> Option<CaretBlinkState> {
+        ContentStore::last_caret_visible(e, &self.contents.cont_input_contents)
+    }
+
+    #[inline]
+    pub fn current_caret_visible(&self, e: Entity) -> Option<CaretBlinkState> {
+        ContentStore::current_caret_visible(e, &self.contents.cont_input_contents)
+    }
+
+    #[inline]
+    pub fn clear_caret_visible(&mut self, e: Entity) {
+        ContentStore::clear_caret_visible(e, &mut self.contents.cont_input_contents);
+    }
+
+    #[inline]
+    pub fn sync_caret_visible(&mut self) -> bool {
+        ContentStore::sync_caret_visible(
+            &self.events.evt_interaction_states,
+            &mut self.contents.cont_input_contents,
+        )
+    }
+
+    #[inline]
+    pub fn has_active_transient_scrollbar(&self) -> bool {
+        RenderStore::has_active_transient_scrollbar(&self.layouts.scrollbar.bar_styles)
     }
 
     /// Determine if there are active transitions or animations.

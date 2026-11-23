@@ -24,7 +24,7 @@ pub struct CratesVisual(WebView2Visual);
 pub const ALLOW_STRESS_TEST: bool = false;
 pub const ALLOW_LIST_TEST: bool = false;
 
-pub const ALLOW_LOG: bool = false;
+pub const ALLOW_LOG: bool = true;
 
 #[cfg(feature = "dhat-heap")]
 #[global_allocator]
