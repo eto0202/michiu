@@ -99,13 +99,7 @@ fn animation_group() -> Entity {
                 ii().r(3.0)
                     .size(80.0)
                     .justify_center()
-                    .bg_color(dynamic(|t: &Theme| t.accent))
-                    .animation(KeyframeAnimation::new(
-                        PropertyList::Transform,
-                        Duration::from_millis(600),
-                        PlaybackCount::Infinite,
-                        AnimationCurve::EaseInOutQuad,
-                    )),
+                    .bg_color(dynamic(|t: &Theme| t.accent)),
             )
             .label(
                 "Rotate",

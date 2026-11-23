@@ -1,46 +1,47 @@
-use crate::{DebugStore, Entity, MichiuError, OptionTraceExt, Result};
+use crate::{DebugStore, Entity, MichiuUiError, MichiuUiResult, OptionTraceExt};
 
 pub trait MichiuSoA {
     type Item;
 
-    fn find(&self, id: Entity) -> Option<&Self::Item>;
+    fn find(&self, e: Entity) -> Option<&Self::Item>;
 
-    fn find_mut(&mut self, id: Entity) -> Option<&mut Self::Item>;
+    fn find_mut(&mut self, e: Entity) -> Option<&mut Self::Item>;
 
     /// # Errors
     ///
-    /// Returns [`MichiuError::ComponentNotFound`] If `Entity` is not found.
+    /// Returns [`MichiuUiError::ComponentNotFound`] If `Entity` is not found.
     #[inline]
-    fn require(&self, id: Entity) -> Result<&Self::Item> {
-        self.find(id).ok_or_else(|| MichiuError::ComponentNotFound {
-            id,
-            component: std::any::type_name::<Self>(),
-        })
+    fn require(&self, e: Entity) -> MichiuUiResult<&Self::Item> {
+        self.find(e)
+            .ok_or_else(|| MichiuUiError::ComponentNotFound {
+                e,
+                component: std::any::type_name::<Self>(),
+            })
     }
 
     /// # Errors
     ///
-    /// Returns [`MichiuError::ComponentNotFound`] If `Entity` is not found.
+    /// Returns [`MichiuUiError::ComponentNotFound`] If `Entity` is not found.
     #[inline]
-    fn require_mut(&mut self, id: Entity) -> Result<&mut Self::Item> {
+    fn require_mut(&mut self, e: Entity) -> MichiuUiResult<&mut Self::Item> {
         let component = std::any::type_name::<Self>();
-        self.find_mut(id)
-            .ok_or(MichiuError::ComponentNotFound { id, component })
+        self.find_mut(e)
+            .ok_or(MichiuUiError::ComponentNotFound { e, component })
     }
 
     /// Panic-Prone Immutable Reference Accessors
     #[inline]
     #[track_caller]
     #[expect(clippy::panic)]
-    fn at(&self, id: Entity) -> &Self::Item {
-        self.find(id).unwrap_or_else(|| {
+    fn at(&self, e: Entity) -> &Self::Item {
+        self.find(e).unwrap_or_else(|| {
             let type_name = std::any::type_name::<Self>();
             let caller = std::panic::Location::caller();
 
             panic!(
                 "[Michiu UI] SoA Component Access Failed\n\
                     Caller Loc    : {caller}\n\
-                    Target Entity : {id:?}\n\
+                    Target Entity : {e:?}\n\
                     SoA Container : {type_name}\n\
                     Possible causes :\n\
                         - The entity was already despawned (dangling Entity).\n\
@@ -54,15 +55,15 @@ pub trait MichiuSoA {
     #[inline]
     #[track_caller]
     #[expect(clippy::panic)]
-    fn at_mut(&mut self, id: Entity) -> &mut Self::Item {
-        self.find_mut(id).unwrap_or_else(|| {
+    fn at_mut(&mut self, e: Entity) -> &mut Self::Item {
+        self.find_mut(e).unwrap_or_else(|| {
             let type_name = std::any::type_name::<Self>();
             let caller = std::panic::Location::caller();
 
             panic!(
                 "[Michiu UI] SoA Component Mutable Access Failed\n\
                     Caller Loc    : {caller}\n\
-                    Target Entity : {id:?}\n\
+                    Target Entity : {e:?}\n\
                     SoA Container : {type_name}\n\
                     Possible causes :\n\
                         - The entity was already despawned (dangling Entity).\n\
@@ -76,13 +77,13 @@ pub trait MichiuSoA {
     /// Fallback to the default value
     #[inline]
     #[track_caller]
-    fn find_or_default(&self, id: Entity, debug: &mut DebugStore) -> Self::Item
+    fn find_or_default(&self, e: Entity, debug: &mut DebugStore) -> Self::Item
     where
         Self::Item: Default + Clone + std::fmt::Debug + Send + Sync + 'static,
     {
-        self.find(id)
+        self.find(e)
             .cloned()
-            .unwrap_or_default_trace(Some(id), debug)
+            .unwrap_or_default_trace(Some(e), debug)
     }
 
     /// Fallback to the specified value
@@ -90,7 +91,7 @@ pub trait MichiuSoA {
     #[track_caller]
     fn find_or<'a>(
         &'a self,
-        id: Entity,
+        e: Entity,
         fallback: &'a Self::Item,
         debug: &mut DebugStore,
     ) -> &'a Self::Item
@@ -100,17 +101,17 @@ pub trait MichiuSoA {
         #[cfg(not(feature = "trace-entity"))]
         {
             let _ = debug;
-            self.find(id).unwrap_or(fallback)
+            self.find(e).unwrap_or(fallback)
         }
 
         #[cfg(feature = "trace-entity")]
-        if let Some(val) = self.find(id) {
+        if let Some(val) = self.find(e) {
             val
         } else {
             use crate::{MichiuInfo, MichiuTrace, trace_entity};
             use std::sync::Arc;
 
-            trace_entity!(Some(id), debug, || MichiuTrace::EntityInfo {
+            trace_entity!(Some(e), debug, || MichiuTrace::EntityInfo {
                 detail: MichiuInfo::ValueNotFound,
                 fallback: Some(Arc::new(fallback.clone())),
                 add: Some(std::any::type_name::<Self::Item>()),
@@ -120,8 +121,8 @@ pub trait MichiuSoA {
     }
 
     #[inline]
-    fn contains(&self, id: Entity) -> bool {
-        self.find(id).is_some()
+    fn contains(&self, e: Entity) -> bool {
+        self.find(e).is_some()
     }
 }
 
@@ -144,9 +145,9 @@ macro_rules! define_secondary {
         impl $crate::MichiuSoA for $name {
             type Item = $item;
             #[inline]
-            fn find(&self, id: $crate::Entity) -> Option<&Self::Item> { self.0.get(id) }
+            fn find(&self, e: $crate::Entity) -> Option<&Self::Item> { self.0.get(e) }
             #[inline]
-            fn find_mut(&mut self, id: $crate::Entity) -> Option<&mut Self::Item> { self.0.get_mut(id) }
+            fn find_mut(&mut self, e: $crate::Entity) -> Option<&mut Self::Item> { self.0.get_mut(e) }
         }
     };
 
@@ -167,9 +168,9 @@ macro_rules! define_sparse_secondary {
         impl $crate::MichiuSoA for $name {
             type Item = $item;
             #[inline]
-            fn find(&self, id: $crate::Entity) -> Option<&Self::Item> { self.0.get(id) }
+            fn find(&self, e: $crate::Entity) -> Option<&Self::Item> { self.0.get(e) }
             #[inline]
-            fn find_mut(&mut self, id: $crate::Entity) -> Option<&mut Self::Item> { self.0.get_mut(id) }
+            fn find_mut(&mut self, e: $crate::Entity) -> Option<&mut Self::Item> { self.0.get_mut(e) }
         }
     };
 
@@ -230,7 +231,7 @@ mod tests {
     //
     // `test_soa_require_and_require_mut`
     //  - 存在する `Entity` に対し、`Ok(&Item)` / `Ok(&mut Item)` が返ること。
-    //  - 存在しない `Entity` に対し、`Err(MichiuError::ComponentNotFound { id, component })` が返り、`component` にコンテナの型名が含まれること。
+    //  - 存在しない `Entity` に対し、`Err(MichiuError::ComponentNotFound { e, component })` が返り、`component` にコンテナの型名が含まれること。
     //
     // `test_soa_find_or_default_and_find_or`
     //  - 存在する `Entity`: 格納されている値が返ること。
@@ -279,8 +280,8 @@ mod tests {
         // require
         assert_eq!(map.require(entity).unwrap(), &100);
         match map.require(missing) {
-            Err(MichiuError::ComponentNotFound { id, component }) => {
-                assert_eq!(id, missing);
+            Err(MichiuUiError::ComponentNotFound { e, component }) => {
+                assert_eq!(e, missing);
                 assert!(component.contains("TestSecondary"));
             }
             _ => panic!("Expected ComponentNotFound error"),
@@ -291,7 +292,7 @@ mod tests {
         assert_eq!(map.require(entity).unwrap(), &200);
         assert!(matches!(
             map.require_mut(missing),
-            Err(MichiuError::ComponentNotFound { .. })
+            Err(MichiuUiError::ComponentNotFound { .. })
         ));
     }
 
@@ -318,9 +319,9 @@ mod tests {
     //
     // `test_soa_at_and_at_mut`**
     //  - 存在する `Entity` では `&Item` を取得できること。
-    //  - 存在しない `Entity` に対し `at(id)` を呼ぶと、コンテナ型名・Entity ID・発信元情報を含むメッセージでパニックすること。
+    //  - 存在しない `Entity` に対し `at(e)` を呼ぶと、コンテナ型名・Entity ID・発信元情報を含むメッセージでパニックすること。
     //  - 存在する `Entity` では `&mut Item` を変更できること。
-    //  - 存在しない `Entity` に対し `at_mut(id)` を呼ぶとパニックすること。
+    //  - 存在しない `Entity` に対し `at_mut(e)` を呼ぶとパニックすること。
     //
     // 4. マクロ群の展開と挙動検証
     //

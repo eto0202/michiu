@@ -295,6 +295,7 @@ pub struct InputContents {
     pub(crate) caret_color: Option<Color>,
     pub(crate) is_blink: bool,
     pub(crate) blink_frequency: Option<Duration>,
+    pub(crate) last_caret_visible: Option<CaretBlinkState>,
 
     // 部分的なスタイリング (IMEの下線等に使用)
     pub(crate) rich_text: Option<TextSpan>,
@@ -372,6 +373,7 @@ impl InputContents {
             caret_color: None,
             is_blink: true,
             blink_frequency: None,
+            last_caret_visible: None,
             rich_text: None,
             is_ime: true,
             ime_state: None,
@@ -645,29 +647,79 @@ impl InputContents {
         self.text.0.with(std::string::String::is_empty)
     }
 
-    /// キャレットの点滅と描画を行うかを判定
     #[inline]
-    pub(crate) fn should_show_caret(&self) -> bool {
+    #[must_use]
+    pub fn last_caret_visible(&self) -> Option<CaretBlinkState> {
+        self.last_caret_visible
+    }
+
+    /// キャレットの点滅・表示状態を判定
+    #[inline]
+    pub(crate) fn caret_blink_state(&self) -> CaretBlinkState {
+        // キャレット自体がない場合は即座に Hidden
+        if !self.has_caret {
+            return CaretBlinkState::Hidden;
+        }
+
+        // 点滅しない設定なら操作直後であっても常に StaticVisible
+        if !self.is_blink {
+            return CaretBlinkState::StaticVisible;
+        }
+
+        // キー入力や移動から 300ms 未満は表示状態にする
+        // 300ms 後に点滅を再開する必要があるため描画ループは継続させる
         let now_instant = std::time::Instant::now();
         if let Some(last) = self.last_interacted_time
             && now_instant.duration_since(last) < Duration::from_millis(300)
         {
-            return true; // キー入力や移動の操作から 300ms 未満のときは常時表示
-        }
-
-        // 点滅しない場合はキャレットの有無をそのまま返す
-        if !self.is_blink {
-            return self.has_caret;
+            return CaretBlinkState::BlinkingVisible;
         }
 
         let freq = self
             .blink_frequency
             .unwrap_or(Duration::from_millis(530))
             .as_millis();
+        if freq == 0 {
+            return CaretBlinkState::StaticVisible;
+        }
+
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_millis();
-        (now / freq).is_multiple_of(2)
+
+        if (now / freq).is_multiple_of(2) {
+            CaretBlinkState::BlinkingVisible
+        } else {
+            CaretBlinkState::BlinkingHidden
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CaretBlinkState {
+    /// 表示（点滅あり・描画ループ継続）
+    BlinkingVisible,
+    /// 非表示（点滅あり・描画ループ継続）
+    BlinkingHidden,
+    /// 常時表示（点滅なし・描画ループ停止可）
+    StaticVisible,
+    /// 非表示（キャレットなし・描画ループ停止）
+    Hidden,
+}
+
+impl CaretBlinkState {
+    /// キャレットを描画するかどうか
+    #[inline]
+    #[must_use]
+    pub const fn is_visible(self) -> bool {
+        matches!(self, Self::BlinkingVisible | Self::StaticVisible)
+    }
+
+    /// 描画ループ（再描画の継続）が必要かどうか
+    #[inline]
+    #[must_use]
+    pub const fn needs_redraw_loop(self) -> bool {
+        matches!(self, Self::BlinkingVisible | Self::BlinkingHidden)
     }
 }

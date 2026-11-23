@@ -2,7 +2,7 @@
 #![expect(clippy::expect_used)]
 
 use super::*;
-use crate::error::MichiuError;
+use crate::error::MichiuWindowError;
 use michiu_guard::Validated;
 
 fn run_on_clean_thread<F>(f: F)
@@ -17,7 +17,8 @@ where
 fn test_builder_default_is_valid() {
     // デフォルト設定でタイトルのみを指定したビルダーは正常に検証をパスするはず
     let builder = MichiuWindowBuilder::new().with_title("MainWindow");
-    let validated: Result<Validated<MichiuWindowBuilder>> = builder.into_unvalidated().try_into();
+    let validated: MichiuWindowResult<Validated<MichiuWindowBuilder>> =
+        builder.into_unvalidated().try_into();
     assert!(validated.is_ok(), "Default builder should be valid");
 }
 
@@ -29,7 +30,8 @@ fn test_builder_transparent_valid_combination() {
         .with_transparent(true)
         .with_decorations(false);
 
-    let validated: Result<Validated<MichiuWindowBuilder>> = builder.into_unvalidated().try_into();
+    let validated: MichiuWindowResult<Validated<MichiuWindowBuilder>> =
+        builder.into_unvalidated().try_into();
     assert!(
         validated.is_ok(),
         "Transparent with no decorations should be valid"
@@ -45,7 +47,8 @@ fn test_builder_child_window_valid_combination() {
         .with_title("ChildWindow")
         .with_child_of(parent_dummy);
 
-    let validated: Result<Validated<MichiuWindowBuilder>> = builder.into_unvalidated().try_into();
+    let validated: MichiuWindowResult<Validated<MichiuWindowBuilder>> =
+        builder.into_unvalidated().try_into();
     assert!(
         validated.is_ok(),
         "Child window with integrated with_child_of should be valid"
@@ -60,11 +63,12 @@ fn test_conflict_no_redirection_bitmap_without_com() {
         .with_no_redirection_bitmap(true)
         .with_decorations(false); // COMがNoneなのでエラーになるはず
 
-    let result: Result<Validated<MichiuWindowBuilder>> = builder.into_unvalidated().try_into();
+    let result: MichiuWindowResult<Validated<MichiuWindowBuilder>> =
+        builder.into_unvalidated().try_into();
     assert!(result.is_err());
     assert!(matches!(
         result.unwrap_err(),
-        MichiuError::ValidationError {
+        MichiuWindowError::ValidationError {
             parameter: "no_redirection_bitmap",
             ..
         }
@@ -79,11 +83,12 @@ fn test_conflict_transparent_with_decorations() {
         .with_transparent(true)
         .with_decorations(true); // 衝突エラー
 
-    let result: Result<Validated<MichiuWindowBuilder>> = builder.into_unvalidated().try_into();
+    let result: MichiuWindowResult<Validated<MichiuWindowBuilder>> =
+        builder.into_unvalidated().try_into();
     assert!(result.is_err());
     assert!(matches!(
         result.unwrap_err(),
-        MichiuError::ValidationError {
+        MichiuWindowError::ValidationError {
             parameter: "decorations",
             ..
         }
@@ -99,11 +104,12 @@ fn test_conflict_child_window_with_taskbar_button() {
         .with_child_of(parent_dummy)
         .with_taskbar_button(true); // 子ウィンドウなのにタスクバーに表示しようとして衝突エラー
 
-    let result: Result<Validated<MichiuWindowBuilder>> = builder.into_unvalidated().try_into();
+    let result: MichiuWindowResult<Validated<MichiuWindowBuilder>> =
+        builder.into_unvalidated().try_into();
     assert!(result.is_err());
     assert!(matches!(
         result.unwrap_err(),
-        MichiuError::ValidationError {
+        MichiuWindowError::ValidationError {
             parameter: "taskbar_button",
             ..
         }
@@ -119,11 +125,12 @@ fn test_conflict_child_window_with_topmost() {
         .with_child_of(parent_dummy)
         .with_raw_ex_style(WS_EX_TOPMOST); // 衝突エラー
 
-    let result: Result<Validated<MichiuWindowBuilder>> = builder.into_unvalidated().try_into();
+    let result: MichiuWindowResult<Validated<MichiuWindowBuilder>> =
+        builder.into_unvalidated().try_into();
     assert!(result.is_err());
     assert!(matches!(
         result.unwrap_err(),
-        MichiuError::ValidationError {
+        MichiuWindowError::ValidationError {
             parameter: "raw_ex_style",
             ..
         }
@@ -138,11 +145,12 @@ fn test_conflict_child_and_popup_mutually_exclusive() {
         .with_taskbar_button(false) // 手前のタスクバー競合を回避
         .with_raw_style(WS_CHILD | WS_POPUP); // 排他エラー
 
-    let result: Result<Validated<MichiuWindowBuilder>> = builder.into_unvalidated().try_into();
+    let result: MichiuWindowResult<Validated<MichiuWindowBuilder>> =
+        builder.into_unvalidated().try_into();
     assert!(result.is_err());
     assert!(matches!(
         result.unwrap_err(),
-        MichiuError::ValidationError {
+        MichiuWindowError::ValidationError {
             parameter: "raw_style",
             ..
         }
@@ -157,11 +165,12 @@ fn test_conflict_child_without_parent_handle() {
         .with_taskbar_button(false)
         .with_raw_style(WS_CHILD); // 親ハンドルがNoneなのでエラー
 
-    let result: Result<Validated<MichiuWindowBuilder>> = builder.into_unvalidated().try_into();
+    let result: MichiuWindowResult<Validated<MichiuWindowBuilder>> =
+        builder.into_unvalidated().try_into();
     assert!(result.is_err());
     assert!(matches!(
         result.unwrap_err(),
-        MichiuError::ValidationError {
+        MichiuWindowError::ValidationError {
             parameter: "parent_hwnd",
             ..
         }
@@ -175,11 +184,12 @@ fn test_conflict_caption_and_dlgframe() {
         .with_title("ConflictWindow")
         .with_raw_style(WS_CAPTION | WS_DLGFRAME);
 
-    let result: Result<Validated<MichiuWindowBuilder>> = builder.into_unvalidated().try_into();
+    let result: MichiuWindowResult<Validated<MichiuWindowBuilder>> =
+        builder.into_unvalidated().try_into();
     assert!(result.is_err());
     assert!(matches!(
         result.unwrap_err(),
-        MichiuError::ValidationError {
+        MichiuWindowError::ValidationError {
             parameter: "raw_style",
             ..
         }
@@ -194,11 +204,12 @@ fn test_conflict_minimize_maximize_without_sysmenu() {
         .with_title("NoSysmenuButtons")
         .with_raw_style(WS_MAXIMIZEBOX); // WS_SYSMENU がないのでエラー
 
-    let result: Result<Validated<MichiuWindowBuilder>> = builder.into_unvalidated().try_into();
+    let result: MichiuWindowResult<Validated<MichiuWindowBuilder>> =
+        builder.into_unvalidated().try_into();
     assert!(result.is_err());
     assert!(matches!(
         result.unwrap_err(),
-        MichiuError::ValidationError {
+        MichiuWindowError::ValidationError {
             parameter: "raw_style",
             ..
         }
@@ -213,11 +224,12 @@ fn test_conflict_contexthelp_with_minimize_maximize() {
         .with_raw_style(WS_MAXIMIZEBOX | WS_SYSMENU)
         .with_raw_ex_style(WS_EX_CONTEXTHELP); // 衝突エラー
 
-    let result: Result<Validated<MichiuWindowBuilder>> = builder.into_unvalidated().try_into();
+    let result: MichiuWindowResult<Validated<MichiuWindowBuilder>> =
+        builder.into_unvalidated().try_into();
     assert!(result.is_err());
     assert!(matches!(
         result.unwrap_err(),
-        MichiuError::ValidationError {
+        MichiuWindowError::ValidationError {
             parameter: "raw_ex_style",
             ..
         }
@@ -231,11 +243,12 @@ fn test_conflict_toolwindow_and_appwindow() {
         .with_title("ConflictWindow")
         .with_raw_ex_style(WS_EX_TOOLWINDOW | WS_EX_APPWINDOW); // 衝突エラー
 
-    let result: Result<Validated<MichiuWindowBuilder>> = builder.into_unvalidated().try_into();
+    let result: MichiuWindowResult<Validated<MichiuWindowBuilder>> =
+        builder.into_unvalidated().try_into();
     assert!(result.is_err());
     assert!(matches!(
         result.unwrap_err(),
-        MichiuError::ValidationError {
+        MichiuWindowError::ValidationError {
             parameter: "raw_ex_style",
             ..
         }
@@ -249,11 +262,12 @@ fn test_conflict_drag_and_drop_without_com() {
         .with_title("DndNoComWindow")
         .with_drag_and_drop(true);
 
-    let result: Result<Validated<MichiuWindowBuilder>> = builder.into_unvalidated().try_into();
+    let result: MichiuWindowResult<Validated<MichiuWindowBuilder>> =
+        builder.into_unvalidated().try_into();
     assert!(result.is_err());
     assert!(matches!(
         result.unwrap_err(),
-        MichiuError::ValidationError {
+        MichiuWindowError::ValidationError {
             parameter: "drag_and_drop",
             ..
         }
@@ -270,11 +284,12 @@ fn test_conflict_drag_and_drop_with_non_ole_com() {
             .with_drag_and_drop(true)
             .with_com_context(&com_ctx);
 
-        let result: Result<Validated<MichiuWindowBuilder>> = builder.into_unvalidated().try_into();
+        let result: MichiuWindowResult<Validated<MichiuWindowBuilder>> =
+            builder.into_unvalidated().try_into();
         assert!(result.is_err());
         assert!(matches!(
             result.unwrap_err(),
-            MichiuError::ValidationError {
+            MichiuWindowError::ValidationError {
                 parameter: "drag_and_drop",
                 ..
             }
@@ -292,7 +307,8 @@ fn test_drag_and_drop_with_ole_com_success() {
             .with_drag_and_drop(true)
             .with_com_context(&com_ctx);
 
-        let result: Result<Validated<MichiuWindowBuilder>> = builder.into_unvalidated().try_into();
+        let result: MichiuWindowResult<Validated<MichiuWindowBuilder>> =
+            builder.into_unvalidated().try_into();
         assert!(
             result.is_ok(),
             "Dnd with OLE context should pass validation successfully"

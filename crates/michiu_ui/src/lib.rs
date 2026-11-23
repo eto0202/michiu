@@ -21,8 +21,7 @@
 //!
 //! The pipeline in this crate consists primarily of four core entities:
 //!
-//! 1. **Preparing the Renderer**:
-//!    [`MichiuRenderer`] is a backend integrating DirectComposition and wgpu (DirectX 12). It is initialized asynchronously by passing a `HWND` created by any windowing backend.
+//! 1. **Preparing the Renderer**
 //! 2. **Initializing [`Context`]**:
 //!    The central struct managing UI state, style definitions, input queues, and layout caches. Accessibility (AccessKit/UIA) bindings are also configured here.
 //! 3. **Building the UI**:
@@ -381,7 +380,6 @@
 //!
 //! For detailed specifications and internal architecture of each subsystem, refer to the sections below.
 //!
-//! * [**Renderer Implementation**](crate::renderer) - DirectComposition surface management and rendering command generation via wgpu
 //! * [**`Context` Structure**](crate::context) - Global state maintenance, storage management, and lifecycle control
 //! * [**`pipeline` module**](crate::pipeline) - Frame progression orchestrator
 //! * [**UI Construction and Styling**](crate::entity) - Widget tree construction via [`build_ui`] and the list of properties for `ii()` (style builder)
@@ -396,9 +394,9 @@ pub mod context;
 pub mod entity;
 pub mod external;
 mod modifier;
-pub mod renderer;
 pub mod signal;
 pub mod tag;
+pub mod texture;
 mod types;
 mod utils;
 
@@ -413,17 +411,19 @@ pub use external::*;
 #[doc(inline)]
 pub use modifier::*;
 #[doc(inline)]
-pub use renderer::*;
-#[doc(inline)]
 pub use signal::*;
 #[doc(inline)]
 pub use soa::MichiuSoA;
 #[doc(inline)]
 pub use tag::*;
 #[doc(inline)]
+pub use texture::*;
+#[doc(inline)]
 pub use types::*;
 #[doc(inline)]
 pub use utils::*;
+
+pub use wgpu;
 
 pub mod accessibility {
     pub const NO_A11Y_NODE: crate::Prop<Option<accesskit::Node>> = crate::Prop::None;
@@ -432,8 +432,6 @@ pub mod accessibility {
 }
 pub mod config {
     pub use crate::CapacityConfig;
-    pub use crate::{CompositionTargetLayer, RendererUserConfig};
-    pub use wgpu::{MemoryHints, PresentMode};
 }
 pub mod prelude {
     pub use crate::{
@@ -446,7 +444,6 @@ pub mod prelude {
         m,
         modifier::Modifier,
         pipeline::{EventAction, TickType},
-        renderer::MichiuRenderer,
         scrollbar::{ScrollbarDisplay, ScrollbarMode, ScrollbarStyle},
         signal::{ReadSignal, SignalId, WriteSignal},
         types::{
@@ -464,4 +461,122 @@ pub mod prelude {
             text_d, use_provided, use_provided_setter, v_flex, v_flex_d,
         },
     };
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct QuadInstance {
+    pub rect: LayoutRect,            // 16B
+    pub transform: [[f32; 4]; 3],    // 48B
+    pub color: Color,                // 16B.
+    pub corner_radius: CornerRadius, // 16B
+    pub border_width: EdgeInsets,    // 16B
+    pub border_color: Color,         // 16B
+
+    pub opacity_mode_sizing_border: [f32; 4], // 16B ([opacity, mode, sizing, border])
+
+    pub uv_min: [f32; 2], // 8B
+    pub uv_max: [f32; 2], // 8B
+
+    pub gradient: LinearGradientInner, // 96B
+    pub transform_origin: [f32; 2],    // 8B
+    pub is_color_atlas_pad: [f32; 2],  // 8B (次が16B境界になるよう揃える)
+
+    pub shadow_color: Color,     // 16B.
+    pub shadow_params: [f32; 4], // 16B.
+
+    pub border_lengths: EdgeInsets, // 16B
+
+    pub outline_width: EdgeInsets,              // 16B.
+    pub outline_color: Color,                   // 16B
+    pub outline_lengths: EdgeInsets,            // 16B
+    pub outline_offset_and_flags: [f32; 4],     // 16B (flags: [offset, flags, 0.0, 0.0])
+    pub alpha_mode_y_flip_srgb_gamma: [f32; 4], // 16B ([alpha_mode, y_flip, srbg, gamma])
+}
+
+impl Default for QuadInstance {
+    fn default() -> Self {
+        Self {
+            rect: LayoutRect::ZERO,
+            transform: [[0.0; 4]; 3],
+            transform_origin: [0.5, 0.5],
+            color: Color::TRANSPARENT,
+            corner_radius: CornerRadius::ZERO,
+            border_width: EdgeInsets::ZERO,
+            border_color: Color::TRANSPARENT,
+            opacity_mode_sizing_border: [1.0, 0.0, 0.0, 0.0],
+            uv_min: [0.0; 2],
+            uv_max: [0.0; 2],
+            gradient: LinearGradientInner::default(),
+            is_color_atlas_pad: [0.0; 2],
+            shadow_color: Color::TRANSPARENT,
+            shadow_params: [0.0; 4],
+            border_lengths: EdgeInsets::ZERO,
+            outline_width: EdgeInsets::ZERO,
+            outline_color: Color::TRANSPARENT,
+            outline_lengths: EdgeInsets::ZERO,
+            outline_offset_and_flags: [0.0; 4],
+            alpha_mode_y_flip_srgb_gamma: [0.0; 4],
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BatchType {
+    Normal,
+    Punchout,
+}
+
+/// 同じクリップ範囲で描画できるインスタンスの塊
+#[derive(Debug, Clone, PartialEq)]
+pub struct DrawBatch {
+    pub scissor_rect: LayoutRect,
+    // フラットバッファ上のインデックス範囲
+    pub instance_offset: usize,
+    pub instance_count: usize,
+    pub batch_type: BatchType,
+}
+
+#[derive(Debug)]
+pub enum RenderQueue<'a> {
+    Gpu(&'a wgpu::Queue),
+    Cpu,
+}
+
+#[derive(Debug)]
+pub struct RendererView<'a> {
+    pub render_data: &'a mut RenderData,
+    pub atlases: &'a mut Atlases,
+    pub queue: &'a RenderQueue<'a>,
+}
+
+#[derive(Default, Debug, Clone, PartialEq)]
+pub struct RenderData {
+    pub batches: Vec<DrawBatch>,
+    // 1フレーム分の全インスタンス
+    pub instances: Vec<QuadInstance>,
+    pub entity_ids: Vec<Entity>,
+}
+
+impl RenderData {
+    #[inline]
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            batches: Vec::new(),
+            instances: Vec::new(),
+            entity_ids: Vec::new(),
+        }
+    }
+    #[inline]
+    pub fn clear(&mut self) {
+        self.batches.clear();
+        self.instances.clear();
+        self.entity_ids.clear();
+    }
+    #[inline]
+    pub fn push(&mut self, id: Entity, instance: QuadInstance) {
+        self.instances.push(instance);
+        self.entity_ids.push(id);
+    }
 }

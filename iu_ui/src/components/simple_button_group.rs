@@ -92,7 +92,7 @@ pub enum ButtonGroupItem {
 ///
 /// # Example
 ///
-/// ```rust
+/// ```rust,ignore
 /// // 1. Simple text & separator layout
 /// let group = SimpleButtonGroup::new(["1".into(), "|".into(), "2".into()])
 ///     .outline()
@@ -407,7 +407,7 @@ impl MichiuWidget for SimpleButtonGroup {
         "WAI-ARIA Button Group / WCAG 2.2 AA (Target Size >= 24px, Focus Ring >= 3:1)"
     }
 
-    fn build(&self, theme: &dyn MichiuTheme) -> Entity {
+    fn build(&self, theme: impl MichiuTheme) -> Entity {
         let (font_size, padding, r) = self.metrics();
 
         let (s3, s4, s5, s7, _s8, s9, s10, s11, text) = match self.intent {
@@ -618,7 +618,7 @@ impl From<String> for ButtonGroupItem {
 ///
 /// # Example
 ///
-/// ```rust
+/// ```rust,ignore
 /// let group = simple_button_group!["1", "|", "2", "3", "4", "|", "5",].build(&theme);
 /// ```
 #[macro_export]

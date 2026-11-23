@@ -1,11 +1,9 @@
-use crate::{
-    Context, ExternalTexture, ExternalTextureMetadata, LayoutPoint, LayoutRect, LayoutSize,
-    MichiuSoA,
-};
+use crate::{CpuTextureView, ExternalTexture, ExternalTextureMetadata, LayoutRect, LayoutSize};
 use std::sync::Arc;
-use windows::Win32::Foundation::{HWND, LPARAM, POINT, WPARAM};
-use windows::Win32::Graphics::DirectComposition::IDCompositionVisual2;
-use windows::Win32::Graphics::Imaging::IWICImagingFactory;
+use windows::Win32::{
+    Foundation::{HWND, LPARAM, POINT, WPARAM},
+    Graphics::{DirectComposition::IDCompositionVisual2, Imaging::IWICImagingFactory},
+};
 
 /// An `ExternalTexture` implementation that holds a single static image in a `TextureView`
 #[derive(Debug, Clone)]
@@ -17,6 +15,12 @@ pub struct StaticExternalTexture {
 impl ExternalTexture for StaticExternalTexture {
     fn resolve_view(&self, _device: &wgpu::Device, _queue: &wgpu::Queue) -> wgpu::TextureView {
         self.view.clone()
+    }
+
+    fn resolve_cpu(&self, _f: &mut dyn FnMut(CpuTextureView<'_>)) {}
+
+    fn cpu_version(&self) -> Option<u64> {
+        None
     }
 
     fn metadata(&self) -> ExternalTextureMetadata {
@@ -94,8 +98,8 @@ pub struct VisualUpdateContext<'a> {
     pub scale_factor: f32,
     pub is_interactive: bool,
     pub is_stable: bool,
-    pub device: &'a wgpu::Device,
-    pub queue: &'a wgpu::Queue,
+    pub device: Option<&'a wgpu::Device>,
+    pub queue: Option<&'a wgpu::Queue>,
     pub wic_factory: &'a IWICImagingFactory,
 }
 
@@ -117,53 +121,4 @@ impl Default for ExternalVisualMetadata {
             auto_transform: true,
         }
     }
-}
-
-/// Identifies the topmost `ExternalVisual` based on physical pixel coordinates and forwards the raw input.
-/// Returns `true` if the event has been consumed.
-pub(crate) fn dispatch_raw_input_to_external_visual(
-    cx: &mut Context,
-    msg: u32,
-    wparam: WPARAM,
-    lparam: LPARAM,
-    window_phys_pos: LayoutPoint,
-    scale_factor: f32,
-) -> bool {
-    let logical_pos = LayoutPoint::new(
-        window_phys_pos.x / scale_factor,
-        window_phys_pos.y / scale_factor,
-    );
-
-    // プレス中要素があればそちらを優先、なければヒット要素
-    let target_id = cx
-        .events
-        .evt_interaction_states
-        .pressed
-        .or_else(|| cx.hit_test(logical_pos));
-
-    let Some(id) = target_id else {
-        return false;
-    };
-
-    if !cx
-        .topology
-        .topo_active_masks
-        .at(id)
-        .has_external_visual_content()
-    {
-        return false;
-    }
-
-    let Some(visual) = cx.contents.cont_external_visual.find(id).cloned() else {
-        return false;
-    };
-
-    let rect = cx.outputs.out_rects.find_or_default(id, &mut cx.debug);
-    #[expect(clippy::cast_possible_truncation)]
-    let local_phys_pos = POINT {
-        x: (window_phys_pos.x - rect.x * scale_factor).round() as i32,
-        y: (window_phys_pos.y - rect.y * scale_factor).round() as i32,
-    };
-
-    visual.handle_raw_input(msg, wparam, lparam, local_phys_pos)
 }

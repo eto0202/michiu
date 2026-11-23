@@ -1,15 +1,16 @@
 use crate::{
     ActiveInteractionStates, ActiveMasksSecondary, ActiveTransition, AnimationCurve,
     BaseBasicLayoutsSecondary, BasicLayout, BasicLayoutsSecondary, BorderAlignment, BorderStyle,
-    CapacityConfig, CascadeInteractionState, ChildrenSecondary, ClipRectsSecondary, Color,
-    ComponentMask, Context, CursorIcon, DEFAULT_BASIC, DebugStore, DirtyLayoutEntitiesVec,
-    EdgeInsets, EffectCategory, EntitiesSlot, Entity, EntityEffectsSecondary, FocusTrigger,
-    Focusable, FontDate, GlobalCursorIcon, IDENTITY_MATRIX, InputContentsSparse, InteractionScope,
-    InteractionStyles, LayoutPoint, LayoutSize, LayoutStore, MichiuSoA, ModTarget, Modifier,
-    OutputStore, ParentsSecondary, PlaybackCount, Point, PointerEvents, PropertyList,
-    RectsSecondary, ScrollbarDisplay, ScrollbarStylesSparse, SystemStore, TaffyNodesSecondary,
-    TaffyTreeEntity, TargetStyle, TextBufferSparse, TopologyStore, TransitionValue, UserSelect,
-    Val, VisualProperty, define_secondary, define_sparse_secondary, define_vec,
+    CapacityConfig, CaretBlinkState, CascadeInteractionState, ChildrenSecondary,
+    ClipRectsSecondary, Color, ComponentMask, Context, CursorIcon, DEFAULT_BASIC, DebugStore,
+    DirtyLayoutEntitiesVec, EdgeInsets, EffectCategory, EntitiesSlot, Entity,
+    EntityEffectsSecondary, FocusTrigger, Focusable, FontDate, GlobalCursorIcon, IDENTITY_MATRIX,
+    InputContentsSparse, InteractionScope, InteractionStyles, LayoutPoint, LayoutSize, LayoutStore,
+    MichiuSoA, ModTarget, Modifier, OutputStore, ParentsSecondary, PlaybackCount, Point,
+    PointerEvents, PropertyList, RectsSecondary, ScrollbarDisplay, ScrollbarStylesSparse,
+    SystemStore, TaffyNodesSecondary, TaffyTreeEntity, TargetStyle, TextBufferSparse,
+    TopologyStore, TransitionValue, UserSelect, Val, VisualProperty, define_secondary,
+    define_sparse_secondary, define_vec,
 };
 use rustc_hash::{FxBuildHasher, FxHashSet};
 use slotmap::{SecondaryMap, SparseSecondaryMap};
@@ -213,6 +214,40 @@ impl RenderStore {
         }
     }
 
+    #[inline]
+    pub(crate) fn has_transitions(rnd_active_transitions: &ActiveTransitionsSparse) -> bool {
+        !rnd_active_transitions.is_empty()
+            && rnd_active_transitions.values().any(|list| !list.is_empty())
+    }
+
+    #[inline]
+    pub(crate) fn has_animations(rnd_active_animations: &ActiveAnimationsSparse) -> bool {
+        !rnd_active_animations.is_empty()
+            && rnd_active_animations.values().any(|list| !list.is_empty())
+    }
+
+    #[inline]
+    pub(crate) fn has_blinking_caret(
+        evt_interaction_states: &ActiveInteractionStates,
+        cont_input_contents: &InputContentsSparse,
+    ) -> bool {
+        evt_interaction_states
+            .focused
+            .and_then(|id| cont_input_contents.find(id))
+            .and_then(|c| c.last_caret_visible)
+            .is_some_and(CaretBlinkState::needs_redraw_loop)
+    }
+
+    #[inline]
+    pub(crate) fn has_active_transient_scrollbar(bar_styles: &ScrollbarStylesSparse) -> bool {
+        bar_styles.values().any(|sb_state| {
+            sb_state.style.display == ScrollbarDisplay::Transient
+                && sb_state
+                    .last_scroll_time
+                    .is_some_and(|t| t.elapsed() < Duration::from_millis(1500))
+        })
+    }
+
     /// 現在、アクティブに動いているトランジションがあるか判定します
     pub(crate) fn has_active_frame(
         evt_interaction_states: &ActiveInteractionStates,
@@ -235,29 +270,21 @@ impl RenderStore {
         );
 
         // トランジションのアクティブ判定
-        let has_transitions = !rnd_active_transitions.is_empty()
-            && rnd_active_transitions.values().any(|list| !list.is_empty());
+        let has_transitions = RenderStore::has_transitions(rnd_active_transitions);
 
         // キーフレームアニメーションのアクティブ判定
-        let has_keyframes = !rnd_active_animations.is_empty()
-            && rnd_active_animations.values().any(|list| !list.is_empty());
+        let has_animations = RenderStore::has_animations(rnd_active_animations);
 
         // フォーカスされたインプットがあり、キャレット点滅が有効な間は描画ループを駆動
-        let has_blinking_input = evt_interaction_states
-            .focused
-            .and_then(|id| cont_input_contents.find(id))
-            .is_some_and(|c| c.has_caret && c.is_blink);
+        let has_blinking_input =
+            RenderStore::has_blinking_caret(evt_interaction_states, cont_input_contents);
 
         // 一時的表示スクロールバーのフェード進行中は描画更新ループを継続
-        let has_active_transient_scrollbar = bar_styles.values().any(|sb_state| {
-            sb_state.style.display == ScrollbarDisplay::Transient
-                && sb_state
-                    .last_scroll_time
-                    .is_some_and(|t| t.elapsed() < Duration::from_millis(1500))
-        });
+        let has_active_transient_scrollbar =
+            RenderStore::has_active_transient_scrollbar(bar_styles);
 
         has_transitions
-            || has_keyframes
+            || has_animations
             || has_blinking_input
             || has_active_transient_scrollbar
             || has_drag_autoscroll

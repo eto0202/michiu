@@ -1,6 +1,6 @@
 use crate::{
-    CapacityConfig, Context, Entity, InputContents, LayoutPoint, LayoutRect, MichiuError,
-    MichiuSoA, ResolvedGeometry, TextEngine, define_sparse_secondary,
+    CapacityConfig, Context, Entity, InputContents, LayoutPoint, LayoutRect, MichiuSoA,
+    MichiuUiError, ResolvedGeometry, TextEngine, define_sparse_secondary,
 };
 use cosmic_text::Buffer;
 use slotmap::SparseSecondaryMap;
@@ -38,15 +38,15 @@ impl MichiuTaskSender {
     ///
     /// # Errors
     ///
-    /// Returns [`MichiuError::SendError`] If the receiver has already terminated or dropped the connection.
-    pub fn send<F>(&self, f: F) -> Result<(), MichiuError>
+    /// Returns [`MichiuUiError::SendError`] If the receiver has already terminated or dropped the connection.
+    pub fn send<F>(&self, f: F) -> Result<(), MichiuUiError>
     where
         F: FnOnce(&mut Context) + Send + 'static,
     {
         // 内部で Box::new に包んで送信
         self.inner
             .send(Box::new(f))
-            .map_err(|_| MichiuError::SendError)?;
+            .map_err(|_| MichiuUiError::SendError)?;
 
         // タスク送信に成功したら即座にメインスレッドをウェイクアップさせる
         if let Some(ref waker) = self.waker {

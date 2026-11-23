@@ -226,6 +226,7 @@
 //! ```
 use crate::{
     guard::Validated,
+    renderer::MichiuRenderer,
     ui::{CapacityConfig, CharIndex, ImeState, prelude::*, raw_wheel_delta_to_logical_pixels},
     window::{ImeStateUpdate, PhysicalPoint, PhysicalSize, WheelDelta, WindowHandle, prelude::*},
 };
@@ -252,8 +253,13 @@ pub use michiu_guard as guard;
 #[doc(inline)]
 pub use michiu_window as window;
 
+#[cfg(feature = "renderer")]
+#[doc(inline)]
+pub use michiu_renderer as renderer;
+
 pub mod prelude {
     pub use crate::guard::{Unvalidated, Validate, Validated};
+    pub use crate::renderer::prelude::*;
     pub use crate::ui::prelude::*;
     pub use crate::window::prelude::*;
     pub use crate::*;
@@ -639,11 +645,11 @@ impl MichiuApp {
 
         let has_hovered = self
             .context
-            .interaction_id(InteractionState::Hovered)
+            .interacted_entity(InteractionState::Hovered)
             .is_some();
         let has_focused = self
             .context
-            .interaction_id(InteractionState::Focused)
+            .interacted_entity(InteractionState::Focused)
             .is_some();
 
         match raw.msg {
@@ -691,8 +697,13 @@ impl MichiuApp {
                     let width = size.width.cast_unsigned();
                     let height = size.height.cast_unsigned();
                     // レンダラーのリサイズとレイアウト物理サイズの更新
-                    self.renderer
+                    let result = self
+                        .renderer
                         .resize(width, height, self.renderer.scale_factor());
+                    #[allow(unused)]
+                    if let Err(e) = result {
+                        debug_eprintln!("MichiuRendererError: {e:?}");
+                    }
 
                     // 再描画要求
                     needs_redraw = true;
@@ -712,15 +723,13 @@ impl MichiuApp {
                                 .inject_action(EventAction::PointerMove(logical_pos));
 
                             if self.config.external_visual_support {
-                                ext_consumed =
-                                    MichiuRenderer::dispatch_raw_input_to_external_visual(
-                                        &mut self.context,
-                                        raw.msg,
-                                        raw.wparam,
-                                        raw.lparam,
-                                        phys_pos,
-                                        self.renderer.scale_factor(),
-                                    );
+                                ext_consumed = self.renderer.dispatch_raw_input_to_external_visual(
+                                    &mut self.context,
+                                    raw.msg,
+                                    raw.wparam,
+                                    raw.lparam,
+                                    phys_pos,
+                                );
                             }
 
                             consumed = has_hovered || ext_consumed;
@@ -766,13 +775,12 @@ impl MichiuApp {
                         let (x, y) = raw.lparam.to_point_f32();
                         let phys_pos = LayoutPoint::new(x, y);
 
-                        ext_consumed = MichiuRenderer::dispatch_raw_input_to_external_visual(
+                        ext_consumed = self.renderer.dispatch_raw_input_to_external_visual(
                             &mut self.context,
                             raw.msg,
                             raw.wparam,
                             raw.lparam,
                             phys_pos,
-                            self.renderer.scale_factor(),
                         );
                     }
 
@@ -891,13 +899,12 @@ impl MichiuApp {
                             let _ = unsafe { ScreenToClient(self.handle.hwnd(), &raw mut pt) };
 
                             let phys_pos = LayoutPoint::new(pt.x as f32, pt.y as f32);
-                            ext_consumed = MichiuRenderer::dispatch_raw_input_to_external_visual(
+                            ext_consumed = self.renderer.dispatch_raw_input_to_external_visual(
                                 &mut self.context,
                                 raw.msg,
                                 raw.wparam,
                                 raw.lparam,
                                 phys_pos,
-                                self.renderer.scale_factor(),
                             );
                         }
 
@@ -984,7 +991,11 @@ impl MichiuApp {
         self.renderer.update_composition_tree(&mut self.context);
 
         if let Some(_paint) = self.window.begin_paint() {
-            self.renderer.draw(&mut self.context);
+            let result = self.renderer.draw_frame(&mut self.context);
+            #[allow(unused)]
+            if let Err(e) = result {
+                debug_eprintln!("MichiuRendererError: {e}");
+            }
         }
 
         if self.config.accessibility_support {
@@ -1020,7 +1031,7 @@ impl MichiuApp {
         }
 
         let target_cursor =
-            if let Some(hovered) = self.context.interaction_id(InteractionState::Hovered) {
+            if let Some(hovered) = self.context.interacted_entity(InteractionState::Hovered) {
                 self.context.resolve_cursor(hovered)
             } else {
                 CursorIcon::Default(None)
@@ -1205,7 +1216,10 @@ impl MichiuAppBuilder {
     /// # }
     /// ```
     #[inline]
-    pub fn build(self, renderer: MichiuRenderer) -> window::Result<(MichiuApp, MichiuEventPump)> {
+    pub fn build(
+        self,
+        renderer: MichiuRenderer,
+    ) -> window::MichiuWindowResult<(MichiuApp, MichiuEventPump)> {
         let handle: Validated<WindowHandle> = self.window.handle().try_into()?;
         let hwnd = handle.hwnd();
 
@@ -1271,7 +1285,7 @@ impl MichiuAppBuilder {
         self,
         renderer: MichiuRenderer,
         ui_fn: F,
-    ) -> window::Result<(MichiuApp, MichiuEventPump)>
+    ) -> window::MichiuWindowResult<(MichiuApp, MichiuEventPump)>
     where
         F: FnOnce() -> Entity,
     {
@@ -1798,10 +1812,13 @@ pub type Result<T> = std::result::Result<T, MichiuError>;
 #[derive(Debug, Error)]
 pub enum MichiuError {
     #[error("window error: {0}")]
-    Window(#[from] window::MichiuError),
+    Window(#[from] window::MichiuWindowError),
 
     #[error("ui error: {0}")]
-    Ui(#[from] ui::MichiuError),
+    Ui(#[from] ui::MichiuUiError),
+
+    #[error("renderer error: {0}")]
+    Renderer(#[from] renderer::MichiuRendererError),
 
     #[error("invalid size: {0}")]
     InvalidSize(#[from] SizeValidationError),

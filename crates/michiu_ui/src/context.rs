@@ -156,9 +156,11 @@ pub use window_store::*;
 #[cfg(feature = "trace-lifecycle")]
 use crate::trace_lifecycle;
 use crate::{
-    BasicLayout, ComponentMask, CursorIcon, Entity, FlexLayout, InteractionState, LayoutPoint,
-    LayoutRect, LayoutSize, MichiuSoA, ReadSignal, TextEngine, VisualProperty, WriteSignal,
-    a11y::A11yInferenceTag, bind_context, handle_on_click,
+    Backdrop, BasicLayout, CaretBlinkState, ComponentMask, ContextGuard, CursorIcon, Entity,
+    ExternalTexture, ExternalVisual, FlexLayout, InteractionState, LayoutPoint, LayoutRect,
+    LayoutSize, MichiuSoA, PropertyList, QuadInstance, ReadSignal, RendererView, TextEngine,
+    VisualProperty, WriteSignal, a11y::A11yInferenceTag, bind_context, flush_trace,
+    handle_on_click,
 };
 use std::{borrow::Cow, sync::Arc};
 use windows::Win32::Foundation::HWND;
@@ -360,6 +362,21 @@ impl Context {
         );
     }
 
+    #[inline]
+    pub fn bind_context(&mut self) -> ContextGuard {
+        bind_context(self)
+    }
+
+    #[inline]
+    pub fn debug(&mut self) -> &mut DebugStore {
+        &mut self.debug
+    }
+
+    #[inline]
+    pub fn flush_trace(&mut self) {
+        flush_trace!(self);
+    }
+
     /// Sets the margin for visibility checks outside the window bounds (builder format).
     ///
     /// Primarily used for pre-rendering elements with [`ContentVisibility::Auto`](crate::ContentVisibility::Auto) specified.
@@ -518,7 +535,7 @@ impl Context {
     #[inline]
     pub fn current(&mut self) -> Entity {
         self.try_current()
-            .unwrap_or_trace(None, &mut self.debug, || MichiuError::NoActiveEntity)
+            .unwrap_or_trace(None, &mut self.debug, || MichiuUiError::NoActiveEntity)
     }
 
     /// Mark the specified entity as drity, causing it to redraw and re-render.
@@ -591,16 +608,146 @@ impl Context {
         );
     }
 
+    #[inline]
+    pub fn contains_entities(&self, e: Entity) -> bool {
+        self.topology.topo_entities.contains_key(e)
+    }
+
     /// Get the absolute coordinates of the specified entity on the screen.
     #[inline]
-    pub fn rect(&self, e: Entity) -> Option<LayoutRect> {
+    pub fn rect(&mut self, e: Entity) -> LayoutRect {
+        self.outputs.out_rects.find_or_default(e, &mut self.debug)
+    }
+
+    /// Get the absolute coordinates of the specified entity on the screen.
+    #[inline]
+    pub fn try_rect(&self, e: Entity) -> Option<LayoutRect> {
         self.outputs.out_rects.find(e).copied()
+    }
+
+    #[inline]
+    pub fn prev_rect(&mut self, e: Entity) -> LayoutRect {
+        self.outputs
+            .out_prev_rects
+            .find_or_default(e, &mut self.debug)
+    }
+
+    #[inline]
+    pub fn try_prev_rect(&self, e: Entity) -> Option<LayoutRect> {
+        self.outputs.out_prev_rects.find(e).copied()
     }
 
     /// Get the on-screen clipping boundary of the specified entity.
     #[inline]
-    pub fn clip_rect(&self, e: Entity) -> Option<LayoutRect> {
+    pub fn clip_rect(&mut self, e: Entity) -> LayoutRect {
+        self.outputs
+            .out_clip_rects
+            .find_or_default(e, &mut self.debug)
+    }
+
+    /// Get the on-screen clipping boundary of the specified entity.
+    #[inline]
+    pub fn try_clip_rect(&self, e: Entity) -> Option<LayoutRect> {
         self.outputs.out_clip_rects.find(e).copied()
+    }
+
+    /// Get the on-screen clipping boundary of the specified entity.
+    #[inline]
+    pub fn prev_clip_rect(&mut self, e: Entity) -> LayoutRect {
+        self.outputs
+            .out_clip_rects
+            .find_or_default(e, &mut self.debug)
+    }
+
+    /// Get the on-screen clipping boundary of the specified entity.
+    #[inline]
+    pub fn try_prev_clip_rect(&self, e: Entity) -> Option<LayoutRect> {
+        self.outputs.out_prev_clip_rects.find(e).copied()
+    }
+
+    #[inline]
+    pub fn target_backdrop(&mut self) -> Backdrop {
+        let root = self.topology.topo_active_entities.first().unwrap_or_trace(
+            None,
+            &mut self.debug,
+            || MichiuUiError::RootEntityNotFound,
+        );
+        let visual_prop = self.renders.rnd_visual.find(*root).unwrap_or_trace(
+            Some(*root),
+            &mut self.debug,
+            || MichiuUiError::ComponentNotFound {
+                e: *root,
+                component: "rnd_visual",
+            },
+        );
+        visual_prop.backdrop
+    }
+
+    #[inline]
+    pub fn try_target_backdrop(&self) -> Option<Backdrop> {
+        let root_id = self.topology.topo_active_entities.first()?;
+        let visual_prop = self.renders.rnd_visual.find(*root_id)?;
+        Some(visual_prop.backdrop)
+    }
+
+    #[inline]
+    pub fn external_textures(&self) -> Vec<(Entity, Arc<dyn ExternalTexture + 'static>)> {
+        self.contents
+            .cont_external_textures
+            .iter()
+            .map(|(entity, texture)| (entity, texture.clone()))
+            .collect()
+    }
+
+    #[inline]
+    pub fn set_external_textures(
+        &mut self,
+        e: Entity,
+        static_tex: Arc<dyn ExternalTexture + 'static>,
+    ) {
+        self.contents.cont_external_textures.insert(e, static_tex);
+        self.topology
+            .topo_active_masks
+            .at_mut(e)
+            .set(ComponentMask::COMP_EXTERNAL_TEXTURE_CONTENT);
+        self.renders.rnd_active_external_visual.remove(&e);
+    }
+
+    #[inline]
+    pub fn unset_external_textures(&mut self, e: Entity) {
+        self.topology
+            .topo_active_masks
+            .at_mut(e)
+            .unset(ComponentMask::COMP_EXTERNAL_TEXTURE_CONTENT);
+        self.renders.rnd_active_external_visual.insert(e);
+        self.contents.cont_external_textures.remove(e);
+    }
+
+    #[inline]
+    pub fn has_external_visual(&self, e: Entity) -> bool {
+        self.topology
+            .topo_active_masks
+            .find(e)
+            .is_some_and(ComponentMask::has_external_visual_content)
+    }
+
+    #[inline]
+    pub fn external_visual(&self, e: Entity) -> Option<Arc<dyn ExternalVisual>> {
+        self.contents.cont_external_visual.find(e).cloned()
+    }
+
+    #[inline]
+    pub fn external_visual_despawned_queue(&self) -> Vec<Entity> {
+        self.topology.topo_despawned_queue.iter().copied().collect()
+    }
+
+    #[inline]
+    pub fn external_visual_entries(&self) -> Vec<(Entity, Arc<dyn ExternalVisual + 'static>)> {
+        self.contents
+            .cont_external_visual
+            .iter()
+            .map(|(id, v)| (id, Arc::clone(v)))
+            .collect()
     }
 
     /// Whether any part of the `Entity`'s visible area overlaps with the window area (i.e., whether it is visible).
@@ -727,7 +874,7 @@ impl Context {
     #[inline]
     pub fn use_provided_setter<T: Send + 'static>(&mut self) -> WriteSignal<T> {
         let entity = ReactiveStore::resolve_entity_effect(&self.reactive.react_effect_to_entity)
-            .unwrap_or_trace(None, &mut self.debug, || MichiuError::ScopeViolation {
+            .unwrap_or_trace(None, &mut self.debug, || MichiuUiError::ScopeViolation {
                 caller: "use_provided_setter",
             });
 
@@ -737,7 +884,7 @@ impl Context {
             &self.topology.topo_parents,
         )
         .unwrap_or_trace(Some(entity), &mut self.debug, || {
-            MichiuError::EntityNotFound { id: entity }
+            MichiuUiError::EntityNotFound { e: entity }
         })
     }
 
@@ -760,7 +907,7 @@ impl Context {
     #[inline]
     pub fn use_provided<T: Clone + 'static>(&mut self) -> ReadSignal<T> {
         let entity = ReactiveStore::resolve_entity_effect(&self.reactive.react_effect_to_entity)
-            .unwrap_or_trace(None, &mut self.debug, || MichiuError::ScopeViolation {
+            .unwrap_or_trace(None, &mut self.debug, || MichiuUiError::ScopeViolation {
                 caller: "use_provided",
             });
 
@@ -770,7 +917,7 @@ impl Context {
             &self.topology.topo_parents,
         )
         .unwrap_or_trace(Some(entity), &mut self.debug, || {
-            MichiuError::EntityNotFound { id: entity }
+            MichiuUiError::EntityNotFound { e: entity }
         })
     }
 
@@ -875,6 +1022,52 @@ impl Context {
         )
     }
 
+    #[inline]
+    pub fn has_transitions(&self) -> bool {
+        RenderStore::has_transitions(&self.renders.rnd_active_transitions)
+    }
+
+    #[inline]
+    pub fn has_animations(&self) -> bool {
+        RenderStore::has_animations(&self.renders.rnd_active_animations)
+    }
+
+    #[inline]
+    pub fn has_blinking_caret(&self) -> bool {
+        RenderStore::has_blinking_caret(
+            &self.events.evt_interaction_states,
+            &self.contents.cont_input_contents,
+        )
+    }
+
+    #[inline]
+    pub fn last_caret_visible(&self, e: Entity) -> Option<CaretBlinkState> {
+        ContentStore::last_caret_visible(e, &self.contents.cont_input_contents)
+    }
+
+    #[inline]
+    pub fn current_caret_visible(&self, e: Entity) -> Option<CaretBlinkState> {
+        ContentStore::current_caret_visible(e, &self.contents.cont_input_contents)
+    }
+
+    #[inline]
+    pub fn clear_caret_visible(&mut self, e: Entity) {
+        ContentStore::clear_caret_visible(e, &mut self.contents.cont_input_contents);
+    }
+
+    #[inline]
+    pub fn sync_caret_visible(&mut self) -> bool {
+        ContentStore::sync_caret_visible(
+            &self.events.evt_interaction_states,
+            &mut self.contents.cont_input_contents,
+        )
+    }
+
+    #[inline]
+    pub fn has_active_transient_scrollbar(&self) -> bool {
+        RenderStore::has_active_transient_scrollbar(&self.layouts.scrollbar.bar_styles)
+    }
+
     /// Determine if there are active transitions or animations.
     #[inline]
     pub fn has_active_frame(&mut self) -> bool {
@@ -925,13 +1118,29 @@ impl Context {
 
     /// Get the `Entity` of the entity currently being interacted with.
     #[inline]
-    pub fn interaction_id(&self, interaction: InteractionState) -> Option<Entity> {
-        match interaction {
+    pub fn interacted_entity(&self, state: InteractionState) -> Option<Entity> {
+        match state {
             InteractionState::Hovered => self.events.evt_interaction_states.hovered,
             InteractionState::Focused => self.events.evt_interaction_states.focused,
             InteractionState::Pressed => self.events.evt_interaction_states.pressed,
             InteractionState::Dragged => self.events.evt_interaction_states.dragged,
         }
+    }
+    #[inline]
+    pub fn hovered_entity(&self) -> Option<Entity> {
+        self.events.evt_interaction_states.hovered
+    }
+    #[inline]
+    pub fn pressed_entity(&self) -> Option<Entity> {
+        self.events.evt_interaction_states.pressed
+    }
+    #[inline]
+    pub fn focused_entity(&self) -> Option<Entity> {
+        self.events.evt_interaction_states.focused
+    }
+    #[inline]
+    pub fn dragged_entity(&self) -> Option<Entity> {
+        self.events.evt_interaction_states.dragged
     }
 
     /// Programmatically click the specified entity.
@@ -1039,12 +1248,12 @@ impl Context {
 
     /// Sets the interaction state ([`InteractionState`]).
     #[inline]
-    pub fn interaction_states(&mut self, e: Option<Entity>, interaction: InteractionState) {
+    pub fn interaction_states(&mut self, e: Entity, interaction: InteractionState) {
         match interaction {
-            InteractionState::Hovered => self.events.evt_interaction_states.hovered = e,
-            InteractionState::Focused => self.events.evt_interaction_states.focused = e,
-            InteractionState::Pressed => self.events.evt_interaction_states.pressed = e,
-            InteractionState::Dragged => self.events.evt_interaction_states.dragged = e,
+            InteractionState::Hovered => self.events.evt_interaction_states.hovered = Some(e),
+            InteractionState::Focused => self.events.evt_interaction_states.focused = Some(e),
+            InteractionState::Pressed => self.events.evt_interaction_states.pressed = Some(e),
+            InteractionState::Dragged => self.events.evt_interaction_states.dragged = Some(e),
         }
     }
 
@@ -1122,6 +1331,65 @@ impl Context {
     #[inline]
     pub fn sync_layout(&mut self, root: Entity, window_size: LayoutSize) {
         Pipeline::sync_layout(self, root, window_size);
+    }
+
+    #[inline]
+    pub fn collect_render_data(&mut self, view: &mut RendererView) {
+        Pipeline::collect_render_data(self, view);
+    }
+
+    #[inline]
+    pub fn build_quad_instance_for_entity(
+        &mut self,
+        e: Entity,
+        instance: &QuadInstance,
+    ) -> QuadInstance {
+        Pipeline::build_quad_instance_for_entity(self, e, instance)
+    }
+
+    #[inline]
+    pub fn is_entity_interactive(&self, e: Entity) -> bool {
+        let is_focused = self.interacted_entity(InteractionState::Focused) == Some(e);
+        let is_pressed = self.interacted_entity(InteractionState::Pressed) == Some(e);
+        is_focused || is_pressed
+    }
+
+    #[inline]
+    pub fn has_active_transform(&self, e: Entity) -> bool {
+        self.renders
+            .rnd_active_transitions
+            .find(e)
+            .is_some_and(|list| {
+                list.iter()
+                    .any(|t| t.property_list == PropertyList::Transform)
+            })
+    }
+
+    #[inline]
+    pub fn is_entity_transitioning(&self, e: Entity) -> bool {
+        self.renders
+            .rnd_active_transitions
+            .find(e)
+            .is_some_and(|list| {
+                list.iter().any(|t| {
+                    t.property_list == PropertyList::Width
+                        || t.property_list == PropertyList::Height
+                        || t.property_list == PropertyList::Size
+                        || t.property_list == PropertyList::Transform
+                })
+            })
+            || self
+                .renders
+                .rnd_active_animations
+                .find(e)
+                .is_some_and(|list| {
+                    list.iter().any(|a| {
+                        a.property == PropertyList::Width
+                            || a.property == PropertyList::Height
+                            || a.property == PropertyList::Size
+                            || a.property == PropertyList::Transform
+                    })
+                })
     }
 
     /// Update accessibility. This must be called after the layout is calculated.

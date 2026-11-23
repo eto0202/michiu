@@ -188,22 +188,22 @@
 
 use crate::{
     AccessibilitySnapshot, AccessibilityStore, ActiveEntitiesVec, ActiveFocusTrigger,
-    ActiveMasksSecondary, BaseVisualPropertiesSecondary, BasicLayout, BasicLayoutsSecondary,
-    BatchType, BoxSizing, ClipRectsSecondary, Color, ComponentMask, ContentVisibility, Context,
-    CornerRadius, DEFAULT_BASIC, DEFAULT_FLEX, DebugStore, DirtyLayoutEntitiesVec, Display,
-    DrawBatch, EdgeInsets, ElementState, Entity, EventStore, ExternalMaskSparse,
-    ExternalTextureAlphaMode, ExternalTextureCompositingMode, ExternalTextureSparse,
-    FlatDfsSequence, FlexLayout, FocusStore, GradientType, IDENTITY_MATRIX, ImeState,
-    InputContentsSparse, InteractionState, LayoutPoint, LayoutRect, LayoutSize, LayoutStore,
-    LinearGradientInner, MichiuError, MichiuSoA, Modifiers, MouseButton, OptionTraceExt,
-    OutputStore, ParentsSecondary, PrevClipRectsSecondary, PrevRectsSecondary, QuadInstance,
-    ReactiveStore, RectsSecondary, RenderData, RenderStore, RendererView, ResolvedBasicSecondary,
-    ResolvedFlexSecondary, ResolvedGeometry, ScrollBarState, ScrollOffsetsSecondary, ScrollStore,
-    ScrollbarStore, ScrollbarStylesSparse, StrikethroughStyle, SystemStore, TaffyNodesSecondary,
-    TaffyResultTraceExt, TaffyTreeEntity, TextEditStore, TextEngine, TextLayoutSize, TextSpan,
-    TopologyStore, TraceEventList, UnderlineStyle, VirtualKey, VisualProperty, bind_context,
-    handle_on_active, handle_on_char_input, handle_on_disable, handle_on_file_dropped,
-    handle_on_ime, handle_on_select,
+    ActiveMasksSecondary, AtlasTypes, BaseVisualPropertiesSecondary, BasicLayout,
+    BasicLayoutsSecondary, BatchType, BorderAlignment, BorderStyle, BoxSizing, ClipRectsSecondary,
+    Color, ComponentMask, ContentVisibility, Context, CornerRadius, DEFAULT_BASIC, DEFAULT_FLEX,
+    DebugStore, DirtyLayoutEntitiesVec, Display, DrawBatch, EdgeInsets, ElementState, Entity,
+    EventStore, ExternalMaskSparse, ExternalTextureAlphaMode, ExternalTextureCompositingMode,
+    ExternalTextureSparse, FlatDfsSequence, FlexLayout, FocusStore, GradientType, IDENTITY_MATRIX,
+    ImeState, InputContentsSparse, InteractionState, LayoutPoint, LayoutRect, LayoutSize,
+    LayoutStore, LinearGradientInner, MichiuSoA, MichiuUiError, Modifiers, MouseButton,
+    OptionTraceExt, OutputStore, ParentsSecondary, PrevClipRectsSecondary, PrevRectsSecondary,
+    QuadInstance, ReactiveStore, RectsSecondary, RenderData, RenderStore, RendererView,
+    ResolvedBasicSecondary, ResolvedFlexSecondary, ResolvedGeometry, ScrollBarState,
+    ScrollOffsetsSecondary, ScrollStore, ScrollbarStore, ScrollbarStylesSparse, StrikethroughStyle,
+    SystemStore, TaffyNodesSecondary, TaffyResultTraceExt, TaffyTreeEntity, TextEditStore,
+    TextEngine, TextLayoutSize, TextSpan, TopologyStore, TraceEventList, UnderlineStyle,
+    VirtualKey, VisualProperty, bind_context, handle_on_active, handle_on_char_input,
+    handle_on_disable, handle_on_file_dropped, handle_on_ime, handle_on_select,
 };
 #[cfg(feature = "trace-lifecycle")]
 use crate::{
@@ -674,14 +674,16 @@ impl Pipeline {
         });
 
         // ウィンドウサイズの変更検知
-        let window_resized = !(cx.window.win_last_size.replace(window_size) != Some(window_size));
+        let window_resized = cx.window.win_last_size.replace(window_size) != Some(window_size);
+        cx.window.win_is_resized = window_resized;
+
         let no_dirty_entities = cx.layouts.lay_dirty_entities.is_empty();
         let no_structure_dirty = !cx.topology.topo_is_structure_dirty;
         let not_empty_output_rect = !cx.outputs.out_rects.is_empty();
 
         // 構造変更がなく、スタイル変更（レイアウト変更要求）もなく、ウィンドウサイズも変わっていないなら、
         // すべてスキップして早期リターン。
-        if no_dirty_entities && no_structure_dirty && window_resized && not_empty_output_rect {
+        if no_dirty_entities && no_structure_dirty && !window_resized && not_empty_output_rect {
             #[cfg(feature = "trace-lifecycle")]
             trace_lifecycle!(None, &mut cx.debug, || MichiuTrace::Layout {
                 stage: LayoutStage::EarlyReturn(DirtyReason {
@@ -1252,12 +1254,11 @@ impl Pipeline {
             stage: RenderStage::Start,
             data: Some(Arc::new(RendererViewTrace {
                 render_data: view.render_data.clone(),
-                mask_atlas: view.mask_atlas.clone(),
-                color_atlas: view.color_atlas.clone(),
-                user_atlas: view.user_atlas.clone(),
-                text_cache: view.text_cache.clone(),
-                user_mask_cache: view.user_mask_cache.clone(),
-                queue: view.queue.clone()
+                mask_atlas: view.atlases.mask_atlas.clone(),
+                color_atlas: view.atlases.color_atlas.clone(),
+                user_atlas: view.atlases.user_atlas.clone(),
+                text_cache: view.atlases.text_cache.clone(),
+                user_mask_cache: view.atlases.user_mask_cache.clone(),
             })),
             add: None,
         });
@@ -1318,12 +1319,11 @@ impl Pipeline {
             stage: RenderStage::FirstGlyphsCache,
             data: Some(Arc::new(RendererViewTrace {
                 render_data: view.render_data.clone(),
-                mask_atlas: view.mask_atlas.clone(),
-                color_atlas: view.color_atlas.clone(),
-                user_atlas: view.user_atlas.clone(),
-                text_cache: view.text_cache.clone(),
-                user_mask_cache: view.user_mask_cache.clone(),
-                queue: view.queue.clone()
+                mask_atlas: view.atlases.mask_atlas.clone(),
+                color_atlas: view.atlases.color_atlas.clone(),
+                user_atlas: view.atlases.user_atlas.clone(),
+                text_cache: view.atlases.text_cache.clone(),
+                user_mask_cache: view.atlases.user_mask_cache.clone(),
             })),
             add: None,
         });
@@ -1353,12 +1353,11 @@ impl Pipeline {
                 stage: RenderStage::FullGlyphsCache,
                 data: Some(Arc::new(RendererViewTrace {
                     render_data: view.render_data.clone(),
-                    mask_atlas: view.mask_atlas.clone(),
-                    color_atlas: view.color_atlas.clone(),
-                    user_atlas: view.user_atlas.clone(),
-                    text_cache: view.text_cache.clone(),
-                    user_mask_cache: view.user_mask_cache.clone(),
-                    queue: view.queue.clone()
+                    mask_atlas: view.atlases.mask_atlas.clone(),
+                    color_atlas: view.atlases.color_atlas.clone(),
+                    user_atlas: view.atlases.user_atlas.clone(),
+                    text_cache: view.atlases.text_cache.clone(),
+                    user_mask_cache: view.atlases.user_mask_cache.clone(),
                 })),
                 add: Some("The fact that this is recorded means that Atlas has been cleared."),
             });
@@ -1761,12 +1760,11 @@ impl Pipeline {
             }),
             data: Some(Arc::new(RendererViewTrace {
                 render_data: view.render_data.clone(),
-                mask_atlas: view.mask_atlas.clone(),
-                color_atlas: view.color_atlas.clone(),
-                user_atlas: view.user_atlas.clone(),
-                text_cache: view.text_cache.clone(),
-                user_mask_cache: view.user_mask_cache.clone(),
-                queue: view.queue.clone()
+                mask_atlas: view.atlases.mask_atlas.clone(),
+                color_atlas: view.atlases.color_atlas.clone(),
+                user_atlas: view.atlases.user_atlas.clone(),
+                text_cache: view.atlases.text_cache.clone(),
+                user_mask_cache: view.atlases.user_mask_cache.clone(),
             })),
             add: Some("The fact that this is recorded means that Atlas has been cleared."),
         });
@@ -1793,6 +1791,136 @@ impl Pipeline {
             data: None,
             add: Some("RendererViewTrace refers to RenderStage::CollectDate.")
         });
+    }
+
+    #[track_caller]
+    #[inline]
+    pub(crate) fn build_quad_instance_for_entity(
+        cx: &mut Context,
+        e: Entity,
+        instance: &QuadInstance,
+    ) -> QuadInstance {
+        let basic = &cx
+            .layouts
+            .lay_resolved_basic
+            .find_or(e, &DEFAULT_BASIC, &mut cx.debug);
+        let _flex = &cx
+            .layouts
+            .lay_resolved_flex
+            .find_or(e, &DEFAULT_FLEX, &mut cx.debug);
+        let default_visual = VisualProperty::default();
+        let visual = cx.renders.rnd_visual.find(e).unwrap_or(&default_visual);
+
+        let origin = visual.transform_origin.map_or([0.5, 0.5], |p| [p.x, p.y]);
+        let opacity = visual.opacity.unwrap_or(1.0);
+
+        let box_sizing_val = match basic.box_sizing {
+            BoxSizing::BorderBox => 0.0f32,
+            BoxSizing::ContentBox => 1.0f32,
+        };
+
+        // 四辺個別枠線フラグの抽出
+        let border_lengths = visual.border_lengths.unwrap_or(EdgeInsets::px_all(1.0));
+        let styles = visual.border_styles.unwrap_or([BorderStyle::Solid; 4]);
+        let aligns = visual
+            .border_alignments
+            .unwrap_or([BorderAlignment::Start; 4]);
+
+        let mut border_flags = 0u32;
+        for i in 0..4 {
+            let s_val = styles[i] as u32;
+            let a_val = aligns[i] as u32;
+            border_flags |= s_val << (i * 4);
+            border_flags |= a_val << (i * 4 + 2);
+        }
+
+        let o_width = visual.outline_width.unwrap_or_default();
+        let o_color = visual.outline_color.unwrap_or_default();
+        let o_lengths = visual.outline_lengths.unwrap_or(EdgeInsets::px_all(1.0));
+        let o_offset = visual.outline_offset.unwrap_or(0.0);
+        let o_styles = visual.outline_styles.unwrap_or([BorderStyle::Solid; 4]);
+        let o_aligns = visual
+            .outline_alignments
+            .unwrap_or([BorderAlignment::Start; 4]);
+
+        let mut outline_flags = 0u32;
+        for i in 0..4 {
+            let s_val = o_styles[i] as u32;
+            let a_val = o_aligns[i] as u32;
+            outline_flags |= s_val << (i * 4);
+            outline_flags |= a_val << (i * 4 + 2);
+        }
+
+        // 影のカラーと形状の解決
+        // 元インスタンスで意図的に影が無効化されている (TRANSPARENT) 場合は上書きしない
+        let shadow_color =
+            if instance.shadow_color != Color::TRANSPARENT && visual.shadow_params.is_some() {
+                let mut color = visual.shadow_color.unwrap_or_default();
+                // DCompブレンド時の濃さの補正
+                let mut has_active_visual_parent = false;
+                let mut curr_id = e;
+                while let Some(parent_id) = *cx.topology.topo_parents.at(curr_id) {
+                    if cx
+                        .topology
+                        .topo_active_masks
+                        .at(parent_id)
+                        .has_external_visual_content()
+                        && cx.renders.rnd_active_external_visual.contains(&parent_id)
+                    {
+                        has_active_visual_parent = true;
+                        break;
+                    }
+                    curr_id = parent_id;
+                }
+                if has_active_visual_parent {
+                    color.a *= 0.45;
+                }
+                color
+            } else {
+                Color::TRANSPARENT
+            };
+
+        let shadow_params = if shadow_color == Color::TRANSPARENT {
+            [0.0; 4]
+        } else {
+            match visual.shadow_params {
+                Some(shadow) => [shadow.offset.x, shadow.offset.y, shadow.blur, shadow.spread],
+                None => [0.0; 4],
+            }
+        };
+
+        let packed_transform = instance.transform;
+
+        // モード、座標、UV は呼び出し元で既に決定されているためそのまま転送
+
+        #[expect(clippy::cast_precision_loss)]
+        QuadInstance {
+            rect: instance.rect,
+            transform: packed_transform,
+            transform_origin: origin,
+            color: instance.color,
+            corner_radius: visual.corner_radius.unwrap_or_default(),
+            border_width: instance.border_width,
+            border_color: visual.border_color.unwrap_or_default(),
+            border_lengths,
+            opacity_mode_sizing_border: [
+                opacity,
+                instance.opacity_mode_sizing_border[1], // mode (背景=0.0/1.0, テキスト=2.0, 静止WebView=3.0 等)
+                box_sizing_val,
+                border_flags as f32,
+            ],
+            uv_min: instance.uv_min,
+            uv_max: instance.uv_max,
+            gradient: instance.gradient,
+            is_color_atlas_pad: instance.is_color_atlas_pad,
+            shadow_color,
+            shadow_params,
+            outline_width: o_width,
+            outline_color: o_color,
+            outline_lengths: o_lengths,
+            outline_offset_and_flags: [o_offset, outline_flags as f32, 0.0, 0.0],
+            alpha_mode_y_flip_srgb_gamma: instance.alpha_mode_y_flip_srgb_gamma,
+        }
     }
 
     #[track_caller]
@@ -1868,9 +1996,9 @@ impl Pipeline {
 
         let root_id = cx
             .find_root()
-            .unwrap_or_trace(None, &mut cx.debug, || MichiuError::RootEntityNotFound);
+            .unwrap_or_trace(None, &mut cx.debug, || MichiuUiError::RootEntityNotFound);
 
-        let focused_id = cx.interaction_id(InteractionState::Focused);
+        let focused_id = cx.interacted_entity(InteractionState::Focused);
 
         cx.acce.send_snapshot(AccessibilitySnapshot {
             root_id: root_id.into(),
@@ -2309,7 +2437,7 @@ impl Pipeline {
             transform_origin: params.transform_origin,
             color: Color::WHITE,
             corner_radius: params.corner_radius,
-            opacity_mode_sizing: [params.opacity, 0.0, 0.0, 0.0],
+            opacity_mode_sizing_border: [params.opacity, 0.0, 0.0, 0.0],
             ..Default::default()
         };
 
@@ -2325,7 +2453,7 @@ impl Pipeline {
             corner_radius: params.corner_radius,
             border_width: params.border_width,
             border_color: params.border_color,
-            opacity_mode_sizing: [params.opacity, 0.0, 0.0, 0.0],
+            opacity_mode_sizing_border: [params.opacity, 0.0, 0.0, 0.0],
             transform_origin: params.transform_origin,
             border_lengths: params.border_lengths,
             outline_width: params.outline_width,
@@ -2351,7 +2479,7 @@ impl Pipeline {
             corner_radius: params.corner_radius,
             border_width: params.border_width,
             border_color: params.border_color,
-            opacity_mode_sizing: [params.opacity, 0.0, 0.0, 0.0],
+            opacity_mode_sizing_border: [params.opacity, 0.0, 0.0, 0.0],
             transform_origin: params.transform_origin,
             shadow_color: Color::WHITE,
             border_lengths: params.border_lengths,
@@ -2395,7 +2523,7 @@ impl Pipeline {
                 rect: sel_rect,
                 transform: params.transform,
                 color: sel_bg,
-                opacity_mode_sizing: [params.opacity, -1.0, 0.0, 0.0],
+                opacity_mode_sizing_border: [params.opacity, -1.0, 0.0, 0.0],
                 ..Default::default()
             };
             render_data.push(id, sel_instance);
@@ -2428,7 +2556,7 @@ impl Pipeline {
             border_width: params.border_width,
             border_color: params.border_color,
             border_lengths: params.border_lengths,
-            opacity_mode_sizing: [params.opacity, bg_mode, params.box_sizing_val, 0.0],
+            opacity_mode_sizing_border: [params.opacity, bg_mode, params.box_sizing_val, 0.0],
             gradient,
             shadow_color: Color::WHITE,
             shadow_params: [0.0; 4],
@@ -2484,44 +2612,37 @@ impl Pipeline {
         let metadata = mask_entry.metadata();
         let key = (metadata.cache_key, physical_w, physical_h);
 
-        let uv = if let Some(&cached_uv) = view.user_mask_cache.get(&key) {
+        let uv = if let Some(&cached_uv) = view.atlases.user_mask_cache.get(&key) {
             cached_uv
         } else {
             let image = mask_entry.resolve_mask(physical_w, physical_h);
 
             let (x, y) = view
+                .atlases
                 .user_atlas
                 .allocate(image.width, image.height)
-                .unwrap_or_trace(Some(id), debug, || MichiuError::GlyphAllocationFailed {
+                .unwrap_or_trace(Some(id), debug, || MichiuUiError::GlyphAllocationFailed {
                     width: image.width,
                     height: image.height,
-                    atlas_w: view.user_atlas.size,
-                    atlas_h: view.user_atlas.size,
+                    atlas_w: view.atlases.user_atlas.size,
+                    atlas_h: view.atlases.user_atlas.size,
                 });
 
-            view.queue.write_texture(
-                wgpu::TexelCopyTextureInfo {
-                    texture: &view.user_atlas.texture,
-                    mip_level: 0,
-                    origin: wgpu::Origin3d { x, y, z: 0 },
-                    aspect: wgpu::TextureAspect::All,
-                },
+            view.atlases.user_atlas.write_region(
+                view.queue,
+                x,
+                y,
+                image.width,
+                image.height,
                 &image.bytes,
-                wgpu::TexelCopyBufferLayout {
-                    offset: 0,
-                    bytes_per_row: Some(image.width),
-                    rows_per_image: Some(image.height),
-                },
-                wgpu::Extent3d {
-                    width: image.width,
-                    height: image.height,
-                    depth_or_array_layers: 1,
-                },
             );
 
-            let (min, max) = view.user_atlas.texel_to_uv(x, y, image.width, image.height);
+            let (min, max) = view
+                .atlases
+                .user_atlas
+                .texel_to_uv(x, y, image.width, image.height);
             let uv = [min[0], min[1], max[0], max[1]];
-            view.user_mask_cache.insert(key, uv);
+            view.atlases.user_mask_cache.insert(key, uv);
             uv
         };
 
@@ -2536,7 +2657,7 @@ impl Pipeline {
             transform: params.transform,
             transform_origin: params.transform_origin,
             color: icon_color,
-            opacity_mode_sizing: [params.opacity, 2.0, params.box_sizing_val, 0.0],
+            opacity_mode_sizing_border: [params.opacity, 2.0, params.box_sizing_val, 0.0],
             is_color_atlas_pad: [2.0, 0.0],
             uv_min,
             uv_max,
@@ -2583,7 +2704,7 @@ impl Pipeline {
                         rect: sel_rect,
                         transform: params.transform,
                         color: bg_color,
-                        opacity_mode_sizing: [params.opacity, -1.0, 0.0, 0.0],
+                        opacity_mode_sizing_border: [params.opacity, -1.0, 0.0, 0.0],
                         ..Default::default()
                     };
                     render_data.push(id, sel_instance);
@@ -2649,14 +2770,18 @@ impl Pipeline {
                     a: f32::from(c.a()) / 255.0,
                 });
 
-                let atlas_mode = if value.is_color { 0.0 } else { 1.0 };
+                let atlas_mode = if value.atlas_types == AtlasTypes::Color {
+                    0.0
+                } else {
+                    1.0
+                };
 
                 let glyph_instance = QuadInstance {
                     rect: char_rect,
                     transform: params.transform,
                     transform_origin: params.transform_origin,
                     color: char_color,
-                    opacity_mode_sizing: [params.opacity, 2.0, params.box_sizing_val, 0.0],
+                    opacity_mode_sizing_border: [params.opacity, 2.0, params.box_sizing_val, 0.0],
                     is_color_atlas_pad: [atlas_mode, 0.0],
                     uv_min: value.uv_min,
                     uv_max: value.uv_max,
@@ -2720,7 +2845,7 @@ impl Pipeline {
                         rect: st_rect,
                         transform: params.transform,
                         color: st_color,
-                        opacity_mode_sizing: [params.opacity, -1.0, 0.0, 0.0],
+                        opacity_mode_sizing_border: [params.opacity, -1.0, 0.0, 0.0],
                         ..Default::default()
                     };
                     render_data.push(id, st_instance);
@@ -2758,7 +2883,7 @@ impl Pipeline {
                                 rect: LayoutRect::new(temp_x, seg_y, seg_w, 1.0),
                                 transform: params.transform,
                                 color: ul_color,
-                                opacity_mode_sizing: [params.opacity, -1.0, 0.0, 0.0],
+                                opacity_mode_sizing_border: [params.opacity, -1.0, 0.0, 0.0],
                                 ..Default::default()
                             };
                             render_data.push(id, wave_instance);
@@ -2773,7 +2898,7 @@ impl Pipeline {
                             rect: ul_rect,
                             transform: params.transform,
                             color: ul_color,
-                            opacity_mode_sizing: [params.opacity, -1.0, 0.0, 0.0],
+                            opacity_mode_sizing_border: [params.opacity, -1.0, 0.0, 0.0],
                             ..Default::default()
                         };
                         render_data.push(id, ul_instance);
@@ -2798,7 +2923,7 @@ impl Pipeline {
         // キャレットがあるなら入力コンポーネントもあるはず
         let contents = cont_input_contents.at(id);
 
-        if !contents.should_show_caret() {
+        if !contents.caret_blink_state().is_visible() {
             return;
         }
 
@@ -2834,7 +2959,7 @@ impl Pipeline {
             rect: caret_rect,
             transform: params.transform,
             color: c_color,
-            opacity_mode_sizing: [params.opacity, -1.0, 0.0, 0.0],
+            opacity_mode_sizing_border: [params.opacity, -1.0, 0.0, 0.0],
             ..Default::default()
         };
 
@@ -2857,7 +2982,7 @@ impl Pipeline {
             border_width: params.border_width,
             border_color: params.border_color,
             border_lengths: params.border_lengths,
-            opacity_mode_sizing: [params.opacity, 0.0, params.box_sizing_val, 0.0],
+            opacity_mode_sizing_border: [params.opacity, 0.0, params.box_sizing_val, 0.0],
             outline_width: params.outline_width,
             outline_color: params.outline_color,
             outline_lengths: params.outline_lengths,
@@ -2896,7 +3021,7 @@ impl Pipeline {
             rect: params.geom.rect,
             transform: params.transform,
             corner_radius: params.corner_radius,
-            opacity_mode_sizing: [params.opacity, 4.0, 0.0, 0.0], // 外部テクスチャ
+            opacity_mode_sizing_border: [params.opacity, 4.0, 0.0, 0.0], // 外部テクスチャ
             transform_origin: params.transform_origin,
             uv_min: [0.0, 0.0],
             uv_max: [1.0, 1.0],

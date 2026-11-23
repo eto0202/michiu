@@ -1,6 +1,6 @@
 use crate::{
     MichiuIcon, PreferredAppMode, WindowHandle,
-    error::{MichiuError, Result},
+    error::{MichiuWindowError, MichiuWindowResult},
     set_app_theme,
     utils::{get_window_userdata, size_of_u32, take_window_userdata},
     win32_ext::{LParamExt, WParamExt},
@@ -108,8 +108,8 @@ impl MichiuTray {
     /// Builds and registers a new system tray icon with the OS using the validated builder parameters.
     ///
     /// # Errors
-    /// Returns [`MichiuError::TrayWindowCreationFailed`] if the internal dummy window allocation fails,
-    /// or [`MichiuError::TrayIconOperationFailed`] if registering with the OS shell fails.
+    /// Returns [`MichiuWindowError::TrayWindowCreationFailed`] if the internal dummy window allocation fails,
+    /// or [`MichiuWindowError::TrayIconOperationFailed`] if registering with the OS shell fails.
     ///
     /// # Examples
     ///
@@ -125,10 +125,11 @@ impl MichiuTray {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn build(builder: Validated<MichiuTrayBuilder>) -> Result<Self> {
+    pub fn build(builder: Validated<MichiuTrayBuilder>) -> MichiuWindowResult<Self> {
         let builder = builder.into_inner();
 
-        let hmodule = unsafe { GetModuleHandleW(None).map_err(MichiuError::UnexpectedOsError)? };
+        let hmodule =
+            unsafe { GetModuleHandleW(None).map_err(MichiuWindowError::UnexpectedOsError)? };
         let hinstance = HINSTANCE(hmodule.0);
 
         let class_name_wide: Vec<u16> = CLASS_NAME_STR.encode_utf16().chain(Some(0)).collect();
@@ -169,7 +170,7 @@ impl MichiuTray {
                 Err(err) => {
                     // 失敗時にメモリリークを防ぐため、内部データを手動で取得して破棄する。
                     let _ = Box::from_raw(internal_data);
-                    return Err(MichiuError::TrayWindowCreationFailed { source: err });
+                    return Err(MichiuWindowError::TrayWindowCreationFailed { source: err });
                 }
             }
         };
@@ -200,8 +201,8 @@ impl MichiuTray {
     /// * `text` - Up to 255 UTF-16 code units.
     ///
     /// # Errors
-    /// Returns [`MichiuError::ValidationError`] if title or text lengths exceed OS limits,
-    /// or [`MichiuError::TrayIconOperationFailed`] if sending the modify signal to the OS fails.
+    /// Returns [`MichiuWindowError::ValidationError`] if title or text lengths exceed OS limits,
+    /// or [`MichiuWindowError::TrayIconOperationFailed`] if sending the modify signal to the OS fails.
     ///
     /// # Examples
     ///
@@ -221,10 +222,10 @@ impl MichiuTray {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn show_balloon(&self, title: &str, text: &str) -> Result<()> {
+    pub fn show_balloon(&self, title: &str, text: &str) -> MichiuWindowResult<()> {
         let title_len = title.encode_utf16().count();
         if title_len >= 64 {
-            return Err(MichiuError::ValidationError {
+            return Err(MichiuWindowError::ValidationError {
                 parameter: "balloon_title",
                 message: format!(
                     "Balloon title exceeds the OS limit of 63 UTF-16 code units (current: {title_len})."
@@ -236,7 +237,7 @@ impl MichiuTray {
 
         let text_len = text.encode_utf16().count();
         if text_len >= 256 {
-            return Err(MichiuError::ValidationError {
+            return Err(MichiuWindowError::ValidationError {
                     parameter: "balloon_text",
                     message: format!("Balloon text message exceeds the OS limit of 255 UTF-16 code units (current: {text_len})." ).into(),
                 });
@@ -275,7 +276,7 @@ impl MichiuTray {
         if success.as_bool() {
             Ok(())
         } else {
-            Err(MichiuError::TrayIconOperationFailed {
+            Err(MichiuWindowError::TrayIconOperationFailed {
                 source: windows::core::Error::from_thread(),
             })
         }
@@ -377,7 +378,7 @@ unsafe extern "system" fn tray_wnd_proc(
                                 }
 
                                 Err(err) => {
-                                    let os_error = MichiuError::UnexpectedOsError(err);
+                                    let os_error = MichiuWindowError::UnexpectedOsError(err);
                                     tracing::error!(
                                         "[michiu_window] Failed to show tray popup menu. System error: {}",
                                         os_error
@@ -429,7 +430,7 @@ fn add_tray_icon(
     u_id: u32,
     icon: Option<MichiuIcon>,
     tooltip: Option<&str>,
-) -> Result<()> {
+) -> MichiuWindowResult<()> {
     let mut flags = NIF_MESSAGE;
 
     // 有効なアイコンハンドルが指定されている場合は、アイコンフラグを追加
@@ -467,7 +468,7 @@ fn add_tray_icon(
     if success.as_bool() {
         Ok(())
     } else {
-        Err(MichiuError::TrayIconOperationFailed {
+        Err(MichiuWindowError::TrayIconOperationFailed {
             source: windows::core::Error::from_thread(),
         })
     }
@@ -697,7 +698,7 @@ impl MichiuTrayBuilder {
 }
 
 impl Validate for MichiuTrayBuilder {
-    type Error = MichiuError;
+    type Error = MichiuWindowError;
 
     /// Validates tray configuration parameters.
     ///
@@ -706,12 +707,12 @@ impl Validate for MichiuTrayBuilder {
     /// 2. Tooltip length must be under 128 UTF-16 code units.
     ///
     /// # Errors
-    /// Returns [`MichiuError::ValidationError`] on failure.
+    /// Returns [`MichiuWindowError::ValidationError`] on failure.
     #[inline]
-    fn validate(self) -> Result<Self> {
+    fn validate(self) -> MichiuWindowResult<Self> {
         // アイコンの存在検証
         if self.icon.is_none() {
-            return Err(MichiuError::ValidationError {
+            return Err(MichiuWindowError::ValidationError {
                 parameter: "icon",
                 message: "A valid system tray icon must be provided.".into(),
             });
@@ -721,7 +722,7 @@ impl Validate for MichiuTrayBuilder {
         if let Some(ref tip) = self.tooltip {
             let utf16_len = tip.encode_utf16().count();
             if utf16_len >= 128 {
-                return Err(MichiuError::ValidationError {
+                return Err(MichiuWindowError::ValidationError {
                     parameter: "tooltip",
                     message: format!(
                         "Tray tooltip exceeds the OS limit of 127 UTF-16 code units (current: {utf16_len})."
@@ -740,8 +741,9 @@ fn register_tray_window_class(
     class_name: PCWSTR,
     class_name_str: &'static str,
     hinstance: HINSTANCE,
-) -> Result<()> {
-    let hcursor = unsafe { LoadCursorW(None, IDC_ARROW).map_err(MichiuError::UnexpectedOsError)? };
+) -> MichiuWindowResult<()> {
+    let hcursor =
+        unsafe { LoadCursorW(None, IDC_ARROW).map_err(MichiuWindowError::UnexpectedOsError)? };
 
     let tray_wnd_class = WNDCLASSEXW {
         cbSize: size_of_u32::<WNDCLASSEXW>(),
@@ -763,7 +765,7 @@ fn register_tray_window_class(
         let err = windows::core::Error::from_thread();
 
         if err.code() != ERROR_CLASS_ALREADY_EXISTS.to_hresult() {
-            return Err(MichiuError::ClassRegistrationFailed {
+            return Err(MichiuWindowError::ClassRegistrationFailed {
                 class_name: class_name_str.into(),
                 source: windows::core::Error::from_thread(),
             });

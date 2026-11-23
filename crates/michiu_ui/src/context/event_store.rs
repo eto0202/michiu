@@ -1,7 +1,7 @@
 use crate::{
     ActiveFocusTrigger, ByteIndex, CapacityConfig, ComponentMask, Context, DEFAULT_BASIC,
     DEFAULT_FLEX, DndStore, ElementState, Entity, EventAction, EventListeners, FocusStore,
-    InputContents, InputOp, LayoutPoint, MichiuError, MichiuString, Modifiers, MouseButton,
+    InputContents, InputOp, LayoutPoint, MichiuString, MichiuUiError, Modifiers, MouseButton,
     OptionTraceExt, Overflow, Pipeline, RenderStore, ResizeStore, ResolvedGeometry, ScrollStore,
     ScrollbarStore, SelectedRectsSparse, SelectionStartIndexSparse, SystemStore, TextEditStore,
     TextEngine, TextLayoutSize, TextSelectionsSparse, TopologyStore, UserSelect, VirtualKey,
@@ -442,7 +442,7 @@ impl EventStore {
             &cx.topology.topo_parents,
             &cx.topology.topo_flat_dfs_sequence,
         )
-        .unwrap_or_trace(None, &mut cx.debug, || MichiuError::RootEntityNotFound);
+        .unwrap_or_trace(None, &mut cx.debug, || MichiuUiError::RootEntityNotFound);
 
         let src_id = drag_state.source;
         let placeholder_id = drag_state.placeholder;

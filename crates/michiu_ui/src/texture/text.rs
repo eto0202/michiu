@@ -1,10 +1,9 @@
 use crate::{
-    ByteIndex, DebugStore, FontDate, FontStyle, LayoutPoint, LayoutRect, MichiuError, MichiuString,
-    OptionTraceExt, RendererView, TextAlign, TextSpan,
+    AtlasTypes, ByteIndex, DebugStore, FontDate, FontStyle, LayoutPoint, LayoutRect, MichiuString,
+    MichiuUiError, OptionTraceExt, RendererView, TextAlign, TextSpan,
 };
 use cosmic_text::{
-    Attrs, Buffer, CacheKey, Family, FontSystem, Metrics, Shaping, Style, SwashCache, SwashContent,
-    Weight, Wrap,
+    Attrs, Buffer, CacheKey, Family, FontSystem, Metrics, Shaping, Style, SwashCache, Weight, Wrap,
 };
 use smallvec::SmallVec;
 use std::ops::{Deref, DerefMut, Range};
@@ -69,7 +68,7 @@ pub struct TextCacheValue {
     pub offset_y: i32,
     pub width: f32,
     pub height: f32,
-    pub is_color: bool,
+    pub atlas_types: AtlasTypes,
 }
 
 impl TextCacheValue {
@@ -80,7 +79,7 @@ impl TextCacheValue {
         offset_y: 0,
         width: 0.0,
         height: 0.0,
-        is_color: false,
+        atlas_types: AtlasTypes::Mask,
     };
 }
 
@@ -393,7 +392,7 @@ impl TextEngine {
         debug: &mut DebugStore,
     ) -> (TextCacheValue, bool) {
         let key = TextCacheKey { cache_key };
-        if let Some(cached) = view.text_cache.get(&key) {
+        if let Some(cached) = view.atlases.text_cache.get(&key) {
             return (*cached, false);
         }
 
@@ -408,98 +407,48 @@ impl TextEngine {
 
         // スペース文字など、描画ピクセルを持たないグリフの早期リターン
         if width == 0 || height == 0 {
-            view.text_cache.insert(key, TextCacheValue::ZERO);
+            view.atlases.text_cache.insert(key, TextCacheValue::ZERO);
             return (TextCacheValue::ZERO, false);
         }
 
-        // カラー絵文字か通常文字かを判定
-        let is_color = matches!(image.content, SwashContent::Color);
-
         // アトラスの選択とアロケート
-        let (alloc_res, target_atlas_size) = if is_color {
-            (
-                view.color_atlas.allocate(width, height),
-                view.color_atlas.size,
-            )
-        } else {
-            (
-                view.mask_atlas.allocate(width, height),
-                view.mask_atlas.size,
-            )
-        };
+        let alloc_res = view.atlases.allocate(image.content, width, height);
+        let target_atlas_size = view.atlases.size(image.content);
 
         let mut cleared = false;
         let (x, y) = if let Some(pos) = alloc_res {
             pos
         } else {
             // どちらかが溢れたら整合性を保つため両方クリア
-            view.mask_atlas.clear();
-            view.color_atlas.clear();
-            view.text_cache.clear();
+            view.atlases.atlas_clear();
             cleared = true;
 
             // 再度アロケート
-            if is_color {
-                view.color_atlas.allocate(width, height)
-            } else {
-                view.mask_atlas.allocate(width, height)
-            }
-            .unwrap_or_trace(None, debug, || MichiuError::GlyphAllocationFailed {
-                width,
-                height,
-                atlas_w: target_atlas_size,
-                atlas_h: target_atlas_size,
-            })
+            view.atlases
+                .allocate(image.content, width, height)
+                .unwrap_or_trace(None, debug, || MichiuUiError::GlyphAllocationFailed {
+                    width,
+                    height,
+                    atlas_w: target_atlas_size,
+                    atlas_h: target_atlas_size,
+                })
         };
 
-        let (texture, bytes_per_row) = if is_color {
-            (&view.color_atlas.texture, width * 4) // 4倍（RGBA）
-        } else {
-            (&view.mask_atlas.texture, width)
-        };
-
-        view.queue.write_texture(
-            wgpu::TexelCopyTextureInfo {
-                texture,
-                mip_level: 0,
-                origin: wgpu::Origin3d { x, y, z: 0 },
-                aspect: wgpu::TextureAspect::All,
-            },
-            &image.data,
-            wgpu::TexelCopyBufferLayout {
-                offset: 0,
-                bytes_per_row: Some(bytes_per_row),
-                rows_per_image: Some(height),
-            },
-            wgpu::Extent3d {
-                width,
-                height,
-                depth_or_array_layers: 1,
-            },
-        );
-
-        let (uv_min, uv_max) = if is_color {
-            view.color_atlas.texel_to_uv(x, y, width, height)
-        } else {
-            view.mask_atlas.texel_to_uv(x, y, width, height)
-        };
-
-        let offset_x = image.placement.left;
-        let offset_y = image.placement.top;
-        let log_width = width as f32 / scale_factor;
-        let log_height = height as f32 / scale_factor;
+        view.atlases
+            .write_region(image.content, view.queue, x, y, width, height, &image.data);
+        let (uv_min, uv_max) = view.atlases.texel_to_uv(image.content, x, y, width, height);
 
         let value = TextCacheValue {
             uv_min,
             uv_max,
-            offset_x,
-            offset_y,
-            width: log_width,
-            height: log_height,
-            is_color,
+            offset_x: image.placement.left,
+            offset_y: image.placement.top,
+            width: width as f32 / scale_factor,
+            height: height as f32 / scale_factor,
+            atlas_types: image.content.into(),
         };
 
-        view.text_cache.insert(key.clone(), value);
+        view.atlases.text_cache.insert(key.clone(), value);
 
         (value, cleared)
     }
@@ -542,111 +491,5 @@ impl TextEngine {
             }
         }
         rects
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct TextureAtlas {
-    pub texture: wgpu::Texture,
-    pub view: wgpu::TextureView,
-    pub sampler: wgpu::Sampler,
-    pub size: u32,
-
-    // パッキング状態
-    pub current_x: u32,
-    pub current_y: u32,
-    pub row_max_height: u32,
-    pub padding: u32,
-}
-
-impl TextureAtlas {
-    #[inline]
-    pub(crate) fn new(device: &wgpu::Device, format: wgpu::TextureFormat, size: u32) -> Self {
-        let texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("Texture Atlas"),
-            size: wgpu::Extent3d {
-                width: size,
-                height: size,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-            view_formats: &[],
-        });
-
-        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-
-        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            address_mode_u: wgpu::AddressMode::ClampToEdge,
-            address_mode_v: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Linear,
-            ..Default::default()
-        });
-
-        Self {
-            texture,
-            view,
-            sampler,
-            size,
-            current_x: 0,
-            current_y: 0,
-            row_max_height: 0,
-            padding: 2, // 滲み防止用の余白
-        }
-    }
-
-    /// 新しい要素のための領域をアトラス上に確保し、座標を返す
-    pub(crate) fn allocate(&mut self, width: u32, height: u32) -> Option<(u32, u32)> {
-        let padded_w = width + self.padding;
-        let padded_h = height + self.padding;
-
-        // 横幅が足りない場合は次の段へ
-        if self.current_x + padded_w > self.size {
-            self.current_x = 0;
-            self.current_y += self.row_max_height;
-            self.row_max_height = 0;
-        }
-
-        // 縦幅が足りない場合は失敗（アトラス溢れ）
-        if self.current_y + padded_h > self.size {
-            return None;
-        }
-
-        let x = self.current_x;
-        let y = self.current_y;
-
-        // 状態更新
-        self.current_x += padded_w;
-        self.row_max_height = self.row_max_height.max(padded_h);
-
-        Some((x, y))
-    }
-
-    #[inline]
-    pub(crate) fn clear(&mut self) {
-        self.current_x = 0;
-        self.current_y = 0;
-        self.row_max_height = 0;
-    }
-
-    /// ピクセル座標を NDC (0.0 ~ 1.0) の UV 座標に変換する
-    #[expect(clippy::cast_precision_loss)]
-    #[inline]
-    pub(crate) fn texel_to_uv(
-        &self,
-        x: u32,
-        y: u32,
-        width: u32,
-        height: u32,
-    ) -> ([f32; 2], [f32; 2]) {
-        let s = self.size as f32;
-        (
-            [x as f32 / s, y as f32 / s],
-            [(x + width) as f32 / s, (y + height) as f32 / s],
-        )
     }
 }

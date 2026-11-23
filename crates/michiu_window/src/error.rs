@@ -25,7 +25,7 @@ use windows::Win32::Foundation::HWND;
 /// Most variants contain a `source` field which is a `windows::core::Error`.
 /// You can extract the `HRESULT` or the localized system message from it.
 #[derive(Error, Debug, Clone, PartialEq, Eq)]
-pub enum MichiuError {
+pub enum MichiuWindowError {
     /// Failed to register a window class via `RegisterClassExW`.
     #[error("Failed to register window class '{class_name}'. System error: {source}")]
     ClassRegistrationFailed {
@@ -160,18 +160,18 @@ pub enum MichiuError {
 
 // windows::core::Error internally owns immutable HRESULT/message data.
 // It is safe to transfer across threads.
-unsafe impl Send for MichiuError {}
-unsafe impl Sync for MichiuError {}
+unsafe impl Send for MichiuWindowError {}
+unsafe impl Sync for MichiuWindowError {}
 
 /// A specialized Type Alias representing the result of any `michiu_window` operation.
-pub type Result<T> = std::result::Result<T, MichiuError>;
+pub type MichiuWindowResult<T> = std::result::Result<T, MichiuWindowError>;
 
 /// A wrapper format designed to print a rich, easy-to-read troubleshooting report.
 ///
 /// When printed using standard `{}` formatting, it prints the base error message,
 /// followed by raw OS HRESULT codes (with common explanations) and helpful remedy advice.
 #[derive(Error, Debug, Clone, PartialEq, Eq)]
-pub struct RichReport<'a>(&'a MichiuError);
+pub struct RichReport<'a>(&'a MichiuWindowError);
 
 impl fmt::Display for RichReport<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -220,7 +220,7 @@ impl fmt::Display for SysErrorInfo {
     }
 }
 
-impl MichiuError {
+impl MichiuWindowError {
     /// Wraps this error in a helper type designed to render a beautiful diagnostic report.
     #[must_use]
     #[inline]
@@ -399,7 +399,7 @@ mod tests {
         // テスト対象のエラーを生成
         let raw_os_error =
             WinError::new(HRESULT(0x8007_0005_u32.cast_signed()), "Access is denied.");
-        let err = MichiuError::WindowCreationFailed {
+        let err = MichiuWindowError::WindowCreationFailed {
             title: Cow::Borrowed("MainWindow"),
             class_name: Cow::Borrowed("MichiuWindowClass_0.1.0"),
             source: raw_os_error,
@@ -433,7 +433,7 @@ mod tests {
         let raw_os_error =
             WinError::new(HRESULT(0x8007_0005_u32.cast_signed()), "Access is denied.");
 
-        let err = MichiuError::WindowCreationFailed {
+        let err = MichiuWindowError::WindowCreationFailed {
             title: Cow::Borrowed("MainWindow"),
             class_name: Cow::Borrowed("MichiuWindowClass_0.1.0"),
             source: raw_os_error,
@@ -463,7 +463,7 @@ mod tests {
     #[test]
     fn test_error_remedy_hinii() {
         // バリデーションエラーにおける remedy の分岐を検証
-        let err_transparent = MichiuError::ValidationError {
+        let err_transparent = MichiuWindowError::ValidationError {
             parameter: "transparent",
             message: Cow::Borrowed("Contradicting decorations"),
         };
@@ -477,7 +477,7 @@ mod tests {
         );
 
         // 未知のパラメータに対するデフォルトの remedy
-        let err_unknown = MichiuError::ValidationError {
+        let err_unknown = MichiuWindowError::ValidationError {
             parameter: "unknown_param",
             message: Cow::Borrowed("generic"),
         };
@@ -496,7 +496,7 @@ mod tests {
             HRESULT(0x8004_01F0_u32.cast_signed()),
             "CoInitialize has not been called.",
         );
-        let err = MichiuError::UnexpectedOsError(win_err);
+        let err = MichiuWindowError::UnexpectedOsError(win_err);
 
         let sys_info = err.sys_error_info();
         assert!(sys_info.is_some());

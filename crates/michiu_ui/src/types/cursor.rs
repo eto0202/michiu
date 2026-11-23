@@ -1,4 +1,4 @@
-use crate::MichiuError;
+use crate::MichiuUiError;
 use windows::Win32::{
     Graphics::Gdi::{
         BITMAPINFO, BITMAPINFOHEADER, CreateBitmap, CreateDIBSection, DIB_RGB_COLORS, DeleteObject,
@@ -55,9 +55,9 @@ impl CursorIcon {
     ///
     /// # Errors
     ///
-    /// Returns [`MichiuError::WindowsApiError`]:
+    /// Returns [`MichiuUiError::WindowsApiError`]:
     /// - If failed to load the cursor via `LoadCursorW` (e.g., resource not found or system error).
-    pub fn to_hcursor(self) -> crate::Result<HCURSOR> {
+    pub fn to_hcursor(self) -> crate::MichiuUiResult<HCURSOR> {
         use windows::Win32::UI::WindowsAndMessaging::{
             IDC_ARROW, IDC_HAND, IDC_IBEAM, IDC_NO, IDC_SIZEALL, IDC_SIZENESW, IDC_SIZENS,
             IDC_SIZENWSE, IDC_SIZEWE, LoadCursorW,
@@ -115,7 +115,7 @@ impl CursorIcon {
                 CursorIcon::ResizeNwse(None) => IDC_SIZENWSE,
             };
 
-            LoadCursorW(None, idc).map_err(|e| MichiuError::WindowsApiError { source: e })
+            LoadCursorW(None, idc).map_err(|e| MichiuUiError::WindowsApiError { source: e })
         }
     }
 
@@ -123,7 +123,7 @@ impl CursorIcon {
     ///
     /// # Errors
     ///
-    /// Returns [`MichiuError::CursorCreationFailed`]:
+    /// Returns [`MichiuUiError::CursorCreationFailed`]:
     /// - If the length of `rgba_pixels` does not match the expected size (`width * height * 4`).
     /// - If the underlying Windows API fails to allocate resources or create the icon (e.g. `CreateDIBSection`, `CreateIconIndirect`).
     /// # Arguments
@@ -157,10 +157,10 @@ impl CursorIcon {
         height: u32,
         hotspot_x: u32,
         hotspot_y: u32,
-    ) -> crate::Result<HCURSOR> {
+    ) -> crate::MichiuUiResult<HCURSOR> {
         let len = rgba_pixels.len();
         if len != (width * height * 4) as usize {
-            return Err(MichiuError::CursorCreationFailed(
+            return Err(MichiuUiError::CursorCreationFailed(
                 "The pixel buffer size ({len}) does not match the resolution ({width} * {height} * 4)."
                     .into()
             ));
@@ -169,7 +169,7 @@ impl CursorIcon {
         unsafe {
             let h_dc = GetDC(None);
             if h_dc.is_invalid() {
-                return Err(MichiuError::CursorCreationFailed(
+                return Err(MichiuUiError::CursorCreationFailed(
                     "Failed to obtain device context (DC).".into(),
                 ));
             }
@@ -198,13 +198,13 @@ impl CursorIcon {
                 0,
             )
             .map_err(|e| {
-                MichiuError::CursorCreationFailed(format!("Failed to create DIBSection.: {e}"))
+                MichiuUiError::CursorCreationFailed(format!("Failed to create DIBSection.: {e}"))
             })?;
 
             if pv_bits.is_null() {
                 let _ = ReleaseDC(None, h_dc);
                 let _ = DeleteObject(HGDIOBJ(hbm_color.0));
-                return Err(MichiuError::CursorCreationFailed(
+                return Err(MichiuUiError::CursorCreationFailed(
                     "DIBSection memory allocation failed.".into(),
                 ));
             }
@@ -230,7 +230,7 @@ impl CursorIcon {
             };
 
             let h_icon = CreateIconIndirect(&raw const icon_info).map_err(|e| {
-                MichiuError::CursorCreationFailed(format!("IconIndirect generation failed.: {e}"))
+                MichiuUiError::CursorCreationFailed(format!("IconIndirect generation failed.: {e}"))
             })?;
             let h_cursor = HCURSOR(h_icon.0);
 

@@ -1,4 +1,4 @@
-use crate::{MichiuError, PhysicalPoint};
+use crate::{MichiuWindowError, PhysicalPoint};
 #[cfg(any(feature = "serde", docsrs))]
 use serde as _;
 use std::{
@@ -44,7 +44,7 @@ impl ImeContext {
     /// Attempts to acquire the IME context (HIMC) for the specified window handle.
     ///
     /// # Errors
-    /// Returns [`MichiuError::ImeContextAcquisitionFailed`] if the window handle is invalid
+    /// Returns [`MichiuWindowError::ImeContextAcquisitionFailed`] if the window handle is invalid
     /// or if the OS fails to allocate an IME context for this window.
     ///
     /// # Examples
@@ -59,10 +59,10 @@ impl ImeContext {
     /// # }
     /// ```
     #[inline]
-    pub fn new(hwnd: HWND) -> crate::Result<Self> {
+    pub fn new(hwnd: HWND) -> crate::MichiuWindowResult<Self> {
         let himc = unsafe { ImmGetContext(hwnd) };
         if himc.is_invalid() {
-            Err(MichiuError::ImeContextAcquisitionFailed { hwnd })
+            Err(MichiuWindowError::ImeContextAcquisitionFailed { hwnd })
         } else {
             Ok(Self { hwnd, himc })
         }
@@ -122,9 +122,9 @@ impl ImeContext {
     /// Returns `Ok(None)` if there is no active composition string.
     ///
     /// # Errors
-    /// Returns [`MichiuError::ImeStringQueryFailed`] if querying the OS buffer fails.
+    /// Returns [`MichiuWindowError::ImeStringQueryFailed`] if querying the OS buffer fails.
     #[inline]
-    pub fn get_composition_string(&self) -> crate::Result<Option<String>> {
+    pub fn get_composition_string(&self) -> crate::MichiuWindowResult<Option<String>> {
         self.get_string(GCS_COMPSTR)
     }
 
@@ -133,9 +133,9 @@ impl ImeContext {
     /// Returns `Ok(None)` if there is no result string currently available.
     ///
     /// # Errors
-    /// Returns [`MichiuError::ImeStringQueryFailed`] if querying the OS buffer fails.
+    /// Returns [`MichiuWindowError::ImeStringQueryFailed`] if querying the OS buffer fails.
     #[inline]
-    pub fn get_result_string(&self) -> crate::Result<Option<String>> {
+    pub fn get_result_string(&self) -> crate::MichiuWindowResult<Option<String>> {
         self.get_string(GCS_RESULTSTR)
     }
 
@@ -175,7 +175,10 @@ impl ImeContext {
     }
 
     // 動的なIMEバッファサイズをクエリしてStringに変換
-    fn get_string(&self, index: IME_COMPOSITION_STRING) -> crate::Result<Option<String>> {
+    fn get_string(
+        &self,
+        index: IME_COMPOSITION_STRING,
+    ) -> crate::MichiuWindowResult<Option<String>> {
         unsafe {
             // 第一引数に None を渡すことで、必要なバッファサイズをクエリする
             let size_bytes = ImmGetCompositionStringW(self.himc, index, None, 0);
@@ -184,7 +187,7 @@ impl ImeContext {
             }
 
             if size_bytes == IMM_ERROR_GENERAL {
-                return Err(MichiuError::ImeStringQueryFailed {
+                return Err(MichiuWindowError::ImeStringQueryFailed {
                     index: index.0,
                     source: windows::core::Error::from_thread(),
                 });
@@ -196,14 +199,15 @@ impl ImeContext {
 
             // バッファサイズ (u16の要素数) を、万が一の奇数バイト報告に備えて安全に切り上げて確保
             // 直前のチェックで size_bytes > 0 が保証されてる
-            let size_bytes = usize::try_from(size_bytes)
-                .map_err(|_| MichiuError::Internal("failed to convert size_bytes to usize"))?;
+            let size_bytes = usize::try_from(size_bytes).map_err(|_| {
+                MichiuWindowError::Internal("failed to convert size_bytes to usize")
+            })?;
             let u16_count = size_bytes.div_ceil(2);
             let mut buf = vec![0u16; u16_count];
 
             // 確保されたバッファの実際のバイト長を第4引数に渡す
             let buffer_capacity_bytes = u32::try_from(std::mem::size_of_val(&buf[..]))
-                .map_err(|_| MichiuError::Internal("buffer capacity exceeded u32"))?;
+                .map_err(|_| MichiuWindowError::Internal("buffer capacity exceeded u32"))?;
 
             let res_bytes = ImmGetCompositionStringW(
                 self.himc,
@@ -632,7 +636,7 @@ mod tests {
         assert!(
             matches!(
                 result.unwrap_err(),
-                MichiuError::ImeContextAcquisitionFailed { .. }
+                MichiuWindowError::ImeContextAcquisitionFailed { .. }
             ),
             "Expected ImeContextAcquisitionFailed error"
         );

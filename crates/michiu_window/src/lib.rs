@@ -327,9 +327,9 @@ pub use window::*;
 pub mod prelude {
     pub use crate::{
         LogicalPoint, LogicalRect, LogicalSize, MichiuAnyEvent, MichiuComContext,
-        MichiuCustomTrayMenu, MichiuError, MichiuEvent, MichiuEventBus, MichiuEventPump,
-        MichiuEventSender, MichiuIcon, MichiuRawEvent, MichiuTray, MichiuTrayBuilder,
-        MichiuTrayMenuItem, MichiuWindow, MichiuWindowBuilder, PhysicalPoint, PhysicalRect,
+        MichiuCustomTrayMenu, MichiuEvent, MichiuEventBus, MichiuEventPump, MichiuEventSender,
+        MichiuIcon, MichiuRawEvent, MichiuTray, MichiuTrayBuilder, MichiuTrayMenuItem,
+        MichiuWindow, MichiuWindowBuilder, MichiuWindowError, PhysicalPoint, PhysicalRect,
         PhysicalSize, PreferredAppMode, RawSubclassProc, WheelDelta, WindowHandle, WindowId,
         win32_ext::*,
     };

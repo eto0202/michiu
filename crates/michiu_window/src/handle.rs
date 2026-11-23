@@ -1,7 +1,7 @@
 use crate::{
     CursorIcon, FileDialog, FileDialogOptions, MichiuEventSender, PhysicalPoint, PhysicalSize,
     PreferredAppMode, WindowId, WindowState, ZOrder, enable_dark_mode_titlebar,
-    error::{MichiuError, Result},
+    error::{MichiuWindowError, MichiuWindowResult},
     is_system_dark_mode, set_app_theme,
 };
 use michiu_guard::Validate;
@@ -84,7 +84,7 @@ pub(crate) enum SetWindowCommand {
     FileDialog {
         kinds: FileDialogKinds,
         hwnd: Option<HWND>,
-        response_sender: Sender<Result<Option<PathBuf>>>,
+        response_sender: Sender<MichiuWindowResult<Option<PathBuf>>>,
     },
 }
 
@@ -112,14 +112,14 @@ impl WindowHandle {
     /// Assures that the current thread is the UI thread.
     ///
     /// # Errors
-    /// Returns [`MichiuError::ThreadMismatch`] if called from a foreign thread.
+    /// Returns [`MichiuWindowError::ThreadMismatch`] if called from a foreign thread.
     #[inline]
-    pub fn assert_ui_thread(&self) -> Result<()> {
+    pub fn assert_ui_thread(&self) -> MichiuWindowResult<()> {
         let current_tid = unsafe { GetCurrentThreadId() };
         if self.thread_id == current_tid {
             Ok(())
         } else {
-            Err(MichiuError::ThreadMismatch {
+            Err(MichiuWindowError::ThreadMismatch {
                 expected: self.thread_id,
                 actual: current_tid,
             })
@@ -362,7 +362,7 @@ impl WindowHandle {
     /// # Errors
     /// Returns an error if the clipboard cannot be opened or if the data format is invalid.
     #[inline]
-    pub fn get_clipboard_text(&self) -> Result<String> {
+    pub fn get_clipboard_text(&self) -> MichiuWindowResult<String> {
         // クリップボード読み出し自体はOSレベルでどのスレッドから呼んでも安全なので、
         // メッセージループを介さずその場で同期実行して返す。
         crate::get_clipboard_text_impl(self.hwnd)
@@ -482,12 +482,12 @@ impl WindowHandle {
     ///
     /// # Errors
     ///
-    /// Returns [`MichiuError`]:
+    /// Returns [`MichiuWindowError`]:
     /// - If `CoInitializeEx` has not been called on the calling thread (`CO_E_NOTINITIALIZED`).
     /// - If the operating system fails to instantiate or display the dialog.
     /// - If the selected file path contains invalid characters and cannot be converted.
     #[inline]
-    pub fn open_file_dialog(&self, owner: FileDialog) -> Result<Option<PathBuf>> {
+    pub fn open_file_dialog(&self, owner: FileDialog) -> MichiuWindowResult<Option<PathBuf>> {
         let hwnd = match owner {
             FileDialog::ThisWindow => Some(self.hwnd),
             FileDialog::None => None,
@@ -503,7 +503,7 @@ impl WindowHandle {
             });
 
             rx.recv()
-                .map_err(|e| MichiuError::UiDisconnected { source: e })?
+                .map_err(|e| MichiuWindowError::UiDisconnected { source: e })?
         }
     }
 
@@ -511,7 +511,7 @@ impl WindowHandle {
     ///
     /// # Errors
     ///
-    /// Returns [`MichiuError`]:
+    /// Returns [`MichiuWindowError`]:
     /// - If `CoInitializeEx` has not been called on the calling thread (`CO_E_NOTINITIALIZED`).
     /// - If the specified filter string (`FileFilter`) is empty or malformed (`E_INVALIDARG`).
     /// - If `IFileSaveDialog` creation fails due to insufficient memory or system limitations.
@@ -521,7 +521,7 @@ impl WindowHandle {
         &self,
         owner: FileDialog,
         options: FileDialogOptions,
-    ) -> Result<Option<PathBuf>> {
+    ) -> MichiuWindowResult<Option<PathBuf>> {
         let hwnd = match owner {
             FileDialog::ThisWindow => Some(self.hwnd),
             FileDialog::None => None,
@@ -537,7 +537,7 @@ impl WindowHandle {
             });
 
             rx.recv()
-                .map_err(|e| MichiuError::UiDisconnected { source: e })?
+                .map_err(|e| MichiuWindowError::UiDisconnected { source: e })?
         }
     }
 
@@ -663,7 +663,7 @@ impl WindowHandle {
     /// to the UI thread asynchronously.
     ///
     /// Once the window is destroyed, all cloned `WindowHandle` instances referencing this window
-    /// will fail validation (returning [`MichiuError::InvalidHandleState`]), preventing zombie access.
+    /// will fail validation (returning [`MichiuWindowError::InvalidHandleState`]), preventing zombie access.
     ///
     /// # Examples
     ///
@@ -735,7 +735,7 @@ impl WindowHandle {
     ///
     /// # Errors
     ///
-    /// Returns [`MichiuError::UnexpectedOsError`] if `DwmFlush` fails.
+    /// Returns [`MichiuWindowError::UnexpectedOsError`] if `DwmFlush` fails.
     ///
     /// This typically happens when the Desktop Window Manager (DWM) is temporarily unavailable (e.g., screen lock, UAC prompt, RDP session)
     /// or when the GPU driver restarts.
@@ -746,9 +746,9 @@ impl WindowHandle {
     /// it is usually safe to **ignore this error** (or log a warning) and continue the render loop.
     /// The error is often transient, resulting only in a single dropped or skipped frame rather than a permanent failure.
     #[inline]
-    pub fn dwm_flush(&self) -> Result<()> {
+    pub fn dwm_flush(&self) -> MichiuWindowResult<()> {
         if self.is_on_ui_thread() {
-            unsafe { DwmFlush().map_err(MichiuError::UnexpectedOsError) }
+            unsafe { DwmFlush().map_err(MichiuWindowError::UnexpectedOsError) }
         } else {
             self.post_command(SetWindowCommand::DwmFlush);
             Ok(())
@@ -814,7 +814,7 @@ impl WindowHandle {
 }
 
 impl Validate for WindowHandle {
-    type Error = MichiuError;
+    type Error = MichiuWindowError;
 
     /// Validates whether the window is still alive and belongs to the current process.
     ///
@@ -823,8 +823,8 @@ impl Validate for WindowHandle {
     /// 2. If the window's owner Process ID (PID) matches the current process's PID (detects recycled HWNDs).
     ///
     /// # Errors
-    /// Returns [`MichiuError::InvalidHandleState`] if the window was already destroyed,
-    /// or [`MichiuError::ValidationError`] if the handle was recycled by another process.
+    /// Returns [`MichiuWindowError::InvalidHandleState`] if the window was already destroyed,
+    /// or [`MichiuWindowError::ValidationError`] if the handle was recycled by another process.
     ///
     /// # Examples
     ///
@@ -841,10 +841,10 @@ impl Validate for WindowHandle {
     /// # }
     /// ```
     #[inline]
-    fn validate(self) -> Result<Self> {
+    fn validate(self) -> MichiuWindowResult<Self> {
         let is_alive = unsafe { IsWindow(Some(self.hwnd)).as_bool() };
         if !is_alive {
-            return Err(MichiuError::InvalidHandleState {
+            return Err(MichiuWindowError::InvalidHandleState {
                 reason: "The window has already been destroyed or closed on the OS side.",
             });
         }
@@ -854,7 +854,7 @@ impl Validate for WindowHandle {
 
         let current_pid = unsafe { GetCurrentProcessId() };
         if process_id != current_pid {
-            return Err(MichiuError::ValidationError {
+            return Err(MichiuWindowError::ValidationError {
                 parameter: "WindowHandle",
                 message: "Window handle has been recycled by another process.".into(),
             });

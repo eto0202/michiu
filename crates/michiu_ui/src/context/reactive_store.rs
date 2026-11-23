@@ -165,16 +165,16 @@ impl ReactiveStore {
     #[track_caller]
     #[inline]
     pub(crate) fn use_provided_setter_from<T: Send + 'static>(
-        id: Entity,
+        e: Entity,
         react_providers: &ProvidersSparseSecondary,
         topo_parents: &ParentsSecondary,
     ) -> Option<WriteSignal<T>> {
         let type_id = std::any::TypeId::of::<T>();
 
         // 親要素へ遡るイテレータを生成
-        std::iter::successors(Some(id), |&curr_id| *topo_parents.at(curr_id)).find_map(|curr_id| {
+        std::iter::successors(Some(e), |&curr_e| *topo_parents.at(curr_e)).find_map(|curr_e| {
             react_providers
-                .find(curr_id)
+                .find(curr_e)
                 .and_then(|map| map.get(&type_id))
                 .map(|&signal_id| WriteSignal::new(signal_id))
         })

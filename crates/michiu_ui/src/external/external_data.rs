@@ -1,4 +1,4 @@
-use crate::{Context, MichiuError, ReadSignal};
+use crate::{Context, MichiuUiError, ReadSignal};
 use notify::Watcher;
 use std::{
     borrow::Cow,
@@ -45,22 +45,25 @@ impl<L: ExternalData> DataWatcher<L> {
     /// # Errors
     ///
     /// Returns an error if monitoring setup fails:
-    /// - [`MichiuError::CanonicalizeFailed`]:
+    /// - [`MichiuUiError::CanonicalizeFailed`]:
     ///     - The `path` does not exist.
     ///     - A component in the `path` prefix is not a directory.
-    /// - [`MichiuError::ReadStringFailed`]:
+    /// - [`MichiuUiError::ReadStringFailed`]:
     ///     - Failed to read the file (e.g., lack of permissions or the path is a directory).
     ///     - The file content is not valid UTF-8.
     /// - [`ExternalData::load`] fails to parse or construct the initial data.
-    /// - [`MichiuError::WatcherInitFailed`]:
+    /// - [`MichiuUiError::WatcherInitFailed`]:
     ///     - Failed to initialize the OS file-watching backend (e.g., system resource exhaustion).
-    /// - [`MichiuError::WatchTargetFailed`]:
+    /// - [`MichiuUiError::WatchTargetFailed`]:
     ///     - Permission denied to access or monitor the target path.
     ///     - The OS limit for monitored files has been exceeded.
     ///     - The target path does not exist, or another OS I/O error occurred.
-    pub fn watch(self, cx: &mut Context) -> crate::Result<(ReadSignal<L::Output>, DataWatchGuard)> {
+    pub fn watch(
+        self,
+        cx: &mut Context,
+    ) -> crate::MichiuUiResult<(ReadSignal<L::Output>, DataWatchGuard)> {
         let raw_path =
-            std::fs::canonicalize(&self.path).map_err(|e| MichiuError::CanonicalizeFailed {
+            std::fs::canonicalize(&self.path).map_err(|e| MichiuUiError::CanonicalizeFailed {
                 path: self.path.clone(),
                 source: Arc::new(e),
             })?;
@@ -69,7 +72,7 @@ impl<L: ExternalData> DataWatcher<L> {
 
         // 初期ロード
         let content =
-            std::fs::read_to_string(&path).map_err(|e| MichiuError::ReadStringFailed {
+            std::fs::read_to_string(&path).map_err(|e| MichiuUiError::ReadStringFailed {
                 path: path.clone(),
                 source: Arc::new(e),
             })?;
@@ -136,7 +139,7 @@ impl<L: ExternalData> DataWatcher<L> {
                     }
                 }
             })
-            .map_err(|e| MichiuError::WatcherInitFailed {
+            .map_err(|e| MichiuUiError::WatcherInitFailed {
                 source: Arc::new(e),
             })?;
 
@@ -147,7 +150,7 @@ impl<L: ExternalData> DataWatcher<L> {
 
         watcher
             .watch(parent_dir, notify::RecursiveMode::NonRecursive)
-            .map_err(|e| MichiuError::WatchTargetFailed {
+            .map_err(|e| MichiuUiError::WatchTargetFailed {
                 path: parent_dir.to_path_buf(),
                 source: Arc::new(e),
             })?;
@@ -168,22 +171,23 @@ pub trait ExternalData: Send + Sync + 'static {
     /// Implementations should return an error if:
     /// - The `content` cannot be parsed or deserialized into [`Self::Output`].
     /// - The data validation or construction fails.
-    fn load(&self, path: &Path, content: &str) -> crate::Result<Self::Output>;
+    fn load(&self, path: &Path, content: &str) -> crate::MichiuUiResult<Self::Output>;
 
     /// Static loading (no monitoring).
     /// # Errors
     ///
     /// Returns an error if:
-    /// - [`MichiuError::ReadStringFailed`]:
+    /// - [`MichiuUiError::ReadStringFailed`]:
     ///     - Failed to read the file (e.g., lack of permissions or the path is a directory).
     ///     - The file content is not valid UTF-8.
     /// - [`Self::load`] fails to parse or construct the data.
-    fn load_file(&self, path: impl AsRef<Path>) -> crate::Result<Self::Output> {
+    fn load_file(&self, path: impl AsRef<Path>) -> crate::MichiuUiResult<Self::Output> {
         let path = path.as_ref();
-        let content = std::fs::read_to_string(path).map_err(|e| MichiuError::ReadStringFailed {
-            path: path.to_path_buf(),
-            source: Arc::new(e),
-        })?;
+        let content =
+            std::fs::read_to_string(path).map_err(|e| MichiuUiError::ReadStringFailed {
+                path: path.to_path_buf(),
+                source: Arc::new(e),
+            })?;
         self.load(path, &content)
     }
 
@@ -274,30 +278,30 @@ impl<L: ExternalData> ExternalDataSetBuilder<L> {
     /// # Errors
     ///
     /// Returns an error if monitoring setup fails:
-    /// - [`MichiuError::CanonicalizeFailed`]:
+    /// - [`MichiuUiError::CanonicalizeFailed`]:
     ///     - The `path` does not exist.
     ///     - A component in the `path` prefix is not a directory.
-    /// - [`MichiuError::ReadStringFailed`]:
+    /// - [`MichiuUiError::ReadStringFailed`]:
     ///     - Failed to read the file (e.g., lack of permissions or the path is a directory).
     ///     - The file content is not valid UTF-8.
     /// - [`ExternalData::load`] fails to parse or construct the initial data.
-    /// - [`MichiuError::WatcherInitFailed`]:
+    /// - [`MichiuUiError::WatcherInitFailed`]:
     ///     - Failed to initialize the OS file-watching backend (e.g., system resource exhaustion).
-    /// - [`MichiuError::WatchTargetFailed`]:
+    /// - [`MichiuUiError::WatchTargetFailed`]:
     ///     - Permission denied to access or monitor the target path.
     ///     - The OS limit for monitored files has been exceeded.
     ///     - The target path does not exist, or another OS I/O error occurred.
     pub fn watch(
         self,
         cx: &mut Context,
-    ) -> crate::Result<(ReadSignal<ExternalDataSet<L::Output>>, DataWatchGuard)> {
+    ) -> crate::MichiuUiResult<(ReadSignal<ExternalDataSet<L::Output>>, DataWatchGuard)> {
         let mut initial_set = ExternalDataSet::new();
 
         let mut watch_targets = Vec::with_capacity(self.entries.len());
 
         for entry in self.entries {
             let raw_path = std::fs::canonicalize(&entry.path).map_err(|e| {
-                MichiuError::CanonicalizeFailed {
+                MichiuUiError::CanonicalizeFailed {
                     path: entry.path.clone(),
                     source: Arc::new(e),
                 }
@@ -306,7 +310,7 @@ impl<L: ExternalData> ExternalDataSetBuilder<L> {
 
             // 初期同期ロード
             let content = std::fs::read_to_string(&clean_path).map_err(|e| {
-                MichiuError::ReadStringFailed {
+                MichiuUiError::ReadStringFailed {
                     path: clean_path.clone(),
                     source: Arc::new(e),
                 }
@@ -388,7 +392,7 @@ impl<L: ExternalData> ExternalDataSetBuilder<L> {
                     }
                 }
             })
-            .map_err(|e| MichiuError::WatcherInitFailed {
+            .map_err(|e| MichiuUiError::WatcherInitFailed {
                 source: Arc::new(e),
             })?;
 
@@ -398,7 +402,7 @@ impl<L: ExternalData> ExternalDataSetBuilder<L> {
             if watched_dirs.insert(&target.parent_dir) {
                 watcher
                     .watch(&target.parent_dir, notify::RecursiveMode::NonRecursive)
-                    .map_err(|e| MichiuError::WatchTargetFailed {
+                    .map_err(|e| MichiuUiError::WatchTargetFailed {
                         path: target.parent_dir.clone(),
                         source: Arc::new(e),
                     })?;

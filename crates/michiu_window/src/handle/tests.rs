@@ -65,7 +65,7 @@ fn test_handle_thread_affinity_checks() {
             assert!(assert_result.is_err());
             assert!(matches!(
                 assert_result.unwrap_err(),
-                MichiuError::ThreadMismatch { .. }
+                MichiuWindowError::ThreadMismatch { .. }
             ));
         });
         thread_handle.join().unwrap();
@@ -82,7 +82,7 @@ fn test_handle_validation_scenarios() {
         let window = MichiuWindow::build(builder.validate_into().unwrap()).unwrap();
         let handle = window.handle();
 
-        let val_res: Result<Validated<WindowHandle>> = handle.clone().try_into();
+        let val_res: MichiuWindowResult<Validated<WindowHandle>> = handle.clone().try_into();
         assert!(
             val_res.is_ok(),
             "Validation of alive window handle should succeed"
@@ -104,7 +104,7 @@ fn test_handle_validation_scenarios() {
         );
         assert!(matches!(
             val_res_zombie.unwrap_err(),
-            MichiuError::InvalidHandleState { .. }
+            MichiuWindowError::InvalidHandleState { .. }
         ));
 
         // 異常（他プロセスのHWND再利用検知）
@@ -122,7 +122,7 @@ fn test_handle_validation_scenarios() {
             "Validation must fail for window owned by another PID"
         );
         match val_res_foreign.unwrap_err() {
-            MichiuError::ValidationError { parameter, message } => {
+            MichiuWindowError::ValidationError { parameter, message } => {
                 assert_eq!(parameter, "WindowHandle");
                 assert!(message.contains("recycled by another process"));
             }
@@ -291,7 +291,7 @@ fn test_handle_asynchronous_destroy_and_zombie_validation() {
         );
 
         // 破棄されたあとのハンドルは、バリデーションでゾンビを即座に検知してエラーを返すことを確認
-        let validation_res: Result<Validated<WindowHandle>> =
+        let validation_res: MichiuWindowResult<Validated<WindowHandle>> =
             Unvalidated::new(handle.into_inner()).try_into();
         assert!(
             validation_res.is_err(),
@@ -300,7 +300,7 @@ fn test_handle_asynchronous_destroy_and_zombie_validation() {
         assert!(
             matches!(
                 validation_res.unwrap_err(),
-                MichiuError::InvalidHandleState { .. }
+                MichiuWindowError::InvalidHandleState { .. }
             ),
             "Expected InvalidHandleState error"
         );

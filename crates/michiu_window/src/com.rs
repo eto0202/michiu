@@ -1,4 +1,4 @@
-use crate::error::{MichiuError, Result};
+use crate::error::{MichiuWindowError, MichiuWindowResult};
 use std::marker::PhantomData;
 use windows::Win32::System::{
     Com::{COINIT, COINIT_MULTITHREADED, CoInitializeEx, CoUninitialize},
@@ -46,7 +46,7 @@ impl MichiuComContext {
     /// operations, IME, or OLE file drag-and-drop ([`crate::builder::MichiuWindowBuilder::with_drag_and_drop`]).
     ///
     /// # Errors
-    /// Returns [`MichiuError::ComInitializationFailed`] if the underlying `OleInitialize` fails.
+    /// Returns [`MichiuWindowError::ComInitializationFailed`] if the underlying `OleInitialize` fails.
     ///
     /// # Examples
     ///
@@ -60,9 +60,9 @@ impl MichiuComContext {
     /// }
     /// ```
     #[inline]
-    pub fn new_com_single() -> Result<Self> {
+    pub fn new_com_single() -> MichiuWindowResult<Self> {
         unsafe {
-            OleInitialize(None).map_err(|err| MichiuError::ComInitializationFailed {
+            OleInitialize(None).map_err(|err| MichiuWindowError::ComInitializationFailed {
                 context_type: "OLE (COM Single)",
                 source: err,
             })?;
@@ -78,13 +78,13 @@ impl MichiuComContext {
     /// Useful for background worker threads that handle high-performance, non-GUI COM interfaces.
     ///
     /// # Errors
-    /// Returns [`MichiuError::ComInitializationFailed`] if `CoInitializeEx` fails.
+    /// Returns [`MichiuWindowError::ComInitializationFailed`] if `CoInitializeEx` fails.
     #[inline]
-    pub fn new_com_multi() -> Result<Self> {
+    pub fn new_com_multi() -> MichiuWindowResult<Self> {
         unsafe {
             CoInitializeEx(None, COINIT_MULTITHREADED)
                 .ok()
-                .map_err(|err| MichiuError::ComInitializationFailed {
+                .map_err(|err| MichiuWindowError::ComInitializationFailed {
                     context_type: "COM Multi",
                     source: err,
                 })?;
@@ -98,12 +98,12 @@ impl MichiuComContext {
     /// Initializes the Windows Runtime (`WinRT`) on the current thread under the Single-Threaded Apartment model.
     ///
     /// # Errors
-    /// Returns [`MichiuError::ComInitializationFailed`] if `RoInitialize` fails.
+    /// Returns [`MichiuWindowError::ComInitializationFailed`] if `RoInitialize` fails.
     #[inline]
-    pub fn new_ro_single() -> Result<Self> {
+    pub fn new_ro_single() -> MichiuWindowResult<Self> {
         unsafe {
             RoInitialize(RO_INIT_SINGLETHREADED).map_err(|err| {
-                MichiuError::ComInitializationFailed {
+                MichiuWindowError::ComInitializationFailed {
                     context_type: "WinRT Single",
                     source: err,
                 }
@@ -118,12 +118,12 @@ impl MichiuComContext {
     /// Initializes the Windows Runtime (`WinRT`) on the current thread under the Multi-Threaded Apartment model.
     ///
     /// # Errors
-    /// Returns [`MichiuError::ComInitializationFailed`] if `RoInitialize` fails.
+    /// Returns [`MichiuWindowError::ComInitializationFailed`] if `RoInitialize` fails.
     #[inline]
-    pub fn new_ro_multi() -> Result<Self> {
+    pub fn new_ro_multi() -> MichiuWindowResult<Self> {
         unsafe {
             RoInitialize(RO_INIT_MULTITHREADED).map_err(|err| {
-                MichiuError::ComInitializationFailed {
+                MichiuWindowError::ComInitializationFailed {
                     context_type: "WinRT Multi",
                     source: err,
                 }
@@ -140,13 +140,13 @@ impl MichiuComContext {
     ///
     /// # Errors
     ///
-    /// Returns [`MichiuError::ComInitializationFailed`] if `RoInitialize` and `OleInitialize` fails.
+    /// Returns [`MichiuWindowError::ComInitializationFailed`] if `RoInitialize` and `OleInitialize` fails.
     #[inline]
-    pub fn new_winrt_ole_combo() -> Result<Self> {
+    pub fn new_winrt_ole_combo() -> MichiuWindowResult<Self> {
         unsafe {
             // 先に WinRT を STA で初期化
             RoInitialize(RO_INIT_SINGLETHREADED).map_err(|err| {
-                MichiuError::ComInitializationFailed {
+                MichiuWindowError::ComInitializationFailed {
                     context_type: "WinRT (Combo)",
                     source: err,
                 }
@@ -156,7 +156,7 @@ impl MichiuComContext {
             if let Err(err) = OleInitialize(None) {
                 // OLEが失敗した場合はWinRT側を片付けてからエラーを返す
                 RoUninitialize();
-                return Err(MichiuError::ComInitializationFailed {
+                return Err(MichiuWindowError::ComInitializationFailed {
                     context_type: "OLE (Combo)",
                     source: err,
                 });
@@ -226,7 +226,7 @@ impl Drop for MichiuComContext {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::error::MichiuError;
+    use crate::error::MichiuWindowError;
 
     // 各テストケースをCOMの初期化状態が完全にクリーンな新規スレッドで実行。
     // 並行して走る他のテストからのスレッド干渉を防ぐ。
@@ -331,7 +331,7 @@ mod tests {
             // エラーコードが Win32 の「RPC_E_CHANGED_MODE (0x80010106)」に合致するかを検証
             let err = context_mta_result.unwrap_err();
             match err {
-                MichiuError::ComInitializationFailed {
+                MichiuWindowError::ComInitializationFailed {
                     context_type,
                     source,
                 } => {

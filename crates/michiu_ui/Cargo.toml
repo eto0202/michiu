@@ -8,18 +8,11 @@ authors.workspace = true
 repository.workspace = true
 keywords.workspace = true
 categories.workspace = true
-description = "The michiu library handles layout and rendering."
+description = "The michiu library handles layout."
 readme = "README.md"
 
 [lints]
 workspace = true
-
-[dev-dependencies]
-pollster = "1.0.1"
-tiff-reader = "0.11.1"
-strum = { version = "0.28.0", features = ["derive"] }
-image = "0.25.10"
-windows-result = "0.4.1"
 
 [dependencies]
 accesskit = "=0.25.2"
@@ -30,7 +23,6 @@ slotmap = "1.1.1"
 smallvec = "1.16.5"
 taffy = "0.15.1"
 wgpu = { version = "30.0.2", default-features = false, features = ["dx12", "wgsl"] }
-windows-numerics = "0.3.1"
 notify = "8.2.2"
 windows-core = "0.62.2"
 rustc-hash = "2.1.3"
@@ -65,9 +57,6 @@ trace-error = []
 trace-lifecycle = ["trace-error"]
 trace-entity = ["trace-lifecycle"]
 snapshot = ["trace-error"]
-
-[[example]]
-name = "sample_collection"
 
 [package.metadata.docs.rs]
 all-features = true

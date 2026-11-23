@@ -104,15 +104,13 @@
 //!
 //! For consumer applications, safe read access is provided through immutable getters such as [`d3d11_device(&self)`](MichiuRenderer::d3d11_device) and [`surface(&self)`](WgpuRenderer::surface).
 
-use crate::{
-    BatchType, BorderAlignment, BorderStyle, BoxSizing, Color, Context, DEFAULT_BASIC,
-    DEFAULT_FLEX, DrawBatch, EdgeInsets, Entity, LayoutSize, MichiuError, MichiuSoA, Pipeline,
-    QuadInstance, RenderData, RendererUserConfig, RendererView, TextCacheKey, TextCacheValue,
-    TextureAtlas, Vertex, VisualProperty,
+use crate::{MichiuRendererError, MichiuRendererResult, Renderer, RendererUserConfig, Vertex};
+use michiu_ui::{
+    Atlases, BatchType, Context, DrawBatch, Entity, LayoutSize, QuadInstance, RenderData,
+    RenderQueue, RendererView,
+    wgpu::{self, util::DeviceExt},
 };
 use rustc_hash::FxHashMap;
-use slotmap::SecondaryMap;
-use wgpu::util::DeviceExt;
 
 pub struct WgpuRenderer {
     pub(crate) surface: wgpu::Surface<'static>,
@@ -138,12 +136,7 @@ pub struct WgpuRenderer {
     // ebView2 の静止画を描画する際にバインドグループを動的生成するため保持
     pub(crate) config_bind_group_layout: wgpu::BindGroupLayout,
 
-    pub(crate) mask_atlas: TextureAtlas,
-    pub(crate) color_atlas: TextureAtlas,
-    pub(crate) user_atlas: TextureAtlas,
-    pub(crate) temp_uv_map: SecondaryMap<Entity, [f32; 4]>,
-    pub(crate) text_cache: FxHashMap<TextCacheKey, TextCacheValue>,
-    pub(crate) user_mask_cache: FxHashMap<(u64, u32, u32), [f32; 4]>,
+    pub(crate) atlases: Atlases,
 
     pub(crate) render_data: RenderData,
 
@@ -171,17 +164,17 @@ impl WgpuRenderer {
     /// # Errors
     ///
     /// Returns an error if the initialization pipeline fails:
-    /// - [`MichiuError::CreateSurfaceError`]: Failed to create a surface from `visual` (e.g., invalid pointer or DirectComposition inconsistency).
-    /// - [`MichiuError::RequestAdapterError`]: When a GPU (adapter) that meets the requirements cannot be found.
-    /// - [`MichiuError::RequestDeviceError`]: When creating a logical device or queue fails (e.g., insufficient VRAM or driver crash).
+    /// - [`MichiuRendererError::CreateSurfaceError`]: Failed to create a surface from `visual` (e.g., invalid pointer or DirectComposition inconsistency).
+    /// - [`MichiuRendererError::RequestAdapterError`]: When a GPU (adapter) that meets the requirements cannot be found.
+    /// - [`MichiuRendererError::RequestDeviceError`]: When creating a logical device or queue fails (e.g., insufficient VRAM or driver crash).
     #[inline]
     pub async unsafe fn new(
         visual: *mut std::ffi::c_void, // wgpu ビジュアル (前面)
         size: LayoutSize,
         scale_factor: f32,
-    ) -> crate::Result<Self> {
+    ) -> MichiuRendererResult<Self> {
         unsafe {
-            Self::with_config(visual, size, scale_factor, RendererUserConfig::default()).await
+            Self::with_config(visual, size, scale_factor, &RendererUserConfig::default()).await
         }
     }
     /// Initializes wgpu.
@@ -195,15 +188,15 @@ impl WgpuRenderer {
     /// # Errors
     ///
     /// Returns an error if the initialization pipeline fails:
-    /// - [`MichiuError::CreateSurfaceError`]: Failed to create a surface from `visual` (e.g., invalid pointer or DirectComposition inconsistency).
-    /// - [`MichiuError::RequestAdapterError`]: When a GPU (adapter) that meets the requirements cannot be found.
-    /// - [`MichiuError::RequestDeviceError`]: When creating a logical device or queue fails (e.g., insufficient VRAM or driver crash).
+    /// - [`MichiuRendererError::CreateSurfaceError`]: Failed to create a surface from `visual` (e.g., invalid pointer or DirectComposition inconsistency).
+    /// - [`MichiuRendererError::RequestAdapterError`]: When a GPU (adapter) that meets the requirements cannot be found.
+    /// - [`MichiuRendererError::RequestDeviceError`]: When creating a logical device or queue fails (e.g., insufficient VRAM or driver crash).
     pub async unsafe fn with_config(
         visual: *mut std::ffi::c_void, // wgpu ビジュアル (前面)
         size: LayoutSize,
         scale_factor: f32,
-        user_config: RendererUserConfig,
-    ) -> crate::Result<Self> {
+        user_config: &RendererUserConfig,
+    ) -> MichiuRendererResult<Self> {
         // インスタンス生成（DX12を明示的に指定）
         let instance = WgpuRenderer::create_instance();
 
@@ -213,19 +206,21 @@ impl WgpuRenderer {
         let surface = unsafe {
             instance
                 .create_surface_unsafe(target)
-                .map_err(|e| MichiuError::CreateSurfaceError { source: e })?
+                .map_err(|e| MichiuRendererError::CreateSurfaceError { source: e })?
         };
 
         // アダプターの取得
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
-                power_preference: wgpu::PowerPreference::default(),
                 compatible_surface: Some(&surface),
-                force_fallback_adapter: false,
-                apply_limit_buckets: false,
+                ..Default::default()
             })
             .await
-            .map_err(|e| MichiuError::RequestAdapterError { source: e })?;
+            .map_err(|e| MichiuRendererError::RequestAdapterError { source: e })?;
+
+        if adapter.get_info().device_type == wgpu::DeviceType::Cpu {
+            return Err(MichiuRendererError::RequestDeviceTypeError);
+        }
 
         // デバイスとキューの取得
         let mut custom_limits = wgpu::Limits::downlevel_defaults();
@@ -242,10 +237,10 @@ impl WgpuRenderer {
                 trace: wgpu::Trace::Off,
             })
             .await
-            .map_err(|e| MichiuError::RequestDeviceError { source: e })?;
+            .map_err(|e| MichiuRendererError::RequestDeviceError { source: e })?;
 
         // Surface 設定
-        let config = WgpuRenderer::surface_config(size, &surface, &adapter, &user_config);
+        let config = WgpuRenderer::surface_config(size, &surface, &adapter, user_config);
         // Surface に設定をアタッチしてスワップチェーンを初期化
         surface.configure(&device, &config);
 
@@ -254,14 +249,6 @@ impl WgpuRenderer {
 
         // ユニフォームバッファ
         let config_buffer = WgpuRenderer::create_buffer(size, scale_factor, &device);
-
-        // アトラス初期化
-        // 通常文字用（R8）
-        let mask_atlas = TextureAtlas::new(&device, wgpu::TextureFormat::R8Unorm, 2048);
-        // カラー絵文字用（RGBA8）
-        let color_atlas = TextureAtlas::new(&device, wgpu::TextureFormat::Rgba8UnormSrgb, 2048);
-        // ユーザーアイコン用
-        let user_atlas = TextureAtlas::new(&device, wgpu::TextureFormat::R8Unorm, 2048);
 
         let config_bind_group_layout = WgpuRenderer::create_bind_group_layout(&device);
 
@@ -284,14 +271,14 @@ impl WgpuRenderer {
         let buffer_capacity = 64;
         let instance_buffer = WgpuRenderer::create_instance_buffer(&device, buffer_capacity);
 
+        let atlases = Atlases::new_gpu(&device);
+
         let config_bind_group = WgpuRenderer::create_bind_group(
             &device,
             &config_bind_group_layout,
             &config_buffer,
             &instance_buffer,
-            &mask_atlas,
-            &color_atlas,
-            &user_atlas,
+            &atlases,
         );
 
         Ok(Self {
@@ -309,12 +296,7 @@ impl WgpuRenderer {
             config_buffer,
             config_bind_group,
             config_bind_group_layout,
-            mask_atlas,
-            color_atlas,
-            user_atlas,
-            temp_uv_map: SecondaryMap::new(),
-            text_cache: FxHashMap::default(),
-            user_mask_cache: FxHashMap::default(),
+            atlases,
             render_data: RenderData::new(),
             external_bind_groups: FxHashMap::default(),
         })
@@ -521,18 +503,15 @@ impl WgpuRenderer {
                 entry_point: Some("fs_main"),
                 targets: &[Some(wgpu::ColorTargetState {
                     format: config.format,
-                    // ブレンドせず、出力色（アルファ=0.0）で完全に上書きする
                     blend: Some(wgpu::BlendState {
                         color: wgpu::BlendComponent {
                             src_factor: wgpu::BlendFactor::Zero,
-                            // アルファが 0.0 に消去される場所ではカラーも同時に 0.0 になるように
-                            // OneMinusSrcAlpha で元の背景色を減算します。
                             dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
                             operation: wgpu::BlendOperation::Add,
                         },
                         alpha: wgpu::BlendComponent {
                             src_factor: wgpu::BlendFactor::Zero,
-                            dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha, // アルファは SDF マスク分だけ消去
+                            dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
                             operation: wgpu::BlendOperation::Add,
                         },
                     }),
@@ -597,9 +576,7 @@ impl WgpuRenderer {
         bind_group_layout: &wgpu::BindGroupLayout,
         config: &wgpu::Buffer,
         instance: &wgpu::Buffer,
-        mask_atlas: &TextureAtlas,
-        color_atlas: &TextureAtlas,
-        user_atlas: &TextureAtlas,
+        atlases: &Atlases,
     ) -> wgpu::BindGroup {
         device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: bind_group_layout,
@@ -610,19 +587,21 @@ impl WgpuRenderer {
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
-                    resource: wgpu::BindingResource::TextureView(&mask_atlas.view),
+                    resource: wgpu::BindingResource::TextureView(atlases.mask_atlas.storage.view()),
                 },
                 wgpu::BindGroupEntry {
                     binding: 2,
-                    resource: wgpu::BindingResource::TextureView(&color_atlas.view),
+                    resource: wgpu::BindingResource::TextureView(
+                        atlases.color_atlas.storage.view(),
+                    ),
                 },
                 wgpu::BindGroupEntry {
                     binding: 3,
-                    resource: wgpu::BindingResource::TextureView(&user_atlas.view),
+                    resource: wgpu::BindingResource::TextureView(atlases.user_atlas.storage.view()),
                 },
                 wgpu::BindGroupEntry {
                     binding: 4,
-                    resource: wgpu::BindingResource::Sampler(&mask_atlas.sampler),
+                    resource: wgpu::BindingResource::Sampler(atlases.mask_atlas.storage.sampler()),
                 },
                 wgpu::BindGroupEntry {
                     binding: 5,
@@ -633,204 +612,14 @@ impl WgpuRenderer {
         })
     }
 
-    /// ウィンドウサイズが変更された際の再設定
-    /// `new_physical_size`: (width, height)
-    #[expect(clippy::cast_precision_loss)]
-    pub fn resize(&mut self, p_width: u32, p_height: u32, scale_factor: f32) {
-        if p_width > 0 && p_height > 0 {
-            self.config.width = p_width;
-            self.config.height = p_height;
-
-            self.surface.configure(&self.device, &self.config);
-
-            let logical_width = p_width as f32 / scale_factor;
-            let logical_height = p_height as f32 / scale_factor;
-
-            // シェーダー側で位置を正しく計算できるよう、論理サイズを Uniform に再書き込み
-            let config_data = GlobalConfig {
-                screen_size: [logical_width, logical_height],
-                scale: scale_factor,
-                _padding: 0.0,
-            };
-            self.queue
-                .write_buffer(&self.config_buffer, 0, bytemuck::cast_slice(&[config_data]));
-        }
-    }
-
-    pub fn render(&mut self, cx: &mut Context, scale_factor: f32) {
-        let _context_guard = crate::bind_context(cx);
-        // 破棄された要素のキャッシュを解放
-        for id in cx.topology.topo_despawned_queue.drain(..) {
-            self.external_bind_groups.remove(&id);
-        }
-
-        // 前面と背面に分類されたバッチを Context から引き出す
-        Pipeline::collect_render_data(
-            cx,
-            &mut RendererView {
-                render_data: &mut self.render_data,
-                mask_atlas: &mut self.mask_atlas,
-                color_atlas: &mut self.color_atlas,
-                user_atlas: &mut self.user_atlas,
-                text_cache: &mut self.text_cache,
-                user_mask_cache: &mut self.user_mask_cache,
-                queue: &self.queue,
-            },
-        );
-
-        if self.render_data.batches.is_empty() {
-            return;
-        }
-
-        let render_data = std::mem::take(&mut self.render_data);
-
-        // スワップチェーンから描画先フレームを獲得
-        // TODO: エラーハンドリング
-        let wgpu::CurrentSurfaceTexture::Success(surface_texture) =
-            self.surface.get_current_texture()
-        else {
-            return;
-        };
-
-        let view = surface_texture
-            .texture
-            .create_view(&wgpu::TextureViewDescriptor::default());
-
-        self.instance_staging.clear();
-        for (i, instance) in render_data.instances.iter().enumerate() {
-            let entity_id = render_data.entity_ids[i];
-            let (inst, _) = WgpuRenderer::build_quad_instance_for_entity(cx, entity_id, instance);
-            self.instance_staging.push(inst);
-        }
-
-        // 容量を確定
-        self.ensure_instance_buffer_capacity(self.instance_staging.len());
-
-        // 外部テクスチャを事前にキャッシュ
-        self.update_external_texture_bind_groups(cx);
-
-        // VRAM インスタンスバッファへの一括転送
-        self.queue.write_buffer(
-            &self.instance_buffer,
-            0,
-            bytemuck::cast_slice(&self.instance_staging),
-        );
-
-        #[cfg(feature = "trace-lifecycle")]
-        crate::trace_lifecycle!(None, &mut cx.debug, || crate::MichiuTrace::WriteBuffer {
-            staging: std::sync::Arc::from(self.instance_staging.clone()),
-            add: None,
-        });
-
-        // 背面の描画実行
-        let mut encoder = self
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
-        {
-            let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Background Render Pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
-                        store: wgpu::StoreOp::Store,
-                    },
-                    depth_slice: None,
-                })],
-                depth_stencil_attachment: None,
-                ..Default::default()
-            });
-
-            rpass.set_pipeline(&self.pipeline);
-            rpass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-            rpass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-
-            // 背面用バッチの描画 (instance_offset は 0 から開始)
-            // let mut instance_offset = 0;
-            // 現在アクティブなパイプラインを記録
-            let mut current_pipeline = None;
-
-            #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-            for batch in &render_data.batches {
-                let offset = batch.instance_offset as u32;
-                let count = batch.instance_count as u32;
-                if count == 0 {
-                    continue;
-                }
-
-                // 次のバッチに必要なパイプラインを特定
-                // くり抜きバッチであれば punchout_pipeline (REPLACEブレンド)、
-                // 通常バッチであれば通常の pipeline (PMAブレンド) を設定。
-                let needed_pipeline = match batch.batch_type {
-                    BatchType::Normal => &self.pipeline,
-                    BatchType::Punchout => &self.punchout_pipeline,
-                };
-
-                // アクティブなパイプラインと異なる場合のみ、wgpu側にコマンドを送信する
-                if current_pipeline != Some(std::ptr::from_ref(needed_pipeline)) {
-                    rpass.set_pipeline(needed_pipeline);
-                    current_pipeline = Some(std::ptr::from_ref(needed_pipeline));
-                }
-
-                // 静止 ExternalTexture 描画時のバインディングの切り替え
-                self.bind_texture_for_batch(&mut rpass, batch, &render_data.entity_ids);
-
-                let clip = batch.scissor_rect;
-
-                // スケールを乗じて物理ピクセル座標を算出
-                let phys_x = (clip.x * scale_factor).round().max(0.0) as u32;
-                let phys_y = (clip.y * scale_factor).round().max(0.0) as u32;
-                let phys_w = (clip.width * scale_factor).round().max(0.0) as u32;
-                let phys_h = (clip.height * scale_factor).round().max(0.0) as u32;
-
-                // 現在のスワップチェーンテクスチャの境界サイズを取得
-                let target_w = self.config.width;
-                let target_h = self.config.height;
-
-                //  物理開始位置がすでに縮小後のバックバッファ外に押し出されている場合、
-                // 描画が不可能であるため、検証エラーを避けるためにこのバッチの描画をスキップ
-                if phys_x >= target_w || phys_y >= target_h {
-                    continue;
-                }
-
-                // 開始位置 + 幅/高さがレンダーターゲットをはみ出さないように厳密にクランプ
-                let clamped_w = phys_w.min(target_w - phys_x);
-                let clamped_h = phys_h.min(target_h - phys_y);
-
-                // wgpu の制約回避のため、クランプ後の幅・高さが 0 の場合も描画をスキップ
-                if clamped_w == 0 || clamped_h == 0 {
-                    continue;
-                }
-
-                // 完全に境界内に収まるように安全化された Scissor Rect を適用
-                rpass.set_scissor_rect(phys_x, phys_y, clamped_w, clamped_h);
-
-                rpass.draw_indexed(0..6, 0, offset..(offset + count));
-            }
-        }
-        self.queue.submit(Some(encoder.finish()));
-        self.queue.present(surface_texture);
-
-        #[cfg(feature = "trace-lifecycle")]
-        crate::trace_lifecycle!(None, &mut cx.debug, || crate::MichiuTrace::Present {
-            add: None
-        });
-
-        // wgpuのデバイスを明示的にポーリングし、未解決のフェンスやリソースをフラッシュ
-        let _ = self.device.poll(wgpu::PollType::Poll);
-
-        self.render_data = render_data;
-    }
-
     /// 外部テクスチャが更新された場合のみ、描画ループの外で `BindGroup` を再構築
     fn update_external_texture_bind_groups(&mut self, cx: &Context) {
-        for (id, provider) in &cx.contents.cont_external_textures {
+        for (e, provider) in &cx.external_textures() {
             let view = provider.resolve_view(&self.device, &self.queue);
 
             let need_update = self
                 .external_bind_groups
-                .get(&id)
+                .get(e)
                 .is_none_or(|(cached_id, _)| *cached_id != view);
 
             if need_update {
@@ -848,16 +637,22 @@ impl WgpuRenderer {
                         // ダミー
                         wgpu::BindGroupEntry {
                             binding: 2,
-                            resource: wgpu::BindingResource::TextureView(&self.mask_atlas.view),
+                            resource: wgpu::BindingResource::TextureView(
+                                self.atlases.mask_atlas.storage.view(),
+                            ),
                         },
                         // ダミー
                         wgpu::BindGroupEntry {
                             binding: 3,
-                            resource: wgpu::BindingResource::TextureView(&self.mask_atlas.view),
+                            resource: wgpu::BindingResource::TextureView(
+                                self.atlases.mask_atlas.storage.view(),
+                            ),
                         },
                         wgpu::BindGroupEntry {
                             binding: 4,
-                            resource: wgpu::BindingResource::Sampler(&self.mask_atlas.sampler),
+                            resource: wgpu::BindingResource::Sampler(
+                                self.atlases.mask_atlas.storage.sampler(),
+                            ),
                         },
                         wgpu::BindGroupEntry {
                             binding: 5,
@@ -867,7 +662,7 @@ impl WgpuRenderer {
                     label: Some("External Texture Bind Group"),
                 });
 
-                self.external_bind_groups.insert(id, (view, bind_group));
+                self.external_bind_groups.insert(*e, (view, bind_group));
             }
         }
     }
@@ -889,142 +684,6 @@ impl WgpuRenderer {
 
         // 通常のアトラス
         rpass.set_bind_group(0, &self.config_bind_group, &[]);
-    }
-
-    /// `QuadInstance` に静的バインドする
-    #[track_caller]
-    fn build_quad_instance_for_entity(
-        cx: &mut Context,
-        entity_id: Entity,
-        instance: &QuadInstance,
-    ) -> (QuadInstance, bool) {
-        let basic =
-            &cx.layouts
-                .lay_resolved_basic
-                .find_or(entity_id, &DEFAULT_BASIC, &mut cx.debug);
-        let _flex = &cx
-            .layouts
-            .lay_resolved_flex
-            .find_or(entity_id, &DEFAULT_FLEX, &mut cx.debug);
-        let default_visual = VisualProperty::default();
-        let visual = cx
-            .renders
-            .rnd_visual
-            .find(entity_id)
-            .unwrap_or(&default_visual);
-
-        let origin = visual.transform_origin.map_or([0.5, 0.5], |p| [p.x, p.y]);
-        let opacity = visual.opacity.unwrap_or(1.0);
-
-        let box_sizing_val = match basic.box_sizing {
-            BoxSizing::BorderBox => 0.0f32,
-            BoxSizing::ContentBox => 1.0f32,
-        };
-
-        // 四辺個別枠線フラグの抽出
-        let border_lengths = visual.border_lengths.unwrap_or(EdgeInsets::px_all(1.0));
-        let styles = visual.border_styles.unwrap_or([BorderStyle::Solid; 4]);
-        let aligns = visual
-            .border_alignments
-            .unwrap_or([BorderAlignment::Start; 4]);
-
-        let mut border_flags = 0u32;
-        for i in 0..4 {
-            let s_val = styles[i] as u32;
-            let a_val = aligns[i] as u32;
-            border_flags |= s_val << (i * 4);
-            border_flags |= a_val << (i * 4 + 2);
-        }
-
-        let o_width = visual.outline_width.unwrap_or_default();
-        let o_color = visual.outline_color.unwrap_or_default();
-        let o_lengths = visual.outline_lengths.unwrap_or(EdgeInsets::px_all(1.0));
-        let o_offset = visual.outline_offset.unwrap_or(0.0);
-        let o_styles = visual.outline_styles.unwrap_or([BorderStyle::Solid; 4]);
-        let o_aligns = visual
-            .outline_alignments
-            .unwrap_or([BorderAlignment::Start; 4]);
-
-        let mut outline_flags = 0u32;
-        for i in 0..4 {
-            let s_val = o_styles[i] as u32;
-            let a_val = o_aligns[i] as u32;
-            outline_flags |= s_val << (i * 4);
-            outline_flags |= a_val << (i * 4 + 2);
-        }
-
-        // 影のカラーと形状の解決
-        // 元インスタンスで意図的に影が無効化されている (TRANSPARENT) 場合は上書きしない
-        let shadow_color =
-            if instance.shadow_color != Color::TRANSPARENT && visual.shadow_params.is_some() {
-                let mut color = visual.shadow_color.unwrap_or_default();
-                // DCompブレンド時の濃さの補正
-                let mut has_active_visual_parent = false;
-                let mut curr_id = entity_id;
-                while let Some(parent_id) = *cx.topology.topo_parents.at(curr_id) {
-                    if cx
-                        .topology
-                        .topo_active_masks
-                        .at(parent_id)
-                        .has_external_visual_content()
-                        && cx.renders.rnd_active_external_visual.contains(&parent_id)
-                    {
-                        has_active_visual_parent = true;
-                        break;
-                    }
-                    curr_id = parent_id;
-                }
-                if has_active_visual_parent {
-                    color.a *= 0.45;
-                }
-                color
-            } else {
-                Color::TRANSPARENT
-            };
-
-        let shadow_params = if shadow_color == Color::TRANSPARENT {
-            [0.0; 4]
-        } else {
-            match visual.shadow_params {
-                Some(shadow) => [shadow.offset.x, shadow.offset.y, shadow.blur, shadow.spread],
-                None => [0.0; 4],
-            }
-        };
-
-        let packed_transform = instance.transform;
-
-        // モード、座標、UV は呼び出し元で既に決定されているためそのまま転送
-        (
-            #[expect(clippy::cast_precision_loss)]
-            QuadInstance {
-                rect: instance.rect,
-                transform: packed_transform,
-                transform_origin: origin,
-                color: instance.color,
-                corner_radius: visual.corner_radius.unwrap_or_default(),
-                border_width: instance.border_width,
-                border_color: visual.border_color.unwrap_or_default(),
-                border_lengths,
-                opacity_mode_sizing: [
-                    opacity,
-                    instance.opacity_mode_sizing[1], // mode (背景=0.0/1.0, テキスト=2.0, 静止WebView=3.0 等)
-                    box_sizing_val,
-                    border_flags as f32,
-                ],
-                uv_min: instance.uv_min,
-                uv_max: instance.uv_max,
-                gradient: instance.gradient,
-                is_color_atlas_pad: instance.is_color_atlas_pad,
-                shadow_color,
-                shadow_params,
-                outline_width: o_width,
-                outline_color: o_color,
-                outline_lengths: o_lengths,
-                outline_offset_and_flags: [o_offset, outline_flags as f32, 0.0, 0.0],
-                alpha_mode_y_flip_srgb_gamma: instance.alpha_mode_y_flip_srgb_gamma,
-            },
-            false, // アトラスを直接操作しないため常に false
-        )
     }
 
     fn ensure_instance_buffer_capacity(&mut self, total_instances: usize) {
@@ -1057,19 +716,27 @@ impl WgpuRenderer {
                     },
                     wgpu::BindGroupEntry {
                         binding: 1,
-                        resource: wgpu::BindingResource::TextureView(&self.mask_atlas.view),
+                        resource: wgpu::BindingResource::TextureView(
+                            self.atlases.mask_atlas.storage.view(),
+                        ),
                     },
                     wgpu::BindGroupEntry {
                         binding: 2,
-                        resource: wgpu::BindingResource::TextureView(&self.color_atlas.view),
+                        resource: wgpu::BindingResource::TextureView(
+                            self.atlases.color_atlas.storage.view(),
+                        ),
                     },
                     wgpu::BindGroupEntry {
                         binding: 3,
-                        resource: wgpu::BindingResource::TextureView(&self.user_atlas.view),
+                        resource: wgpu::BindingResource::TextureView(
+                            self.atlases.user_atlas.storage.view(),
+                        ),
                     },
                     wgpu::BindGroupEntry {
                         binding: 4,
-                        resource: wgpu::BindingResource::Sampler(&self.mask_atlas.sampler),
+                        resource: wgpu::BindingResource::Sampler(
+                            self.atlases.mask_atlas.storage.sampler(),
+                        ),
                     },
                     wgpu::BindGroupEntry {
                         binding: 5,
@@ -1161,36 +828,6 @@ impl WgpuRenderer {
 
     #[inline]
     #[must_use]
-    pub fn mask_atlas(&self) -> &TextureAtlas {
-        &self.mask_atlas
-    }
-
-    #[inline]
-    #[must_use]
-    pub fn color_atlas(&self) -> &TextureAtlas {
-        &self.color_atlas
-    }
-
-    #[inline]
-    #[must_use]
-    pub fn temp_uv_map(&self) -> &SecondaryMap<Entity, [f32; 4]> {
-        &self.temp_uv_map
-    }
-
-    #[inline]
-    #[must_use]
-    pub fn text_cache(&self) -> &FxHashMap<TextCacheKey, TextCacheValue> {
-        &self.text_cache
-    }
-
-    #[inline]
-    #[must_use]
-    pub fn render_data(&self) -> &RenderData {
-        &self.render_data
-    }
-
-    #[inline]
-    #[must_use]
     pub fn external_bind_groups(&self) -> &FxHashMap<Entity, (wgpu::TextureView, wgpu::BindGroup)> {
         &self.external_bind_groups
     }
@@ -1212,11 +849,6 @@ impl WgpuRenderer {
             config_buffer: &mut self.config_buffer,
             config_bind_group: &mut self.config_bind_group,
             config_bind_group_layout: &mut self.config_bind_group_layout,
-            mask_atlas: &mut self.mask_atlas,
-            color_atlas: &mut self.color_atlas,
-            temp_uv_map: &mut self.temp_uv_map,
-            text_cache: &mut self.text_cache,
-            render_data: &mut self.render_data,
             external_bind_groups: &mut self.external_bind_groups,
         }
     }
@@ -1237,10 +869,191 @@ pub struct RawWgpuRenderer<'a> {
     pub config_buffer: &'a mut wgpu::Buffer,
     pub config_bind_group: &'a mut wgpu::BindGroup,
     pub config_bind_group_layout: &'a mut wgpu::BindGroupLayout,
-    pub mask_atlas: &'a mut TextureAtlas,
-    pub color_atlas: &'a mut TextureAtlas,
-    pub temp_uv_map: &'a mut SecondaryMap<Entity, [f32; 4]>,
-    pub text_cache: &'a mut FxHashMap<TextCacheKey, TextCacheValue>,
-    pub render_data: &'a mut RenderData,
     pub external_bind_groups: &'a mut FxHashMap<Entity, (wgpu::TextureView, wgpu::BindGroup)>,
+}
+
+impl Renderer for WgpuRenderer {
+    #[expect(clippy::cast_precision_loss)]
+    fn resize(
+        &mut self,
+        p_width: u32,
+        p_height: u32,
+        scale_factor: f32,
+    ) -> MichiuRendererResult<()> {
+        if p_width > 0 && p_height > 0 {
+            self.config.width = p_width;
+            self.config.height = p_height;
+
+            self.surface.configure(&self.device, &self.config);
+
+            let logical_width = p_width as f32 / scale_factor;
+            let logical_height = p_height as f32 / scale_factor;
+
+            // シェーダー側で位置を正しく計算できるよう、論理サイズを Uniform に再書き込み
+            let config_data = GlobalConfig {
+                screen_size: [logical_width, logical_height],
+                scale: scale_factor,
+                _padding: 0.0,
+            };
+            self.queue
+                .write_buffer(&self.config_buffer, 0, bytemuck::cast_slice(&[config_data]));
+        }
+        Ok(())
+    }
+
+    fn render(&mut self, cx: &mut Context, scale_factor: f32) -> MichiuRendererResult<()> {
+        let _context_guard = cx.bind_context();
+        // 破棄された要素のキャッシュを解放
+        for e in cx.external_visual_despawned_queue().drain(..) {
+            self.external_bind_groups.remove(&e);
+        }
+
+        if !cx.has_dirty() && !cx.window_is_resized() && !cx.sync_caret_visible() {
+            return Ok(());
+        }
+
+        // 前面と背面に分類されたバッチを Context から引き出す
+        cx.collect_render_data(&mut RendererView {
+            render_data: &mut self.render_data,
+            atlases: &mut self.atlases,
+            queue: &RenderQueue::Gpu(&self.queue),
+        });
+
+        if self.render_data.batches.is_empty() {
+            return Ok(());
+        }
+
+        let render_data = std::mem::take(&mut self.render_data);
+
+        // スワップチェーンから描画先フレームを獲得
+        // TODO: エラーハンドリング
+        let wgpu::CurrentSurfaceTexture::Success(surface_texture) =
+            self.surface.get_current_texture()
+        else {
+            // 一旦全てエラーに
+            return Err(MichiuRendererError::GetCurrentTextureFailed);
+        };
+
+        let view = surface_texture
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
+
+        self.instance_staging.clear();
+        for (i, instance) in render_data.instances.iter().enumerate() {
+            let e = render_data.entity_ids[i];
+            let inst = cx.build_quad_instance_for_entity(e, instance);
+            self.instance_staging.push(inst);
+        }
+
+        // 容量を確定
+        self.ensure_instance_buffer_capacity(self.instance_staging.len());
+
+        // 外部テクスチャを事前にキャッシュ
+        self.update_external_texture_bind_groups(cx);
+
+        // VRAM インスタンスバッファへの一括転送
+        self.queue.write_buffer(
+            &self.instance_buffer,
+            0,
+            bytemuck::cast_slice(&self.instance_staging),
+        );
+
+        // 背面の描画実行
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+        {
+            let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Background Render Pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                        store: wgpu::StoreOp::Store,
+                    },
+                    depth_slice: None,
+                })],
+                depth_stencil_attachment: None,
+                ..Default::default()
+            });
+
+            rpass.set_pipeline(&self.pipeline);
+            rpass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+            rpass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+
+            // 背面用バッチの描画 (instance_offset は 0 から開始)
+            // let mut instance_offset = 0;
+            // 現在アクティブなパイプラインを記録
+            let mut current_pipeline = None;
+
+            #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            for batch in &render_data.batches {
+                let offset = batch.instance_offset as u32;
+                let count = batch.instance_count as u32;
+                if count == 0 {
+                    continue;
+                }
+
+                // 次のバッチに必要なパイプラインを特定
+                // くり抜きバッチであれば punchout_pipeline (REPLACEブレンド)、
+                // 通常バッチであれば通常の pipeline (PMAブレンド) を設定。
+                let needed_pipeline = match batch.batch_type {
+                    BatchType::Normal => &self.pipeline,
+                    BatchType::Punchout => &self.punchout_pipeline,
+                };
+
+                // アクティブなパイプラインと異なる場合のみ、wgpu側にコマンドを送信する
+                if current_pipeline != Some(std::ptr::from_ref(needed_pipeline)) {
+                    rpass.set_pipeline(needed_pipeline);
+                    current_pipeline = Some(std::ptr::from_ref(needed_pipeline));
+                }
+
+                // 静止 ExternalTexture 描画時のバインディングの切り替え
+                self.bind_texture_for_batch(&mut rpass, batch, &render_data.entity_ids);
+
+                let clip = batch.scissor_rect;
+
+                // スケールを乗じて物理ピクセル座標を算出
+                let rounded = |v: f32| (v * scale_factor).round().max(0.0) as u32;
+                let phys_x = rounded(clip.x);
+                let phys_y = rounded(clip.y);
+                let phys_w = rounded(clip.width);
+                let phys_h = rounded(clip.height);
+
+                // 現在のスワップチェーンテクスチャの境界サイズを取得
+                let target_w = self.config.width;
+                let target_h = self.config.height;
+
+                //  物理開始位置がすでに縮小後のバックバッファ外に押し出されている場合、
+                // 描画が不可能であるため、検証エラーを避けるためにこのバッチの描画をスキップ
+                if phys_x >= target_w || phys_y >= target_h {
+                    continue;
+                }
+
+                // 開始位置 + 幅/高さがレンダーターゲットをはみ出さないように厳密にクランプ
+                let clamped_w = phys_w.min(target_w - phys_x);
+                let clamped_h = phys_h.min(target_h - phys_y);
+
+                // wgpu の制約回避のため、クランプ後の幅・高さが 0 の場合も描画をスキップ
+                if clamped_w == 0 || clamped_h == 0 {
+                    continue;
+                }
+
+                // 完全に境界内に収まるように安全化された Scissor Rect を適用
+                rpass.set_scissor_rect(phys_x, phys_y, clamped_w, clamped_h);
+
+                rpass.draw_indexed(0..6, 0, offset..(offset + count));
+            }
+        }
+        self.queue.submit(Some(encoder.finish()));
+        self.queue.present(surface_texture);
+
+        // wgpuのデバイスを明示的にポーリングし、未解決のフェンスやリソースをフラッシュ
+        // let _ = self.device.poll(wgpu::PollType::Poll);
+
+        self.render_data = render_data;
+
+        Ok(())
+    }
 }
